@@ -1,11 +1,12 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
-import { BASE_URL } from '@/lib/config';
+import { getBaseUrl } from '@/lib/config';
 import SimulateBtcButton from '@/components/SimulateBtcButton';
 
 async function getMetrics() {
-  const response = await fetch(`${BASE_URL}/api/ops/metrics`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/metrics`, {
     cache: 'no-store',
     headers: {
       cookie: (await cookies()).toString(),

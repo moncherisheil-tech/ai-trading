@@ -1,11 +1,12 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
-import { BASE_URL } from '@/lib/config';
+import { getBaseUrl } from '@/lib/config';
 import PerformanceTrendsCharts from '@/components/PerformanceTrendsCharts';
 
 async function fetchStrategies() {
-  const response = await fetch(`${BASE_URL}/api/ops/strategies`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/strategies`, {
     cache: 'no-store',
     headers: {
       cookie: (await cookies()).toString(),
@@ -20,7 +21,8 @@ async function fetchStrategies() {
 }
 
 async function fetchAccuracyMetrics() {
-  const response = await fetch(`${BASE_URL}/api/ops/metrics/accuracy`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/metrics/accuracy`, {
     cache: 'no-store',
     headers: {
       cookie: (await cookies()).toString(),
@@ -35,7 +37,8 @@ async function fetchAccuracyMetrics() {
 }
 
 async function triggerLearning() {
-  const response = await fetch(`${BASE_URL}/api/workers/learn`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/workers/learn`, {
     method: 'POST',
     cache: 'no-store',
     headers: {
@@ -47,7 +50,8 @@ async function triggerLearning() {
 }
 
 async function updateInsightStatus(id: string, status: 'pending' | 'approved' | 'rejected') {
-  const response = await fetch(`${BASE_URL}/api/ops/strategies`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/strategies`, {
     method: 'POST',
     cache: 'no-store',
     headers: {

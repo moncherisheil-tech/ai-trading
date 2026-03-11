@@ -1,11 +1,12 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
-import { BASE_URL } from '@/lib/config';
+import { getBaseUrl } from '@/lib/config';
 import PnlTerminal from '@/components/PnlTerminal';
 
 async function fetchPnl() {
-  const response = await fetch(`${BASE_URL}/api/ops/metrics/pnl`, {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/metrics/pnl`, {
     cache: 'no-store',
     headers: {
       cookie: (await cookies()).toString(),

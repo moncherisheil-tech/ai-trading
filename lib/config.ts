@@ -1,6 +1,19 @@
 /** Production base URL for absolute links and redirects. Set APP_URL in .env. */
 export const BASE_URL = process.env.APP_URL || '';
 
+/**
+ * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
+ * Order: NEXT_PUBLIC_APP_URL → APP_URL → https://VERCEL_URL → http://localhost:3000
+ */
+export function getBaseUrl(): string {
+  const u =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ||
+    'http://localhost:3000';
+  return u.replace(/\/$/, '');
+}
+
 export const APP_CONFIG = {
   fetchTimeoutMs: 12_000,
   analysisRateLimitWindowMs: Number(process.env.ANALYSIS_RATE_LIMIT_WINDOW_MS || 60_000),
