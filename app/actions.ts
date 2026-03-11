@@ -686,8 +686,14 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
     }
 
     jar.set('app_auth_token', token, cookieOptions);
+    console.log('[auth] login success, app_auth_token set');
     return { success: true, redirectTo: '/ops' };
   } catch (err) {
+    // Next.js redirect() throws an error with digest NEXT_REDIRECT — re-throw so redirect works
+    const d = err && typeof err === 'object' && 'digest' in err ? (err as { digest?: string }).digest : undefined;
+    if (typeof d === 'string' && d.startsWith('NEXT_REDIRECT')) {
+      throw err;
+    }
     const message = err instanceof Error ? err.message : 'Login failed. Try again.';
     return { success: false, error: message };
   }
