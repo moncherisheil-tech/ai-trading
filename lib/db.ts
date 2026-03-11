@@ -115,27 +115,28 @@ export async function getDbAsync(): Promise<PredictionRecord[]> {
     return normalizeRows(repo.getAll());
   }
 
-  if (!fs.existsSync(dbPath)) {
-    fs.writeFileSync(dbPath, JSON.stringify([]));
-  }
   const repo = new FilePredictionRepository();
   return normalizeRows(repo.getAll());
 }
 
 export async function saveDbAsync(data: PredictionRecord[]): Promise<void> {
   const rows = normalizeRows(data);
-  if (APP_CONFIG.dbDriver === 'postgres' && APP_CONFIG.postgresUrl) {
-    const repo = new PostgresPredictionRepository(APP_CONFIG.postgresUrl);
-    await repo.saveAllAsync(rows);
-    return;
-  }
+  try {
+    if (APP_CONFIG.dbDriver === 'postgres' && APP_CONFIG.postgresUrl) {
+      const repo = new PostgresPredictionRepository(APP_CONFIG.postgresUrl);
+      await repo.saveAllAsync(rows);
+      return;
+    }
 
-  if (APP_CONFIG.dbDriver === 'sqlite') {
-    const repo = new SqlitePredictionRepository(path.join(process.cwd(), APP_CONFIG.sqlitePath));
+    if (APP_CONFIG.dbDriver === 'sqlite') {
+      const repo = new SqlitePredictionRepository(path.join(process.cwd(), APP_CONFIG.sqlitePath));
+      repo.saveAll(rows);
+      return;
+    }
+
+    const repo = new FilePredictionRepository();
     repo.saveAll(rows);
-    return;
+  } catch {
+    // Read-only filesystem (e.g. Vercel): avoid 500 when DB_DRIVER is file/sqlite without persistent storage
   }
-
-  const repo = new FilePredictionRepository();
-  repo.saveAll(rows);
 }

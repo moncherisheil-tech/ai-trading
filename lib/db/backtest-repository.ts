@@ -28,8 +28,12 @@ class FileBacktestRepository implements BacktestRepository {
   private readonly dbPath: string = BACKTEST_LOG_PATH;
 
   async append(entry: BacktestLogEntry): Promise<void> {
-    const line = JSON.stringify(entry);
-    await fs.promises.appendFile(this.dbPath, `${line}\n`, { encoding: 'utf-8' });
+    try {
+      const line = JSON.stringify(entry);
+      await fs.promises.appendFile(this.dbPath, `${line}\n`, { encoding: 'utf-8' });
+    } catch {
+      // Read-only filesystem (e.g. Vercel): skip write to avoid 500
+    }
   }
 }
 

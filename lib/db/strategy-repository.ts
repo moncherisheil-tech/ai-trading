@@ -20,10 +20,14 @@ async function readAllInternal(): Promise<StrategyInsight[]> {
 }
 
 async function saveAllInternal(rows: StrategyInsight[]): Promise<void> {
-  const payload = JSON.stringify(rows, null, 2);
-  const tmp = `${STRATEGY_DB_PATH}.tmp`;
-  await fs.promises.writeFile(tmp, payload, 'utf-8');
-  await fs.promises.rename(tmp, STRATEGY_DB_PATH);
+  try {
+    const payload = JSON.stringify(rows, null, 2);
+    const tmp = `${STRATEGY_DB_PATH}.tmp`;
+    await fs.promises.writeFile(tmp, payload, 'utf-8');
+    await fs.promises.rename(tmp, STRATEGY_DB_PATH);
+  } catch {
+    // Read-only filesystem (e.g. Vercel): skip write to avoid 500
+  }
 }
 
 export async function listStrategyInsights(): Promise<StrategyInsight[]> {

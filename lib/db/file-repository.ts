@@ -8,9 +8,8 @@ export class FilePredictionRepository implements PredictionRepository {
 
   getAll(): PredictionRecord[] {
     if (!fs.existsSync(this.dbPath)) {
-      fs.writeFileSync(this.dbPath, JSON.stringify([]));
+      return [];
     }
-
     try {
       const raw = fs.readFileSync(this.dbPath, 'utf-8');
       const parsed = JSON.parse(raw) as unknown;
@@ -21,8 +20,12 @@ export class FilePredictionRepository implements PredictionRepository {
   }
 
   saveAll(rows: PredictionRecord[]): void {
-    const tmp = `${this.dbPath}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(rows, null, 2));
-    fs.renameSync(tmp, this.dbPath);
+    try {
+      const tmp = `${this.dbPath}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(rows, null, 2));
+      fs.renameSync(tmp, this.dbPath);
+    } catch {
+      // Read-only filesystem (e.g. Vercel): skip write to avoid 500
+    }
   }
 }
