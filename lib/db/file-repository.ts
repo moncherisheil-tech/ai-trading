@@ -20,12 +20,13 @@ export class FilePredictionRepository implements PredictionRepository {
   }
 
   saveAll(rows: PredictionRecord[]): void {
+    if (process.env.NODE_ENV === 'production') return; // Vercel: no file writes
     try {
       const tmp = `${this.dbPath}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(rows, null, 2));
       fs.renameSync(tmp, this.dbPath);
     } catch {
-      // Read-only filesystem (e.g. Vercel): skip write to avoid 500
+      // Read-only filesystem: skip write to avoid 500
     }
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-/** Cookie set only after successful login (ADMIN_LOGIN_PASSWORD). Blocks /ops and /api/ops when missing. */
+/** Cookie set only after successful login (ADMIN_LOGIN_PASSWORD). All routes except /login and /api/auth require it. */
 const OPS_AUTH_COOKIE = 'app_auth_token';
 
 function isAllowedIp(request: NextRequest): boolean {
@@ -20,39 +20,35 @@ function isAllowedIp(request: NextRequest): boolean {
   return allowed.includes(ip);
 }
 
-function isProtectedPath(pathname: string): boolean {
-  return (
-    pathname.startsWith('/ops') ||
-    pathname === '/pnl' ||
-    pathname.startsWith('/pnl/') ||
-    pathname.startsWith('/api/ops')
-  );
-}
-
 function hasAuthCookie(request: NextRequest): boolean {
   const token = request.cookies.get(OPS_AUTH_COOKIE)?.value;
   return Boolean(token?.trim());
 }
 
+/** Paths that do not require authentication. */
+function isPublicPath(pathname: string): boolean {
+  if (pathname === '/login') return true;
+  if (pathname.startsWith('/api/auth')) return true;
+  if (pathname.startsWith('/_next')) return true;
+  if (pathname.includes('.')) return true; // static assets
+  return false;
+}
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow login page and static assets without auth
-  if (pathname === '/login' || pathname.startsWith('/_next') || pathname.includes('.')) {
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  // Protect /ops, /pnl, /api/ops — redirect unauthenticated to /login
-  if (isProtectedPath(pathname)) {
-    if (!hasAuthCookie(request)) {
-      const loginUrl = new URL('/login', request.url);
-      loginUrl.searchParams.set('from', pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    return NextResponse.next();
+  // All other routes require auth — redirect to login if no cookie
+  if (!hasAuthCookie(request)) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('from', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
-  // Workers: IP allowlist
+  // Workers: IP allowlist (optional extra layer)
   if (pathname.startsWith('/api/workers/') && !isAllowedIp(request)) {
     return NextResponse.json({ success: false, error: 'IP is not allowed.' }, { status: 403 });
   }
@@ -61,14 +57,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    '/ops',
-    '/ops/:path*',
-    '/pnl',
-    '/pnl/:path*',
-    '/api/ops',
-    '/api/ops/:path*',
-    '/api/workers/:path*',
-    '/login',
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

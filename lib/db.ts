@@ -104,6 +104,7 @@ function normalizeRows(rows: PredictionRecord[]): PredictionRecord[] {
 }
 
 export async function getDbAsync(): Promise<PredictionRecord[]> {
+  // DATABASE_URL: Neon, Vercel Postgres, or any Postgres connection string
   if (APP_CONFIG.dbDriver === 'postgres' && APP_CONFIG.postgresUrl) {
     const repo = new PostgresPredictionRepository(APP_CONFIG.postgresUrl);
     const rows = await repo.getAllAsync();

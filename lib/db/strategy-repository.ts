@@ -20,13 +20,14 @@ async function readAllInternal(): Promise<StrategyInsight[]> {
 }
 
 async function saveAllInternal(rows: StrategyInsight[]): Promise<void> {
+  if (process.env.NODE_ENV === 'production') return; // Vercel: no file writes
   try {
     const payload = JSON.stringify(rows, null, 2);
     const tmp = `${STRATEGY_DB_PATH}.tmp`;
     await fs.promises.writeFile(tmp, payload, 'utf-8');
     await fs.promises.rename(tmp, STRATEGY_DB_PATH);
   } catch {
-    // Read-only filesystem (e.g. Vercel): skip write to avoid 500
+    // Read-only filesystem: skip write to avoid 500
   }
 }
 

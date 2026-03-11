@@ -15,7 +15,8 @@ const nextConfig: NextConfig = {
   compress: true,
   productionBrowserSourceMaps: false,
   compiler: {
-    removeConsole: process.env.NODE_ENV === 'production',
+    // Keep log/warn/error so audit and debugging work on Vercel
+    removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['log', 'warn', 'error'] } : false,
   },
   images: {
     remotePatterns: [
