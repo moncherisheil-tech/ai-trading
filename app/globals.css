@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+.ticker-track {
+  display: flex;
+  width: max-content;
+  animation: ticker 40s linear infinite;
+}
+
+.ticker-track:hover {
+  animation-play-state: paused;
+}
+
+@keyframes ticker {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
+/* Print Mode: A4 one-page Executive Summary for Financial Terminal */
+@media print {
+  body * { visibility: hidden; }
+  .print-mode,
+  .print-mode * { visibility: visible; }
+  .print-mode {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    max-width: 210mm;
+    padding: 15mm;
+    margin: 0;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 11pt;
+  }
+}

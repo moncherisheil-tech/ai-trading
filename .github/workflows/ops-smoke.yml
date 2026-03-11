@@ -1,0 +1,61 @@
+name: Ops Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 * * * *'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run health report
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          ADMIN_LOGIN_PASSWORD: ${{ secrets.ADMIN_LOGIN_PASSWORD }}
+        run: node scripts/health-report.mjs
+
+      - name: Evaluate SLO
+        env:
+          SLO_MAX_P95_LATENCY_MS: ${{ vars.SLO_MAX_P95_LATENCY_MS }}
+          SLO_MAX_FALLBACK_RATE: ${{ vars.SLO_MAX_FALLBACK_RATE }}
+          SLO_MAX_READY_FAILURES: ${{ vars.SLO_MAX_READY_FAILURES }}
+        run: node scripts/evaluate-slo.mjs
+
+      - name: Build executive summary
+        if: always()
+        run: node scripts/executive-report.mjs
+
+      - name: Upload report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ops-health-report
+          path: reports/*
+
+      - name: Publish summary
+        if: always()
+        run: |
+          echo "## Ops Smoke Summary" >> $GITHUB_STEP_SUMMARY
+          cat reports/health-report.md >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat reports/executive-summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify webhook on failure
+        if: failure()
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: node scripts/notify-webhook.mjs
