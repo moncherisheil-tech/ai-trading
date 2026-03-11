@@ -652,22 +652,24 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
 
 export type LoginResult = { success: true; redirectTo?: string } | { success: false; error: string };
 
+/** Login only: validation + cookie. No DB access, no redirect() — client handles navigation. */
 export async function loginWithPassword(password: string): Promise<LoginResult> {
-  try {
-    if (!password || typeof password !== 'string') {
-      return { success: false, error: 'Password is required.' };
-    }
-    const adminPassword = process.env.ADMIN_LOGIN_PASSWORD;
-    if (!adminPassword) {
-      return { success: false, error: 'Authentication is not configured. Set ADMIN_LOGIN_PASSWORD.' };
-    }
-    if (!isSessionEnabled()) {
-      return { success: false, error: 'Session is not configured. Set APP_SESSION_SECRET.' };
-    }
-    if (password.trim() !== adminPassword) {
-      return { success: false, error: 'Invalid credentials.' };
-    }
+  // Validation only — no redirect() in action; redirect in try/catch causes hang in Next.js 15
+  if (!password || typeof password !== 'string') {
+    return { success: false, error: 'Password is required.' };
+  }
+  const adminPassword = process.env.ADMIN_LOGIN_PASSWORD;
+  if (!adminPassword) {
+    return { success: false, error: 'Authentication is not configured. Set ADMIN_LOGIN_PASSWORD.' };
+  }
+  if (!isSessionEnabled()) {
+    return { success: false, error: 'Session is not configured. Set APP_SESSION_SECRET.' };
+  }
+  if (password.trim() !== adminPassword) {
+    return { success: false, error: 'Invalid credentials.' };
+  }
 
+  try {
     const token = createSessionToken('admin');
     const jar = await cookies();
     const isProduction = process.env.NODE_ENV === 'production';
@@ -687,9 +689,7 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
 
     jar.set('app_auth_token', token, cookieOptions);
     console.log('[auth] login success, app_auth_token set');
-    return { success: true, redirectTo: '/ops' };
   } catch (err) {
-    // Next.js redirect() throws an error with digest NEXT_REDIRECT — re-throw so redirect works
     const d = err && typeof err === 'object' && 'digest' in err ? (err as { digest?: string }).digest : undefined;
     if (typeof d === 'string' && d.startsWith('NEXT_REDIRECT')) {
       throw err;
@@ -697,6 +697,8 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
     const message = err instanceof Error ? err.message : 'Login failed. Try again.';
     return { success: false, error: message };
   }
+
+  return { success: true, redirectTo: '/ops' };
 }
 
 export async function logout(): Promise<{ success: true }> {

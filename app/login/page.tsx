@@ -20,14 +20,20 @@ function LoginForm() {
     try {
       const result = await loginWithPassword(password);
       if (result.success) {
-        router.push(result.redirectTo || from);
-        router.refresh();
-      } else {
-        setError(result.error);
-        setLoading(false);
+        const target = result.redirectTo || from || '/ops';
+        // Force full navigation so the new cookie is sent and session is recognized (avoids Verifying hang)
+        if (typeof window !== 'undefined') {
+          window.location.href = target;
+        } else {
+          router.refresh();
+          router.push(target);
+        }
+        return;
       }
+      setError(result.error);
     } catch {
       setError('An error occurred. Please try again.');
+    } finally {
       setLoading(false);
     }
   };

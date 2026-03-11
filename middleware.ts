@@ -23,7 +23,9 @@ function hasAuthCookie(request: NextRequest): boolean {
 function isPublicPath(pathname: string): boolean {
   if (pathname === '/login') return true;
   if (pathname.startsWith('/api/auth')) return true;
+  // Next.js internals: static assets, RSC payloads, _next/data (must not redirect or login breaks)
   if (pathname.startsWith('/_next')) return true;
+  if (pathname.includes('_next/data')) return true;
   if (pathname.includes('.')) return true; // static files (e.g. favicon.ico)
   return false;
 }
