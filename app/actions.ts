@@ -9,7 +9,7 @@ import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
 import { aiPredictionSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
 import { listStrategyInsights, updateStrategyInsightStatus } from '@/lib/db/strategy-repository';
 import { z } from 'zod';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { writeAudit } from '@/lib/audit';
 import { enqueueByKey } from '@/lib/task-queue';
 import { createSessionToken, hasRequiredRole, isSessionEnabled, verifySessionToken, type SessionRole } from '@/lib/session';
@@ -653,39 +653,65 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
 export type LoginResult = { success: true; redirectTo?: string } | { success: false; error: string };
 
 export async function loginWithPassword(password: string): Promise<LoginResult> {
-  if (!password || typeof password !== 'string') {
-    return { success: false, error: 'Password is required.' };
+  try {
+    if (!password || typeof password !== 'string') {
+      return { success: false, error: 'Password is required.' };
+    }
+    const adminPassword = process.env.ADMIN_LOGIN_PASSWORD;
+    if (!adminPassword) {
+      return { success: false, error: 'Authentication is not configured. Set ADMIN_LOGIN_PASSWORD.' };
+    }
+    if (!isSessionEnabled()) {
+      return { success: false, error: 'Session is not configured. Set APP_SESSION_SECRET.' };
+    }
+    if (password.trim() !== adminPassword) {
+      return { success: false, error: 'Invalid credentials.' };
+    }
+
+    const token = createSessionToken('admin');
+    const jar = await cookies();
+    const isProduction = process.env.NODE_ENV === 'production';
+    const headersList = await headers();
+    const host = headersList.get('host') || '';
+
+    const cookieOptions: Parameters<ReturnType<typeof cookies>['set']>[2] = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 12,
+    };
+    if (isProduction && host.includes('moncherigroup.co.il')) {
+      cookieOptions.domain = '.moncherigroup.co.il';
+    }
+
+    jar.set('app_auth_token', token, cookieOptions);
+    return { success: true, redirectTo: '/ops' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Login failed. Try again.';
+    return { success: false, error: message };
   }
-  const adminPassword = process.env.ADMIN_LOGIN_PASSWORD;
-  if (!adminPassword) {
-    return { success: false, error: 'Authentication is not configured.' };
-  }
-  if (password.trim() !== adminPassword) {
-    return { success: false, error: 'Invalid credentials.' };
-  }
-  if (!isSessionEnabled()) {
-    return { success: false, error: 'Session is not configured. Set APP_SESSION_SECRET.' };
-  }
-  const token = createSessionToken('admin');
-  const jar = await cookies();
-  jar.set('app_auth_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 12,
-  });
-  return { success: true, redirectTo: '/ops' };
 }
 
 export async function logout(): Promise<{ success: true }> {
-  const jar = await cookies();
-  jar.set('app_auth_token', '', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
-  });
+  try {
+    const jar = await cookies();
+    const isProduction = process.env.NODE_ENV === 'production';
+    const headersList = await headers();
+    const host = headersList.get('host') || '';
+    const opts: Parameters<ReturnType<typeof cookies>['set']>[2] = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    };
+    if (isProduction && host.includes('moncherigroup.co.il')) {
+      opts.domain = '.moncherigroup.co.il';
+    }
+    jar.set('app_auth_token', '', opts);
+  } catch {
+    // Ignore cookie clear errors
+  }
   return { success: true };
 }
