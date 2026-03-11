@@ -416,7 +416,7 @@ async function doAnalysisCore(
             required: ['symbol', 'probability', 'target_percentage', 'direction', 'logic', 'strategic_advice', 'learning_context', 'sources']
           }
         }
-      });
+      }
     });
 
     if (repairResponse.text) {
