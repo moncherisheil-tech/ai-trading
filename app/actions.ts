@@ -6,7 +6,7 @@ import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { allowRequest } from '@/lib/rate-limit';
 import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
-import { aiPredictionSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
+import { aiPredictionSchema, aiPredictionPartialSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
 import { listStrategyInsights, updateStrategyInsightStatus } from '@/lib/db/strategy-repository';
 import { z } from 'zod';
 import { cookies, headers } from 'next/headers';
@@ -16,39 +16,22 @@ import { createSessionToken, hasRequiredRole, isSessionEnabled, verifySessionTok
 import { evaluatePredictionOutcome } from '@/lib/agents/backtester';
 import { getBacktestRepository } from '@/lib/db/backtest-repository';
 import { getMarketSentiment, checkSentimentGuardrail } from '@/lib/agents/news-agent';
-import { sendTelegramMessage } from '@/lib/telegram';
-
-interface BinanceKline {
-  date: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+import {
+  computePSuccess,
+  computeRSI,
+  getRiskLevelHe,
+  buildHebrewReport,
+} from '@/lib/prediction-formula';
+import { appendHistoricalPrediction } from '@/lib/db/historical-predictions';
+import { sendTelegramMessage, sendGemAlert } from '@/lib/telegram';
+import { isSupportedBase } from '@/lib/symbols';
+import { doAnalysisCore } from '@/lib/analysis-core';
+import type { SimulationResult, LoginResult, BinanceKline } from '@/lib/actions-types';
 
 interface BinanceTickerPrice {
   symbol?: string;
   price: string;
 }
-
-interface AiPredictionResult {
-  symbol: string;
-  probability: number;
-  target_percentage: number;
-  direction: PredictionRecord['predicted_direction'];
-  logic: string;
-  strategic_advice: string;
-  learning_context: string;
-  sources: SourceCitation[];
-}
-
-type DedupEntry = {
-  expiresAt: number;
-  result: Awaited<ReturnType<typeof analyzeCrypto>>;
-};
-
-const analysisDedupCache = new Map<string, DedupEntry>();
 
 type AnalyzeInput = {
   symbol: string;
@@ -121,22 +104,12 @@ function normalizeSymbol(raw: string): string {
   return `${sanitized}USDT`;
 }
 
-function isValidBinanceKlineRow(row: unknown): row is [number, string, string, string, string, string] {
-  return (
-    Array.isArray(row) &&
-    row.length >= 6 &&
-    typeof row[0] === 'number' &&
-    typeof row[1] === 'string' &&
-    typeof row[2] === 'string' &&
-    typeof row[3] === 'string' &&
-    typeof row[4] === 'string' &&
-    typeof row[5] === 'string'
-  );
-}
+/** Thrown when upstream returns 451 (e.g. region block). Message includes "451" for detection. */
+const ERROR_451_MESSAGE = 'Request failed (451) for upstream API.';
 
 async function fetchJson<T>(url: string, cache: RequestCache = 'no-store', schema?: z.ZodType<T>): Promise<T> {
   const parsedUrl = new URL(url);
-  if (!APP_CONFIG.trustedApiOrigins.includes(parsedUrl.origin as (typeof APP_CONFIG.trustedApiOrigins)[number])) {
+  if (!APP_CONFIG.trustedApiOrigins.includes(parsedUrl.origin)) {
     throw new Error('Untrusted upstream API endpoint.');
   }
 
@@ -150,7 +123,8 @@ async function fetchJson<T>(url: string, cache: RequestCache = 'no-store', schem
     }));
 
     if (!res.ok) {
-      throw new Error(`Request failed (${res.status}) for upstream API.`);
+      const msg = res.status === 451 ? ERROR_451_MESSAGE : `Request failed (${res.status}) for upstream API.`;
+      throw new Error(msg);
     }
 
     const payload = (await res.json()) as unknown;
@@ -160,315 +134,15 @@ async function fetchJson<T>(url: string, cache: RequestCache = 'no-store', schem
   }
 }
 
-function parseAiPrediction(payload: unknown): AiPredictionResult {
-  const parsed = aiPredictionSchema.parse(payload);
-  return parsed;
-}
-
-function validatePredictionConsistency(result: AiPredictionResult): string | null {
-  if (result.direction === 'Bullish' && result.target_percentage < 0) {
-    return 'Bullish direction must not have a negative target percentage.';
+/**
+ * Logs Zod error details to console for Vercel Logs (path + message per issue).
+ */
+function logZodError(err: z.ZodError): void {
+  for (const issue of err.errors) {
+    const path = issue.path.length ? issue.path.join('.') : '(root)';
+    // eslint-disable-next-line no-console
+    console.error(`[Zod] path=${path} message=${issue.message}`);
   }
-
-  if (result.direction === 'Bearish' && result.target_percentage > 0) {
-    return 'Bearish direction must not have a positive target percentage.';
-  }
-
-  if (result.direction === 'Neutral' && Math.abs(result.target_percentage) > 2) {
-    return 'Neutral direction target must stay within +/-2%.';
-  }
-
-  return null;
-}
-
-export type SimulationResult =
-  | { success: true; data: PredictionRecord; chartData: BinanceKline[] }
-  | { success: false; error: string; requestId?: string };
-
-async function doAnalysisCore(
-  cleanSymbol: string,
-  startedAt: number,
-  useCache: boolean
-): Promise<{ success: true; data: PredictionRecord; chartData: BinanceKline[] }> {
-  if (useCache) {
-    const cached = analysisDedupCache.get(cleanSymbol);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.result as { success: true; data: PredictionRecord; chartData: BinanceKline[] };
-    }
-  }
-
-  // 1. Fetch Binance Data (OHLCV) - 30 days for chart
-  const binanceData = await fetchJson(`https://api.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=1d&limit=30`, 'no-store', binanceKlinesSchema);
-
-  const ohlcv: BinanceKline[] = binanceData
-    .filter((k) => isValidBinanceKlineRow(k))
-    .map((k) => ({
-      date: new Date(k[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-      volume: parseFloat(k[5])
-    }));
-  if (ohlcv.length === 0) {
-    throw new Error(`No market data returned for ${cleanSymbol}.`);
-  }
-
-  const currentPrice = ohlcv[ohlcv.length - 1].close;
-  const last5Days = ohlcv.slice(-5);
-
-  // 2. Fetch Fear & Greed Index
-  let fng = { value: "50", value_classification: "Neutral" };
-  try {
-    const fngData = await fetchJson('https://api.alternative.me/fng/?limit=1', 'force-cache', fearGreedSchema);
-    if (fngData && fngData.data && fngData.data.length > 0) {
-      fng = {
-        value: fngData.data[0].value || '50',
-        value_classification: fngData.data[0].value_classification || 'Neutral',
-      };
-    }
-  } catch {
-    // Use default F&G when upstream fails
-  }
-
-  // 3. Get Past Errors (Learning Loop)
-  const db = await getDbAsync();
-  const pastErrors = db
-    .filter(p => p.symbol === cleanSymbol && p.status === 'evaluated' && p.error_report)
-    .slice(-5)
-    .map(p => ({
-      date: p.prediction_date,
-      prediction: p.predicted_direction,
-      actual: p.actual_outcome,
-      learning_note: p.error_report
-    }));
-
-  // 4. Load strategy insights (Self-learning loop)
-  const allStrategyInsights = await listStrategyInsights();
-  const strategyInsights = allStrategyInsights.filter((i) => i.status === 'approved');
-
-  // 5. Market sentiment from news (Sentiment Agent)
-  let sentiment_score = 0;
-  let market_narrative = 'No news-based sentiment available.';
-  try {
-    const sentiment = await getMarketSentiment(cleanSymbol);
-    sentiment_score = sentiment.score;
-    market_narrative = sentiment.narrative;
-  } catch {
-    // Use default sentiment when news fetch fails
-  }
-
-  // 5b. Sentiment Guardrail – risk alert and Telegram
-  const guardrailStatus = checkSentimentGuardrail(sentiment_score);
-  if (guardrailStatus !== 'NORMAL') {
-    const message = `🚨 RISK ALERT: Extreme Market Sentiment Detected (${guardrailStatus})!\nScore: ${sentiment_score.toFixed(2)}. Narrative: ${market_narrative}\nAction: Applying 50% confidence penalty to current prediction.`;
-    await sendTelegramMessage(message);
-  }
-
-  // 6. Call Gemini AI
-  const apiKey = getGeminiApiKey();
-  const ai = new GoogleGenAI({ apiKey });
-
-  const systemInstruction =
-    "אתה אנליסט קריפטו מומחה בעל יכולות סטטיסטיות. תפקידך לנתח נתוני שוק ולזהות דפוסי פריצה (Breakout). עליך לאזן בין אינדיקטורים טכניים לבין הנרטיב והסנטימנט הנוכחי של השוק (sentiment_score, market_narrative). אל תתעלם מתנועות חדשות חזקות (FOMO/פאניקה) – התחשב בהן. פלוט את התחזית בפורמט JSON בלבד. חובה לכלול המלצות אסטרטגיות (strategic_advice), הקשר למידה מהעבר (learning_context) ומקורות מידע (sources).";
-
-  const promptData = {
-    asset: cleanSymbol,
-    current_price: currentPrice,
-    ohlcv_last_5_days: last5Days,
-    fear_and_greed_index: fng,
-    past_mistakes_to_learn_from: pastErrors,
-    strategy_insights: strategyInsights,
-    sentiment_score,
-    market_narrative,
-  };
-
-  let activeModel = APP_CONFIG.primaryModel;
-  let fallbackUsed = false;
-
-  let response = await ai.models.generateContent({
-    model: activeModel,
-    contents: JSON.stringify(promptData, null, 2),
-    config: {
-      systemInstruction,
-      temperature: 0.2,
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          symbol: { type: Type.STRING },
-          probability: { type: Type.INTEGER, description: "0-100" },
-          target_percentage: { type: Type.NUMBER, description: "Expected % move" },
-          direction: { type: Type.STRING, enum: ["Bullish", "Bearish", "Neutral"] },
-          logic: { type: Type.STRING, description: "Explanation based on volume and sentiment" },
-          strategic_advice: { type: Type.STRING, description: "Actionable investment advice for this specific asset (in Hebrew)" },
-          learning_context: { type: Type.STRING, description: "How past predictions influenced this specific forecast (in Hebrew)" },
-          sources: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                source_name: { type: Type.STRING },
-                source_type: { type: Type.STRING, enum: ['market_data', 'sentiment', 'historical', 'derived'] },
-                timestamp: { type: Type.STRING },
-                evidence_snippet: { type: Type.STRING },
-                relevance_score: { type: Type.NUMBER },
-              },
-              required: ['source_name', 'source_type', 'timestamp', 'evidence_snippet', 'relevance_score'],
-            },
-            description: 'Structured sources and evidence used in analysis',
-          }
-        },
-        required: ["symbol", "probability", "target_percentage", "direction", "logic", "strategic_advice", "learning_context", "sources"]
-      }
-    }
-  });
-
-  if (!response.text) {
-    fallbackUsed = true;
-    activeModel = APP_CONFIG.fallbackModel;
-    response = await ai.models.generateContent({
-      model: activeModel,
-      contents: JSON.stringify(promptData, null, 2),
-      config: {
-        systemInstruction,
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            symbol: { type: Type.STRING },
-            probability: { type: Type.INTEGER, description: '0-100' },
-            target_percentage: { type: Type.NUMBER, description: 'Expected % move' },
-            direction: { type: Type.STRING, enum: ['Bullish', 'Bearish', 'Neutral'] },
-            logic: { type: Type.STRING, description: 'Explanation based on volume and sentiment' },
-            strategic_advice: { type: Type.STRING, description: 'Actionable investment advice for this specific asset (in Hebrew)' },
-            learning_context: { type: Type.STRING, description: 'How past predictions influenced this specific forecast (in Hebrew)' },
-            sources: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  source_name: { type: Type.STRING },
-                  source_type: { type: Type.STRING, enum: ['market_data', 'sentiment', 'historical', 'derived'] },
-                  timestamp: { type: Type.STRING },
-                  evidence_snippet: { type: Type.STRING },
-                  relevance_score: { type: Type.NUMBER },
-                },
-                required: ['source_name', 'source_type', 'timestamp', 'evidence_snippet', 'relevance_score'],
-              },
-              description: 'Structured sources and evidence used in analysis',
-            }
-          },
-          required: ['symbol', 'probability', 'target_percentage', 'direction', 'logic', 'strategic_advice', 'learning_context', 'sources']
-        }
-      }
-    });
-  }
-
-  if (!response.text) throw new Error('No response from AI');
-  let result = parseAiPrediction(JSON.parse(response.text));
-  let validationRepaired = false;
-
-  if (guardrailStatus !== 'NORMAL') {
-    const finalProbability = Math.round(result.probability * 0.5);
-    result = { ...result, probability: finalProbability };
-  }
-
-  const consistencyIssue = validatePredictionConsistency(result);
-  if (consistencyIssue) {
-    const repairPrompt = {
-      issue: consistencyIssue,
-      original: result,
-      instruction: 'Return corrected JSON while preserving intent. Ensure direction and target_percentage are consistent.'
-    };
-
-    const repairResponse = await ai.models.generateContent({
-      model: activeModel,
-      contents: JSON.stringify(repairPrompt),
-      config: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            symbol: { type: Type.STRING },
-            probability: { type: Type.INTEGER },
-            target_percentage: { type: Type.NUMBER },
-            direction: { type: Type.STRING, enum: ['Bullish', 'Bearish', 'Neutral'] },
-            logic: { type: Type.STRING },
-            strategic_advice: { type: Type.STRING },
-            learning_context: { type: Type.STRING },
-            sources: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  source_name: { type: Type.STRING },
-                  source_type: { type: Type.STRING, enum: ['market_data', 'sentiment', 'historical', 'derived'] },
-                  timestamp: { type: Type.STRING },
-                  evidence_snippet: { type: Type.STRING },
-                  relevance_score: { type: Type.NUMBER },
-                },
-                required: ['source_name', 'source_type', 'timestamp', 'evidence_snippet', 'relevance_score'],
-              }
-            },
-            required: ['symbol', 'probability', 'target_percentage', 'direction', 'logic', 'strategic_advice', 'learning_context', 'sources']
-          }
-        }
-      }
-    });
-
-    if (repairResponse.text) {
-      const repaired = parseAiPrediction(JSON.parse(repairResponse.text));
-      if (!validatePredictionConsistency(repaired)) {
-        result = repaired;
-        validationRepaired = true;
-      }
-    }
-
-    if (validatePredictionConsistency(result)) {
-      throw new Error('AI response remained inconsistent after repair.');
-    }
-  }
-
-  const newRecord: PredictionRecord = {
-    id: crypto.randomUUID(),
-    symbol: cleanSymbol,
-    prediction_date: new Date().toISOString(),
-    predicted_direction: result.direction,
-    probability: result.probability,
-    target_percentage: result.target_percentage,
-    entry_price: currentPrice,
-    logic: result.logic,
-    strategic_advice: result.strategic_advice,
-    learning_context: result.learning_context,
-    sources: result.sources,
-    status: 'pending',
-    model_name: activeModel,
-    fallback_used: fallbackUsed,
-    latency_ms: Date.now() - startedAt,
-    validation_repaired: validationRepaired,
-    sentiment_score,
-    market_narrative,
-    risk_status: guardrailStatus === 'EXTREME_FEAR' ? 'extreme_fear' : guardrailStatus === 'EXTREME_GREED' ? 'extreme_greed' : 'normal',
-  };
-
-  db.push(newRecord);
-  await saveDbAsync(db);
-
-  writeAudit({ event: 'analysis.success', meta: { symbol: cleanSymbol, model: activeModel, fallbackUsed } });
-
-  newRecord.sources = newRecord.sources
-    ?.map((source) => sourceCitationSchema.parse(source))
-    .sort((a, b) => b.relevance_score - a.relevance_score);
-
-  const output = { success: true, data: newRecord, chartData: ohlcv };
-  analysisDedupCache.set(cleanSymbol, {
-    expiresAt: Date.now() + APP_CONFIG.analysisDedupWindowMs,
-    result: output,
-  });
-  return output;
 }
 
 export async function runCryptoAnalysisCore(
@@ -477,12 +151,23 @@ export async function runCryptoAnalysisCore(
 ): Promise<SimulationResult> {
   try {
     const cleanSymbol = normalizeSymbol((rawSymbol || '').trim());
+    const base = cleanSymbol.replace(/USDT$/i, '');
+    if (!isSupportedBase(base)) {
+      return { success: false, error: 'מטבע לא נתמך. בחר מתוך רשימת המטבעות הזמינים.' };
+    }
     return await doAnalysisCore(cleanSymbol, Date.now(), !options?.skipCache);
   } catch (error: unknown) {
     const requestId = crypto.randomUUID();
+    const isZod = error instanceof z.ZodError;
+    if (isZod) logZodError(error as z.ZodError);
     const err = error instanceof Error ? error.message : 'Analysis failed.';
+    const userMessage = err === 'DATA_UNAVAILABLE_451' || String(err).includes('451')
+      ? 'מתחבר לשרת גיבוי... חסימת אזור. הגדר PROXY_BINANCE_URL לשרת גיבוי או נסה שוב.'
+      : isZod
+        ? 'שגיאה באימות הנתונים. נסה שוב.'
+        : err;
     writeAudit({ event: 'analysis.failed', level: 'warn', meta: { requestId, errorType: error instanceof Error ? error.constructor.name : 'Unknown' } });
-    return { success: false, error: err, requestId };
+    return { success: false, error: userMessage, requestId };
   }
 }
 
@@ -523,6 +208,10 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
     const cleanSymbol = normalizeSymbol(inputSymbol);
     return await doAnalysisCore(cleanSymbol, startedAt, true);
   } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : '';
+    if (msg === 'Unauthorized request.') {
+      return { success: false, error: 'Unauthorized request.' };
+    }
     const requestId = crypto.randomUUID();
     const errorType = error instanceof Error ? error.constructor?.name : 'UnknownError';
     writeAudit({ event: 'analysis.failed', level: 'warn', meta: { requestId, errorType } });
@@ -532,7 +221,14 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
 }
 
 export async function getHistory() {
-  await requireAuth('viewer');
+  try {
+    await requireAuth('viewer');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Unauthorized request.') {
+      return [];
+    }
+    throw err;
+  }
   const rows = await getDbAsync();
   return rows.sort((a, b) => new Date(b.prediction_date).getTime() - new Date(a.prediction_date).getTime());
 }
@@ -595,6 +291,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
 
         const requiresDeepAnalysis = absoluteErrorPct > 2;
 
+        const evaluatedAt = new Date().toISOString();
         await backtestRepo.append({
           prediction_id: record.id,
           symbol: record.symbol,
@@ -606,9 +303,29 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           absolute_error_pct: absoluteErrorPct,
           outcome_label: outcomeLabel,
           requires_deep_analysis: requiresDeepAnalysis,
-          evaluated_at: new Date().toISOString(),
+          evaluated_at: evaluatedAt,
           sentiment_score: record.sentiment_score,
           market_narrative: record.market_narrative,
+        });
+        appendHistoricalPrediction({
+          prediction_id: record.id,
+          symbol: record.symbol,
+          prediction_date: record.prediction_date,
+          predicted_direction: record.predicted_direction,
+          entry_price: record.entry_price,
+          actual_price: currentPrice,
+          price_diff_pct: priceDiffPct,
+          absolute_error_pct: absoluteErrorPct,
+          target_percentage: record.target_percentage ?? null,
+          probability: record.probability ?? null,
+          outcome_label: outcomeLabel,
+          requires_deep_analysis: requiresDeepAnalysis,
+          evaluated_at: evaluatedAt,
+          sentiment_score: record.sentiment_score,
+          market_narrative: record.market_narrative,
+          bottom_line_he: record.bottom_line_he ?? null,
+          risk_level_he: record.risk_level_he ?? null,
+          forecast_24h_he: record.forecast_24h_he ?? null,
         });
 
         if (!isCorrect) {
@@ -623,11 +340,17 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in Hebrew) to avoid this mistake next time.
           `;
 
-          const response = await ai.models.generateContent({
+          const geminiPromise = ai.models.generateContent({
             model: 'gemini-3.1-pro-preview',
             contents: prompt,
             config: { temperature: 0.2 }
           });
+          const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
+          const response = await Promise.race([
+            geminiPromise,
+            new Promise<never>((_, rej) =>
+              setTimeout(() => rej(new Error('Gemini request timeout')), timeoutMs)),
+          ]);
 
           record.error_report = response.text || "Failed to generate learning note.";
         } else {
@@ -636,8 +359,14 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
 
         record.status = 'evaluated';
         updatedCount++;
-      } catch {
-        writeAudit({ event: 'evaluation.record_failed', level: 'warn', meta: { symbol: record.symbol } });
+      } catch (err) {
+        const isTimeout = err instanceof Error && (err.message === 'Gemini request timeout' || err.message.includes('timeout'));
+        if (isTimeout) {
+          record.error_report = "לא ניתן ליצור הערת למידה (תם הזמן).";
+          record.status = 'evaluated';
+          updatedCount++;
+        }
+        writeAudit({ event: 'evaluation.record_failed', level: 'warn', meta: { symbol: record.symbol, reason: isTimeout ? 'timeout' : 'error' } });
       }
     }
   }
@@ -650,11 +379,8 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
   return { success: true, updatedCount };
 }
 
-export type LoginResult = { success: true; redirectTo?: string } | { success: false; error: string };
-
-/** Login only: validation + cookie. No DB access, no redirect() — client handles navigation. */
+/** Login only: validation + cookie. No redirect() — client uses window.location. */
 export async function loginWithPassword(password: string): Promise<LoginResult> {
-  // Validation only — no redirect() in action; redirect in try/catch causes hang in Next.js 15
   if (!password || typeof password !== 'string') {
     return { success: false, error: 'Password is required.' };
   }
@@ -673,22 +399,17 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
     const token = createSessionToken('admin');
     const jar = await cookies();
     const isProduction = process.env.NODE_ENV === 'production';
-    const headersList = await headers();
-    const host = headersList.get('host') || '';
+    const host = (await headers()).get('host') || '';
+    const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
 
-    const cookieOptions: Parameters<ReturnType<typeof cookies>['set']>[2] = {
-      httpOnly: true,
+    jar.set('app_auth_token', token, {
+      domain,
       secure: isProduction,
+      httpOnly: true,
       sameSite: 'lax',
       path: '/',
-      maxAge: 60 * 60 * 12,
-    };
-    if (isProduction && host.includes('moncherigroup.co.il')) {
-      cookieOptions.domain = '.moncherigroup.co.il';
-    }
-
-    jar.set('app_auth_token', token, cookieOptions);
-    console.log('[auth] login success, app_auth_token set');
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+    });
   } catch (err) {
     const d = err && typeof err === 'object' && 'digest' in err ? (err as { digest?: string }).digest : undefined;
     if (typeof d === 'string' && d.startsWith('NEXT_REDIRECT')) {
@@ -705,21 +426,103 @@ export async function logout(): Promise<{ success: true }> {
   try {
     const jar = await cookies();
     const isProduction = process.env.NODE_ENV === 'production';
-    const headersList = await headers();
-    const host = headersList.get('host') || '';
-    const opts: Parameters<ReturnType<typeof cookies>['set']>[2] = {
-      httpOnly: true,
+    const host = (await headers()).get('host') || '';
+    const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
+    jar.set('app_auth_token', '', {
+      domain,
       secure: isProduction,
+      httpOnly: true,
       sameSite: 'lax',
       path: '/',
       maxAge: 0,
-    };
-    if (isProduction && host.includes('moncherigroup.co.il')) {
-      opts.domain = '.moncherigroup.co.il';
-    }
-    jar.set('app_auth_token', '', opts);
+    });
   } catch {
     // Ignore cookie clear errors
   }
   return { success: true };
+}
+
+/** System status for the Live Scanning Worker (settings dashboard). */
+export async function getScannerStatus(): Promise<{
+  lastScanTime: string | null;
+  gemsFoundToday: number;
+  status: 'ACTIVE' | 'IDLE';
+  lastRunStats: { coinsChecked: number; gemsFound: number; alertsSent: number } | null;
+}> {
+  try {
+    await requireAuth('viewer');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Unauthorized request.') {
+      return { lastScanTime: null, gemsFoundToday: 0, status: 'IDLE', lastRunStats: null };
+    }
+    throw err;
+  }
+  const { getScannerState } = await import('@/lib/workers/market-scanner');
+  const { countScannerAlertsToday } = await import('@/lib/db/scanner-alert-log');
+  const scanner = getScannerState();
+  const gemsFoundToday = countScannerAlertsToday();
+  return {
+    lastScanTime: scanner.lastScanTime,
+    gemsFoundToday,
+    status: scanner.status,
+    lastRunStats: scanner.lastRunStats,
+  };
+}
+
+/** Macro Pulse: Fear & Greed, BTC dominance, active threshold (for settings widget). */
+export async function getMacroStatus(): Promise<{
+  fearGreedIndex: number;
+  fearGreedClassification: string;
+  btcDominancePct: number;
+  macroSentimentScore: number;
+  minimumConfidenceThreshold: number;
+  strategyLabelHe: string;
+}> {
+  try {
+    await requireAuth('viewer');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Unauthorized request.') {
+      return {
+        fearGreedIndex: 50,
+        fearGreedClassification: 'Neutral',
+        btcDominancePct: 0,
+        macroSentimentScore: 0,
+        minimumConfidenceThreshold: 75,
+        strategyLabelHe: '—',
+      };
+    }
+    throw err;
+  }
+  const { getMacroPulse } = await import('@/lib/macro-service');
+  return getMacroPulse();
+}
+
+/** Strategy dashboard: weights, last auto-tune, weight-change log, accuracy by confidence (for settings). */
+export async function getStrategyDashboard(): Promise<{
+  weights: { volume: number; rsi: number; sentiment: number };
+  lastAutoTuneAt: string | null;
+  weightChangeLog: Array<{ id: number; created_at: string; reason_he: string; volume_weight: number; rsi_weight: number; sentiment_weight: number }>;
+  accuracyByConfidence: Array<{ bucket: string; confidence_min: number; confidence_max: number; total: number; hits: number; success_rate_pct: number }>;
+}> {
+  try {
+    await requireAuth('viewer');
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Unauthorized request.') {
+      return {
+        weights: { volume: 0.4, rsi: 0.3, sentiment: 0.3 },
+        lastAutoTuneAt: null,
+        weightChangeLog: [],
+        accuracyByConfidence: [],
+      };
+    }
+    throw err;
+  }
+  const { getWeights, getLastAutoTuneAt, getWeightChangeLog } = await import('@/lib/db/prediction-weights');
+  const { getAccuracyByConfidenceBucket } = await import('@/lib/db/historical-predictions');
+  return {
+    weights: getWeights(),
+    lastAutoTuneAt: getLastAutoTuneAt(),
+    weightChangeLog: getWeightChangeLog(15),
+    accuracyByConfidence: getAccuracyByConfidenceBucket(100),
+  };
 }

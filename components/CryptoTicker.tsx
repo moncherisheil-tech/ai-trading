@@ -65,10 +65,15 @@ export default function CryptoTicker() {
       };
 
       ws.onmessage = (event) => {
-        const data: unknown = JSON.parse(event.data);
+        let data: unknown;
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
+        }
         if (!Array.isArray(data)) return;
 
-        const filtered = data.filter((t: any) => TARGET_SYMBOLS.includes(t.s));
+        const filtered = data.filter((t: { s?: string }) => TARGET_SYMBOLS.includes((t.s || '').toUpperCase()));
         if (filtered.length === 0) return;
 
         pendingRowsRef.current = filtered;
@@ -107,22 +112,22 @@ export default function CryptoTicker() {
   const displayTickers = [...tickers, ...tickers];
 
   return (
-    <div className="w-full bg-slate-900 border-b border-slate-800 overflow-hidden py-2" id="crypto-ticker" role="region" aria-label="Crypto ticker stream">
+    <div className="w-full bg-zinc-900 border-b border-zinc-800 overflow-hidden py-2" id="crypto-ticker" role="region" aria-label="Crypto ticker stream">
       <div className="px-4 pb-1 flex items-center gap-2">
         <span className={`w-2 h-2 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400' : connectionState === 'connecting' ? 'bg-amber-400 animate-pulse' : 'bg-red-400'}`} />
-        <span className="text-[10px] uppercase tracking-wider text-slate-400">
-          {connectionState === 'connected' ? 'live' : connectionState === 'connecting' ? 'connecting' : 'reconnecting'}
+        <span className="text-[10px] uppercase tracking-wider text-zinc-400">
+          {connectionState === 'connected' ? 'חי' : connectionState === 'connecting' ? 'מתחבר' : 'מתחבר מחדש'}
         </span>
       </div>
 
       {displayTickers.length === 0 ? (
-        <div className="px-4 py-1 text-xs text-slate-400 animate-pulse">Loading market stream...</div>
+        <div className="px-4 py-1 text-xs text-zinc-400 animate-pulse">טוען זרם שוק...</div>
       ) : (
       <div className="ticker-track">
         {displayTickers.map((ticker, i) => (
-          <div key={`${ticker.symbol}-${i}`} className="flex items-center gap-2 px-6 border-r border-slate-800 last:border-0 whitespace-nowrap">
-            <span className="font-bold text-slate-300 text-sm">{ticker.symbol}</span>
-            <span className="font-mono text-white text-sm">${ticker.price >= 10 ? ticker.price.toFixed(2) : ticker.price.toFixed(4)}</span>
+          <div key={`${ticker.symbol}-${i}`} className="flex items-center gap-2 px-6 border-r border-zinc-800 last:border-0 whitespace-nowrap">
+            <span className="font-bold text-zinc-300 text-sm">{ticker.symbol}</span>
+            <span className="font-mono text-zinc-100 text-sm">${ticker.price >= 10 ? ticker.price.toFixed(2) : ticker.price.toFixed(4)}</span>
             <span className={`flex items-center text-xs font-semibold ${ticker.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {ticker.change >= 0 ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
               {Math.abs(ticker.change).toFixed(2)}%

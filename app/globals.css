@@ -1,5 +1,34 @@
 @import "tailwindcss";
 
+/* RTL: global direction for Hebrew UI; cards/dialogs align correctly */
+[dir='rtl'] {
+  text-align: right;
+}
+[dir='rtl'] .rounded-xl {
+  text-align: right;
+}
+
+/* Anthracite / Gold premium dark theme — Mon Chéri Group */
+:root {
+  --anthracite-bg: 24, 24, 27;
+  --anthracite-surface: 39, 39, 42;
+  --anthracite-border: 63, 63, 70;
+  --anthracite-muted: 113, 113, 122;
+  --anthracite-text: 244, 244, 245;
+  --gold: 202, 138, 4;
+  --gold-dim: 234, 179, 8;
+  --gold-muted: 161, 98, 7;
+  --terminal-bg: var(--anthracite-bg);
+  --terminal-surface: var(--anthracite-surface);
+  --terminal-border: var(--anthracite-border);
+  --terminal-text: var(--anthracite-text);
+  --terminal-muted: var(--anthracite-muted);
+  --terminal-accent: 34, 197, 94;
+  --terminal-accent-dim: 74, 222, 128;
+  --terminal-danger: 239, 68, 68;
+  --terminal-warn: 202, 138, 4;
+}
+
 .ticker-track {
   display: flex;
   width: max-content;
@@ -34,8 +63,8 @@
     max-width: 210mm;
     padding: 15mm;
     margin: 0;
-    background: #0f172a;
-    color: #e2e8f0;
+    background: rgb(var(--anthracite-bg));
+    color: rgb(var(--anthracite-text));
     font-size: 11pt;
   }
 }

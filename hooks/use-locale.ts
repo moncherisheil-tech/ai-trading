@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { messages, type Locale } from '@/lib/i18n';
 
 export function useLocale() {
-  const [locale, setLocale] = useState<Locale>('en');
+  const [locale, setLocale] = useState<Locale>('he');
 
   useEffect(() => {
     const sync = () => {

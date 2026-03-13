@@ -21,7 +21,9 @@ export const APP_CONFIG = {
   analysisDedupWindowMs: Number(process.env.ANALYSIS_DEDUP_WINDOW_MS || 30_000),
   maxFetchRetries: Number(process.env.MAX_FETCH_RETRIES || 3),
   minHumanDelayMs: Number(process.env.MIN_HUMAN_DELAY_MS || 1200),
-  trustedApiOrigins: ['https://api.binance.com', 'https://api.alternative.me'],
+  trustedApiOrigins: ['https://api.binance.com', 'https://api.alternative.me'] as string[],
+  /** Optional proxy for Binance when API returns 451 (e.g. region block). Example: https://your-proxy.com/binance */
+  proxyBinanceUrl: (process.env.PROXY_BINANCE_URL || '').replace(/\/$/, ''),
   tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
@@ -33,17 +35,22 @@ export const APP_CONFIG = {
   sqlitePath: process.env.SQLITE_DB_PATH || 'predictions.sqlite',
   postgresUrl: process.env.DATABASE_URL || '',
   backupKeep: Number(process.env.DB_BACKUP_KEEP || 7),
-} as const;
+  /** Timeout for Gemini API calls (ms); prevents server hang on slow responses. */
+  geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 60_000),
+};
 
-export const TARGET_SYMBOLS = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'BNBUSDT',
-  'SOLUSDT',
-  'XRPUSDT',
-  'ADAUSDT',
-  'DOGEUSDT',
-  'AVAXUSDT',
-  'LINKUSDT',
-  'DOTUSDT',
-] as const;
+if (APP_CONFIG.proxyBinanceUrl) {
+  try {
+    const origin = new URL(APP_CONFIG.proxyBinanceUrl).origin;
+    if (!APP_CONFIG.trustedApiOrigins.includes(origin)) {
+      APP_CONFIG.trustedApiOrigins = [...APP_CONFIG.trustedApiOrigins, origin];
+    }
+  } catch {
+    // invalid PROXY_BINANCE_URL ignored
+  }
+}
+
+import { CRYPTO_SYMBOLS } from './symbols';
+
+/** סימבולי Binance (עם USDT) לניתוח ולבדיקות. */
+export const TARGET_SYMBOLS = CRYPTO_SYMBOLS.map((b) => `${b}USDT`) as readonly string[];

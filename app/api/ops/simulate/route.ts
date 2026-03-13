@@ -26,8 +26,17 @@ export async function POST(request: NextRequest) {
   } catch {
     // ignore
   }
-  const symbol = (body.symbol || 'BTC').trim().toUpperCase() || 'BTC';
+  const raw = (body.symbol || 'BTC').trim().toUpperCase() || 'BTC';
+  const symbol = raw.endsWith('USDT') ? raw : `${raw}USDT`;
 
-  const result = await runCryptoAnalysisCore(symbol, { skipCache: true });
-  return NextResponse.json(result);
+  try {
+    const result = await runCryptoAnalysisCore(symbol, { skipCache: true });
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'שגיאה בניתוח';
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: 200 }
+    );
+  }
 }

@@ -1,12 +1,6 @@
-import fs from 'fs';
-import path from 'path';
-import { APP_CONFIG } from '@/lib/config';
-import { FilePredictionRepository } from '@/lib/db/file-repository';
-import { SqlitePredictionRepository } from '@/lib/db/sqlite-repository';
-import { PostgresPredictionRepository } from '@/lib/db/postgres-repository';
+import { neon } from '@neondatabase/serverless';
 
-const dbPath = path.join(process.cwd(), 'predictions.json');
-
+// --- 1. הגדרות טיפוסים (חובה עבור שאר האתר) ---
 export interface SourceCitation {
   source_name: string;
   source_type: 'market_data' | 'sentiment' | 'historical' | 'derived';
@@ -23,121 +17,125 @@ export interface PredictionRecord {
   probability: number;
   target_percentage: number;
   entry_price: number;
-  logic: string;
+  status: string;
+  /** Set after evaluation; used in UI and backtest. */
+  actual_outcome?: string;
+  sentiment_score?: number;
+  market_narrative?: string;
+  logic?: string;
+  error_report?: string;
+  bottom_line_he?: string;
+  risk_level_he?: string;
+  forecast_24h_he?: string;
+  risk_status?: 'normal' | 'extreme_fear' | 'extreme_greed';
   strategic_advice?: string;
   learning_context?: string;
   sources?: SourceCitation[];
-  status: 'pending' | 'evaluated';
-  actual_outcome?: string;
-  error_report?: string;
   model_name?: string;
   fallback_used?: boolean;
   latency_ms?: number;
   validation_repaired?: boolean;
-  sentiment_score?: number;
-  market_narrative?: string;
-  risk_status?: 'normal' | 'extreme_fear' | 'extreme_greed';
 }
 
-function isSourceCitation(value: unknown): value is SourceCitation {
-  if (!value || typeof value !== 'object') return false;
-  const item = value as Partial<SourceCitation>;
-  return (
-    typeof item.source_name === 'string' &&
-    (item.source_type === 'market_data' || item.source_type === 'sentiment' || item.source_type === 'historical' || item.source_type === 'derived') &&
-    typeof item.timestamp === 'string' &&
-    typeof item.evidence_snippet === 'string' &&
-    typeof item.relevance_score === 'number'
-  );
-}
+// --- 2. מנוע Neon (lazy – לא יוצר חיבור אם חסר DATABASE_URL) ---
+let _sql: ReturnType<typeof neon> | null = null;
 
-function normalizeLegacySources(input: unknown): SourceCitation[] | undefined {
-  if (!Array.isArray(input)) return undefined;
-
-  if (input.every((item) => typeof item === 'string')) {
-    return input.map((name) => ({
-      source_name: name,
-      source_type: 'derived',
-      timestamp: new Date(0).toISOString(),
-      evidence_snippet: 'Legacy source migrated from string list',
-      relevance_score: 0.5,
-    }));
+function getSql(): ReturnType<typeof neon> {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is missing');
   }
-
-  const structured = input.filter((item) => isSourceCitation(item));
-  return structured.length > 0 ? structured : undefined;
-}
-
-function isPredictionRecord(value: unknown): value is PredictionRecord {
-  if (!value || typeof value !== 'object') return false;
-  const item = value as Partial<PredictionRecord>;
-  const normalizedSources = normalizeLegacySources(item.sources);
-
-  if (normalizedSources) {
-    item.sources = normalizedSources;
+  if (!_sql) {
+    _sql = neon(process.env.DATABASE_URL);
   }
-
-  return (
-    typeof item.id === 'string' &&
-    typeof item.symbol === 'string' &&
-    typeof item.prediction_date === 'string' &&
-    (item.predicted_direction === 'Bullish' || item.predicted_direction === 'Bearish' || item.predicted_direction === 'Neutral') &&
-    typeof item.probability === 'number' &&
-    typeof item.target_percentage === 'number' &&
-    typeof item.entry_price === 'number' &&
-    typeof item.logic === 'string' &&
-    (item.status === 'pending' || item.status === 'evaluated') &&
-    (item.sources === undefined || item.sources.every((source) => isSourceCitation(source)))
-  );
+  return _sql;
 }
 
-export function getDb(): PredictionRecord[] {
-  throw new Error('Use getDbAsync instead.');
-}
-
-export function saveDb(data: PredictionRecord[]) {
-  throw new Error('Use saveDbAsync instead.');
-}
-
-function normalizeRows(rows: PredictionRecord[]): PredictionRecord[] {
-  return rows.filter(isPredictionRecord);
-}
-
-export async function getDbAsync(): Promise<PredictionRecord[]> {
-  // DATABASE_URL: Neon, Vercel Postgres, or any Postgres connection string
-  if (APP_CONFIG.dbDriver === 'postgres' && APP_CONFIG.postgresUrl) {
-    const repo = new PostgresPredictionRepository(APP_CONFIG.postgresUrl);
-    const rows = await repo.getAllAsync();
-    return normalizeRows(rows);
-  }
-
-  if (APP_CONFIG.dbDriver === 'sqlite') {
-    const repo = new SqlitePredictionRepository(path.join(process.cwd(), APP_CONFIG.sqlitePath));
-    return normalizeRows(repo.getAll());
-  }
-
-  const repo = new FilePredictionRepository();
-  return normalizeRows(repo.getAll());
-}
-
-export async function saveDbAsync(data: PredictionRecord[]): Promise<void> {
-  const rows = normalizeRows(data);
+export async function query(text: string, params: any[] = []) {
   try {
-    if (APP_CONFIG.dbDriver === 'postgres' && APP_CONFIG.postgresUrl) {
-      const repo = new PostgresPredictionRepository(APP_CONFIG.postgresUrl);
-      await repo.saveAllAsync(rows);
-      return;
-    }
-
-    if (APP_CONFIG.dbDriver === 'sqlite') {
-      const repo = new SqlitePredictionRepository(path.join(process.cwd(), APP_CONFIG.sqlitePath));
-      repo.saveAll(rows);
-      return;
-    }
-
-    const repo = new FilePredictionRepository();
-    repo.saveAll(rows);
-  } catch {
-    // Read-only filesystem (e.g. Vercel): avoid 500 when DB_DRIVER is file/sqlite without persistent storage
+    const sql = getSql();
+    const result = await sql.query(text, params);
+    return result;
+  } catch (error) {
+    console.error('Database Error:', error);
+    throw error;
   }
 }
+
+export async function getPredictionRepository() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL is missing');
+  }
+  const { PostgresPredictionRepository } = await import('./db/postgres-repository');
+  return new PostgresPredictionRepository(url);
+}
+
+/**
+ * אתחול בסיס הנתונים - יוצר את הטבלאות.
+ * Serverless-safe: לא מפיל את ה-route אם חסר DATABASE_URL או אם יצירת הטבלאות נכשלת.
+ */
+export async function initDB(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL is missing');
+    return;
+  }
+  try {
+    const sql = getSql();
+    await sql.query(
+      `CREATE TABLE IF NOT EXISTS prediction_records (
+        id TEXT PRIMARY KEY,
+        symbol TEXT NOT NULL,
+        status TEXT NOT NULL,
+        prediction_date TIMESTAMPTZ NOT NULL,
+        payload JSONB NOT NULL
+      )`,
+      []
+    );
+    await sql.query(
+      `CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`,
+      []
+    );
+  } catch (err) {
+    console.error('DB initialization failed:', err);
+    // לא זורקים – כדי שה-API route לא יקבל 500 בגלל אתחול
+  }
+}
+
+/**
+ * מחזיר את כל רשומות החיזויים מהמאגר (Postgres).
+ * אם חסר DATABASE_URL – מחזיר מערך ריק.
+ */
+export async function getDbAsync(): Promise<PredictionRecord[]> {
+  if (!process.env.DATABASE_URL) {
+    return [];
+  }
+  try {
+    const repo = await getPredictionRepository();
+    return await repo.getAllAsync();
+  } catch (error) {
+    console.error('getDbAsync failed:', error);
+    return [];
+  }
+}
+
+/**
+ * שומר את מערך החיזויים במאגר.
+ * אם חסר DATABASE_URL – לא עושה כלום.
+ */
+export async function saveDbAsync(rows: PredictionRecord[]): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    return;
+  }
+  try {
+    const repo = await getPredictionRepository();
+    await repo.saveAllAsync(rows);
+  } catch (error) {
+    console.error('saveDbAsync failed:', error);
+  }
+}
+
+export default { getSql, query, getDbAsync, saveDbAsync, getPredictionRepository, initDB };

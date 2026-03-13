@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { getBaseUrl } from '@/lib/config';
 import PerformanceTrendsCharts from '@/components/PerformanceTrendsCharts';
+import { getT } from '@/lib/i18n';
+
+const t = getT('he');
 
 async function fetchStrategies() {
   const baseUrl = getBaseUrl();
@@ -81,11 +84,11 @@ export default async function StrategyOpsPage() {
   const totalStrategiesApproved = accuracy?.totalStrategiesApproved ?? 0;
 
   return (
-    <main className="min-h-screen bg-slate-100 p-6">
+    <main className="min-h-screen bg-slate-900 p-6" dir="rtl">
       <div className="max-w-5xl mx-auto space-y-6">
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-slate-900">Strategy Insights</h1>
+            <h1 className="text-2xl font-bold text-slate-100">{t.strategyInsights}</h1>
             <form
             action={async () => {
               'use server';
@@ -94,19 +97,19 @@ export default async function StrategyOpsPage() {
           >
             <button
               type="submit"
-              className="inline-flex items-center rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+              className="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-500"
             >
-              Run Learning Cycle Now
+              {t.runLearningCycle}
             </button>
           </form>
           </div>
-          <p className="text-xs text-slate-500 flex items-center gap-1.5">
+          <p className="text-xs text-slate-400 flex items-center gap-1.5">
             <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" aria-hidden />
-            Predictions made under extreme market sentiment are marked with a warning in the Analysis view and receive a 50% confidence penalty.
+            תחזיות תחת סנטימנט קיצוני מסומנות באזהרה ומקבלות הפחתת ביטחון 50%.
           </p>
         </div>
 
-        <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
           <PerformanceTrendsCharts
             timeSeries={timeSeries}
             totalBacktests={totalBacktests}
@@ -117,12 +120,12 @@ export default async function StrategyOpsPage() {
         </div>
 
         {!strategies || !strategies.success ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm text-red-600">
-            Failed to load strategy insights.
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 text-sm text-amber-400">
+            {t.failedToLoadStrategies}
           </div>
         ) : strategies.data.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 text-sm text-slate-600">
-            No strategy insights yet. Run a learning cycle after some predictions have been evaluated.
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 text-sm text-slate-400">
+            {t.noStrategiesYet}
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 p-4">
@@ -140,30 +143,30 @@ export default async function StrategyOpsPage() {
                 </thead>
                 <tbody>
                   {strategies.data.map((item: any) => (
-                    <tr key={item.id} className="border-b border-slate-100 align-top">
-                      <td className="px-3 py-2 text-xs text-slate-500">
-                        {new Date(item.created_at).toLocaleString()}
+                    <tr key={item.id} className="border-b border-slate-700 align-top">
+                      <td className="px-3 py-2 text-xs text-slate-400">
+                        {new Date(item.created_at).toLocaleString('he-IL')}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-900 max-w-xs whitespace-pre-wrap">
+                      <td className="px-3 py-2 text-sm text-slate-200 max-w-xs whitespace-pre-wrap">
                         {item.pattern_summary}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-900 max-w-xs whitespace-pre-wrap">
+                      <td className="px-3 py-2 text-sm text-slate-200 max-w-xs whitespace-pre-wrap">
                         {item.actionable_rule}
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-700">
+                      <td className="px-3 py-2 text-xs text-slate-300">
                         {(item.confidence_score * 100).toFixed(0)}%
                       </td>
                       <td className="px-3 py-2 text-xs">
                         <span
                           className={
                             item.status === 'approved'
-                              ? 'inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700'
+                              ? 'inline-flex rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-400'
                               : item.status === 'rejected'
-                              ? 'inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-rose-700'
-                              : 'inline-flex rounded-full bg-slate-50 px-2 py-0.5 text-slate-700'
+                              ? 'inline-flex rounded-full bg-rose-500/20 px-2 py-0.5 text-rose-400'
+                              : 'inline-flex rounded-full bg-slate-600 px-2 py-0.5 text-slate-400'
                           }
                         >
-                          {item.status}
+                          {item.status === 'approved' ? 'אושר' : item.status === 'rejected' ? 'נדחה' : item.status}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-xs space-x-2">
@@ -176,9 +179,9 @@ export default async function StrategyOpsPage() {
                         >
                           <button
                             type="submit"
-                            className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+                            className="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-500"
                           >
-                            Approve
+                            {t.approve}
                           </button>
                         </form>
                         <form
@@ -190,9 +193,9 @@ export default async function StrategyOpsPage() {
                         >
                           <button
                             type="submit"
-                            className="rounded bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-700"
+                            className="rounded bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-500"
                           >
-                            Reject
+                            {t.reject}
                           </button>
                         </form>
                       </td>

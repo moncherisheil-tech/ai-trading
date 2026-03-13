@@ -1,15 +1,10 @@
 import { z } from 'zod';
 
-export const binanceKlineRowSchema = z.tuple([
-  z.number(),
-  z.string(),
-  z.string(),
-  z.string(),
-  z.string(),
-  z.string(),
-]);
+/** Single kline row: Binance returns 12 elements; we use indices 0–5 (time, O, H, L, C, V). Accept 6–30 elements. */
+export const binanceKlineRowSchema = z.array(z.any()).min(6).max(30);
 
-export const binanceKlinesSchema = z.array(binanceKlineRowSchema);
+/** Price history: up to 1000 candles (production limit). */
+export const binanceKlinesSchema = z.array(binanceKlineRowSchema).min(0).max(1000);
 
 export const fearGreedSchema = z.object({
   data: z.array(
@@ -28,16 +23,35 @@ export const sourceCitationSchema = z.object({
   relevance_score: z.number().min(0).max(1),
 });
 
+/** Risk level as output by the Quantitative AI engine. */
+export const riskLevelSchema = z.enum(['High', 'Medium', 'Low']);
+
+/** Strict AI prediction schema (full validation) — institutional-grade Quant engine output. */
 export const aiPredictionSchema = z.object({
   symbol: z.string().min(1),
   probability: z.number().min(0).max(100),
   target_percentage: z.number(),
   direction: z.enum(['Bullish', 'Bearish', 'Neutral']),
+  risk_level: riskLevelSchema.optional(),
   logic: z.string().min(1),
   strategic_advice: z.string().min(1),
   learning_context: z.string().min(1),
-  sources: z.array(sourceCitationSchema).min(1),
+  sources: z.array(sourceCitationSchema).min(0).max(1000),
+});
+
+/** Partial schema with defaults for autonomous repair when AI returns incomplete JSON. */
+export const aiPredictionPartialSchema = aiPredictionSchema.partial().extend({
+  symbol: z.string().min(1).default('UNKNOWN'),
+  probability: z.number().min(0).max(100).default(50),
+  target_percentage: z.number().default(0),
+  direction: z.enum(['Bullish', 'Bearish', 'Neutral']).default('Neutral'),
+  risk_level: riskLevelSchema.optional(),
+  logic: z.string().min(1).default('Partial data recovery.'),
+  strategic_advice: z.string().min(1).default('Verify prediction manually.'),
+  learning_context: z.string().min(1).default('Recovered from partial response.'),
+  sources: z.array(sourceCitationSchema).min(0).max(1000).default([]),
 });
 
 export type BinanceKlineRow = z.infer<typeof binanceKlineRowSchema>;
 export type AiPredictionPayload = z.infer<typeof aiPredictionSchema>;
+export type RiskLevel = z.infer<typeof riskLevelSchema>;

@@ -22,3 +22,8 @@ Options:
 - **Any Postgres host** (e.g. Neon, Supabase, Railway): create a DB, get the connection string, set `DATABASE_URL`.
 
 After setting `DB_DRIVER=postgres` and `DATABASE_URL`, run the app (and any migrations) so predictions and evaluations are stored in the hosted DB instead of the local filesystem.
+
+## Environment separation (Neon / Vercel)
+
+- **Vercel**: In Project Settings → Environment Variables, ensure `DATABASE_URL` points to the correct Neon project. Use separate Neon projects (or branches) per environment (e.g. Preview vs Production) so that "Mon Chéri" production and other systems do not share the same DB.
+- **Neon**: Create one project per app/environment; attach the pooler connection string to `DATABASE_URL` in Vercel to avoid "Too many connections" under load.

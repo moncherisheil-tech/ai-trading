@@ -20,19 +20,15 @@ function LoginForm() {
     try {
       const result = await loginWithPassword(password);
       if (result.success) {
-        const target = result.redirectTo || from || '/ops';
-        // Force full navigation so the new cookie is sent and session is recognized (avoids Verifying hang)
-        if (typeof window !== 'undefined') {
-          window.location.href = target;
-        } else {
-          router.refresh();
-          router.push(target);
-        }
+        const fromPath = searchParams.get('from');
+        const target =
+          (fromPath && fromPath.startsWith('/ops')) ? fromPath : (result.redirectTo || '/ops');
+        window.location.href = target;
         return;
       }
       setError(result.error);
     } catch {
-      setError('An error occurred. Please try again.');
+      setError('אירעה שגיאה. נסה שוב.');
     } finally {
       setLoading(false);
     }
@@ -50,18 +46,18 @@ function LoginForm() {
       </div>
 
       <div className="p-6 sm:p-8">
-        <div className="flex items-center justify-center gap-2 mb-2">
+        <div className="flex items-center justify-center gap-2 mb-2" dir="rtl">
           <Shield className="w-6 h-6 text-emerald-500/90" aria-hidden />
           <h1 className="text-lg font-semibold text-zinc-100 tracking-tight text-center">
-            AI Intelligence Terminal
+            מסוף ניתוח כמותי — Mon Chéri Group
           </h1>
         </div>
-        <p className="text-xs text-zinc-500 text-center mb-8">Secure Access</p>
+        <p className="text-xs text-zinc-500 text-center mb-8">גישה מאובטחת</p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5" dir="rtl">
           <div>
             <label htmlFor="password" className="block text-xs font-medium text-zinc-400 mb-2">
-              Password
+              סיסמה
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" aria-hidden />
@@ -72,7 +68,7 @@ function LoginForm() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                placeholder="Enter access key"
+                placeholder="הזן מפתח גישה"
                 className="w-full pl-10 pr-4 py-3 rounded-lg bg-zinc-800/80 border border-zinc-600/80 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 transition-colors"
                 required
                 disabled={loading}
@@ -94,19 +90,19 @@ function LoginForm() {
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                Verifying…
+                מאמת…
               </>
             ) : (
               <>
                 <Shield className="w-4 h-4" aria-hidden />
-                Secure Login
+                כניסה מאובטחת
               </>
             )}
           </button>
         </form>
 
         <p className="text-[10px] text-zinc-600 text-center mt-6">
-          Authorized access only. All activity is logged.
+          גישה מורשית בלבד. כל הפעילות מתועדת.
         </p>
       </div>
     </div>
@@ -126,7 +122,7 @@ function LoginFallback() {
       </div>
       <div className="p-6 sm:p-8 flex flex-col items-center justify-center min-h-[280px]">
         <Loader2 className="w-8 h-8 text-emerald-500/70 animate-spin mb-4" aria-hidden />
-        <p className="text-xs text-zinc-500">Loading…</p>
+        <p className="text-xs text-zinc-500">טוען…</p>
       </div>
     </div>
   );

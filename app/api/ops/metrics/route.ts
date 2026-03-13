@@ -1,3 +1,4 @@
+/** Edge runtime not used: route depends on Node fs and getDbAsync (file or Postgres). */
 import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
@@ -45,7 +46,16 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const rows = await getDbAsync();
+  let rows: Awaited<ReturnType<typeof getDbAsync>>;
+  try {
+    rows = await getDbAsync();
+  } catch (err) {
+    console.error('Metrics route: getDbAsync failed', err);
+    return NextResponse.json(
+      { success: false, error: 'Database unavailable' },
+      { status: 500 }
+    );
+  }
   const pending = rows.filter((r) => r.status === 'pending').length;
   const evaluated = rows.filter((r) => r.status === 'evaluated').length;
   const latencyRows = rows

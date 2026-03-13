@@ -9,6 +9,9 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import { getT } from '@/lib/i18n';
+
+const t = getT('he');
 
 export type AccuracyTimeSeriesPoint = {
   date: string;
@@ -35,45 +38,45 @@ export default function PerformanceTrendsCharts({
   const hasData = timeSeries.length > 0;
 
   return (
-    <section className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-800">Performance Trends</h2>
+    <section className="space-y-4" dir="rtl">
+      <h2 className="text-lg font-semibold text-slate-200">מגמות ביצוע</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-xs text-slate-500 uppercase tracking-wide">Total Backtests</div>
-          <div className="text-2xl font-semibold text-slate-900">{totalBacktests}</div>
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide">סה&quot;כ בדיקות</div>
+          <div className="text-2xl font-semibold text-slate-100">{totalBacktests}</div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-xs text-slate-500 uppercase tracking-wide">Current Accuracy</div>
-          <div className="text-2xl font-semibold text-emerald-600">
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide">דיוק נוכחי</div>
+          <div className="text-2xl font-semibold text-emerald-400">
             {totalBacktests > 0 ? `${currentAccuracyPct}%` : '—'}
           </div>
         </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="text-xs text-slate-500 uppercase tracking-wide">Last Learning Cycle</div>
-          <div className="text-sm font-medium text-slate-700">
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div className="text-xs text-slate-400 uppercase tracking-wide">מחזור למידה אחרון</div>
+          <div className="text-sm font-medium text-slate-300">
             {lastLearningCycleDate
-              ? new Date(lastLearningCycleDate).toLocaleDateString(undefined, {
+              ? new Date(lastLearningCycleDate).toLocaleDateString('he-IL', {
                   dateStyle: 'medium',
                   timeStyle: 'short',
                 })
               : '—'}
           </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {totalStrategiesApproved} strategy insights approved
+          <div className="text-xs text-slate-400 mt-1">
+            {totalStrategiesApproved} תובנות מאושרות
           </div>
         </div>
       </div>
 
       {!hasData ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-500 text-sm">
-          No backtest data yet. Evaluate some predictions to see precision trends.
+        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 text-center text-slate-400 text-sm">
+          אין עדיין נתוני בדיקה. הערך תחזיות כדי לראות מגמות דיוק.
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="text-sm font-medium text-slate-700 mb-3">
-              Average Error Rate Over Time (goal: trending down)
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">
+              שיעור שגיאה ממוצע לאורך זמן
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -117,9 +120,9 @@ export default function PerformanceTrendsCharts({
             </div>
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <h3 className="text-sm font-medium text-slate-700 mb-3">
-              Prediction Accuracy % (goal: trending up)
+          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">
+              {t.accuracyChartTitle}
             </h3>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
@@ -146,13 +149,13 @@ export default function PerformanceTrendsCharts({
                       border: '1px solid #e2e8f0',
                       boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                     }}
-                    formatter={(value: number) => [`${value}%`, 'Accuracy']}
-                    labelFormatter={(label) => `Date: ${label}`}
+                    formatter={(value: number) => [`${value}%`, t.accuracyLabel]}
+                    labelFormatter={(label) => `${t.dateLabel}: ${label}`}
                   />
                   <Line
                     type="monotone"
                     dataKey="accuracyPct"
-                    name="Accuracy %"
+                    name={`${t.accuracyLabel} %`}
                     stroke="#059669"
                     strokeWidth={2}
                     dot={{ r: 3, fill: '#059669' }}

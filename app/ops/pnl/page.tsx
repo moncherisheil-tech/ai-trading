@@ -16,6 +16,8 @@ async function fetchPnl() {
   return response.json();
 }
 
+const PNL_TIMEOUT_MS = 6000;
+
 export default async function PnlOpsPage() {
   if (isSessionEnabled()) {
     const token = (await cookies()).get('app_auth_token')?.value || '';
@@ -25,10 +27,13 @@ export default async function PnlOpsPage() {
     }
   }
 
-  const data = await fetchPnl();
+  const data = await Promise.race([
+    fetchPnl(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), PNL_TIMEOUT_MS)),
+  ]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-6" dir="rtl">
       <div className="max-w-7xl mx-auto">
         <PnlTerminal data={data} />
       </div>

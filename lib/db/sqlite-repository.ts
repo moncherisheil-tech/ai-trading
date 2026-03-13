@@ -13,6 +13,9 @@ export class SqlitePredictionRepository implements PredictionRepository {
   private readonly db: InstanceType<DatabaseCtor>;
 
   constructor(filePath: string) {
+    if (typeof process !== 'undefined' && process.env.VERCEL) {
+      throw new Error('SQLite is not available on Vercel. Use DATABASE_URL (Postgres) instead.');
+    }
     // Lazy import keeps sqlite optional unless DB_DRIVER=sqlite.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const BetterSqlite3 = require('better-sqlite3') as DatabaseCtor;

@@ -1,25 +1,13 @@
-import dynamic from 'next/dynamic';
 import AppHeader from '@/components/AppHeader';
+import MainDashboard from '@/components/MainDashboard';
 
-const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
-  loading: () => (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-      <div className="bg-white border border-slate-200 rounded-2xl p-8 text-sm text-slate-500 animate-pulse">
-        Loading analyzer module...
-      </div>
-    </div>
-  ),
-});
+export const dynamic = 'force-dynamic';
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-slate-50">
+    <main className="min-h-screen bg-zinc-900 overflow-x-hidden pb-20 sm:pb-0" dir="rtl">
       <AppHeader />
-
-      {/* Main Content */}
-      <div className="py-8">
-        <CryptoAnalyzer />
-      </div>
+      <MainDashboard />
     </main>
   );
 }
