@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.0"
+  }
+}
