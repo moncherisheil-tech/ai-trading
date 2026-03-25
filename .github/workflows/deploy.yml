@@ -15,7 +15,10 @@ jobs:
           script: |
             cd ~/ai-trading
             git pull
-            echo "${{ secrets.ENV_FILE }}" > .env
+            cat << 'EOF' > .env
+            ${{ secrets.ENV_FILE }}
+            EOF
+            rm -rf .next
             npm install
             npm run build
             pm2 restart mon-cheri-quantum || pm2 start "npm start" --name "mon-cheri-quantum"
