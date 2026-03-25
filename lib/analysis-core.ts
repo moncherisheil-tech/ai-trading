@@ -34,6 +34,7 @@ import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine
 import { calculatePositionSize, calculateTradeLevels } from '@/lib/trading/risk-manager';
 import { getRecentWhaleMovements } from '@/lib/trading/whale-tracker';
 import { getDeveloperActivity } from '@/lib/trading/github-tracker';
+import { resolveGeminiModel } from '@/lib/gemini-model';
 import {
   computeEmaSeries,
   computeBollingerSeries,
@@ -762,7 +763,11 @@ RULES:
 
   let apiResult: { response: { text: () => string } };
   try {
-    const model = genAI.getGenerativeModel({ model: activeModel, systemInstruction });
+    const selectedModel = resolveGeminiModel(activeModel);
+    const model = genAI.getGenerativeModel(
+      { model: selectedModel.model, systemInstruction },
+      selectedModel.requestOptions
+    );
     apiResult = await withGeminiTimeout(
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -793,7 +798,11 @@ RULES:
         `[Gemini] Primary model quota exhausted (429); falling back to ${activeModel} for symbol ${cleanSymbol}.`
       );
       try {
-        const fallbackModel = genAI.getGenerativeModel({ model: activeModel, systemInstruction });
+        const selectedFallback = resolveGeminiModel(activeModel);
+        const fallbackModel = genAI.getGenerativeModel(
+          { model: selectedFallback.model, systemInstruction },
+          selectedFallback.requestOptions
+        );
         apiResult = await withGeminiTimeout(
           fallbackModel.generateContent({
             contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -833,7 +842,11 @@ RULES:
     console.warn(
       `[Gemini] Empty response from ${previousModel}; retrying with fallback model (${activeModel}) for symbol ${cleanSymbol}.`
     );
-    const emptyRetryModel = genAI.getGenerativeModel({ model: activeModel, systemInstruction });
+    const selectedRetryModel = resolveGeminiModel(activeModel);
+    const emptyRetryModel = genAI.getGenerativeModel(
+      { model: selectedRetryModel.model, systemInstruction },
+      selectedRetryModel.requestOptions
+    );
     apiResult = await withGeminiTimeout(
       emptyRetryModel.generateContent({
         contents: [{ role: 'user', parts: [{ text: promptText }] }],
@@ -881,7 +894,11 @@ RULES:
       instruction: 'Reply with ONLY a single valid JSON object. No markdown, no explanation. Return corrected prediction with direction and target_percentage consistent. Include risk_level (High/Medium/Low) and all required fields: symbol, probability, target_percentage, direction, risk_level, logic, strategic_advice, learning_context, sources.',
     };
     const repairSystemInstruction = 'You return only valid JSON. No markdown code fences, no extra text. Fix the prediction object so direction and target_percentage are consistent.';
-    const repairModel = genAI.getGenerativeModel({ model: activeModel, systemInstruction: repairSystemInstruction });
+    const selectedRepairModel = resolveGeminiModel(activeModel);
+    const repairModel = genAI.getGenerativeModel(
+      { model: selectedRepairModel.model, systemInstruction: repairSystemInstruction },
+      selectedRepairModel.requestOptions
+    );
     const repairResponse = await withGeminiTimeout(
       repairModel.generateContent({
         contents: [{ role: 'user', parts: [{ text: JSON.stringify(repairPrompt) }] }],

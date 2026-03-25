@@ -21,6 +21,7 @@ import { querySimilarTrades } from '@/lib/vector-db';
 import { getDeepMemoryLessonBlock, DEEP_MEMORY_LESSON_001 } from '@/lib/quant/deep-memory-lessons';
 import { fetchWithBackoff } from '@/lib/api-utils';
 import { getExpertWeights } from '@/lib/trading/expert-weights';
+import { resolveGeminiModel } from '@/lib/gemini-model';
 
 /** Absolute upper-bound fail-safe (90s) only if external APIs (Groq/Gemini) become completely unresponsive. Experts run without aggressive per-expert cutoff. */
 const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 90_000;
@@ -186,6 +187,16 @@ export interface ConsensusResult {
   consensus_approved: boolean;
 }
 
+export interface ConsensusMockPayload {
+  tech: ExpertTechnicianOutput;
+  risk: ExpertRiskOutput;
+  psych: ExpertPsychOutput;
+  macro: ExpertMacroOutput;
+  onchain: ExpertOnChainOutput;
+  deepMemory: ExpertDeepMemoryOutput;
+  judge: { master_insight_he: string; reasoning_path: string };
+}
+
 function normalizeSymbol(s: string): string {
   const u = (s || '').toUpperCase().trim();
   return u.endsWith('USDT') ? u : `${u}USDT`;
@@ -332,10 +343,14 @@ async function callGeminiJson<T>(
   const schemaDesc = fieldNames.map((k) => `"${k}"`).join(', ');
   let fullPrompt = `${prompt}\n\nחובה: החזר רק אובייקט JSON גולמי עם השדות: ${schemaDesc}. אסור markdown (למשל \`\`\`json). אסור טקסט מקדים או מסביר.`;
   fullPrompt += "\n\nCRITICAL JSON FORMATTING RULES:\n1. Output strictly valid JSON.\n2. DO NOT use unescaped double quotes (\") inside string values. If you need to quote a word inside the text, use single quotes (') instead.\n3. Ensure all properties and string values are properly closed.";
-  const generativeModel = genAI.getGenerativeModel({
-    model,
-    systemInstruction: CONSENSUS_SYSTEM_INSTRUCTION,
-  });
+  const selectedModel = resolveGeminiModel(model);
+  const generativeModel = genAI.getGenerativeModel(
+    {
+      model: selectedModel.model,
+      systemInstruction: CONSENSUS_SYSTEM_INSTRUCTION,
+    },
+    selectedModel.requestOptions
+  );
 
   const res = await withRetry(
     () =>
@@ -884,6 +899,8 @@ export async function runConsensusEngine(
     moeConfidenceThreshold?: number;
     /** When set, skip calling Groq for Macro Expert and use this summary (scanner pre-fetch). */
     precomputedMacro?: ExpertMacroOutput;
+    /** Local QA mode: bypass all live experts and use deterministic board payload. */
+    mockPayload?: ConsensusMockPayload;
   }
 ): Promise<ConsensusResult> {
   const model = options?.model ?? APP_CONFIG.primaryModel ?? 'gemini-2.5-flash';
@@ -908,6 +925,40 @@ export async function runConsensusEngine(
     }
   } catch {
     if (threshold == null) threshold = CONSENSUS_THRESHOLD;
+  }
+
+  if (options?.mockPayload) {
+    const cohesion = await evaluateSystemCohesionAsync({
+      tech_score: options.mockPayload.tech.tech_score,
+      risk_score: options.mockPayload.risk.risk_score,
+      psych_score: options.mockPayload.psych.psych_score,
+    });
+    const effectiveThreshold = cohesion.marketUncertainty ? cohesion.suggestedMoeThreshold : threshold;
+    const final_confidence =
+      options.mockPayload.tech.tech_score * WEIGHT_TECH +
+      options.mockPayload.risk.risk_score * WEIGHT_RISK +
+      options.mockPayload.psych.psych_score * WEIGHT_PSYCH +
+      options.mockPayload.macro.macro_score * WEIGHT_MACRO +
+      options.mockPayload.onchain.onchain_score * WEIGHT_ONCHAIN +
+      options.mockPayload.deepMemory.deep_memory_score * WEIGHT_DEEP_MEMORY;
+    return {
+      tech_score: options.mockPayload.tech.tech_score,
+      risk_score: options.mockPayload.risk.risk_score,
+      psych_score: options.mockPayload.psych.psych_score,
+      macro_score: options.mockPayload.macro.macro_score,
+      onchain_score: options.mockPayload.onchain.onchain_score,
+      deep_memory_score: options.mockPayload.deepMemory.deep_memory_score,
+      tech_logic: options.mockPayload.tech.tech_logic,
+      risk_logic: options.mockPayload.risk.risk_logic,
+      psych_logic: options.mockPayload.psych.psych_logic,
+      macro_logic: options.mockPayload.macro.macro_logic,
+      onchain_logic: options.mockPayload.onchain.onchain_logic,
+      deep_memory_logic: options.mockPayload.deepMemory.deep_memory_logic,
+      master_insight_he: options.mockPayload.judge.master_insight_he,
+      reasoning_path: options.mockPayload.judge.reasoning_path,
+      final_confidence: Math.round(final_confidence * 10) / 10,
+      consensus_approved: final_confidence >= effectiveThreshold,
+    };
   }
 
   const [deep_memory_context, twitterSentiment] = await Promise.all([

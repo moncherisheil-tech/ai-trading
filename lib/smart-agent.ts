@@ -16,9 +16,10 @@ import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { rsi, ema20, ema50 } from '@/lib/indicators';
 import { toDecimal } from '@/lib/decimal';
+import { resolveGeminiModel } from '@/lib/gemini-model';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
-const GEMINI_FALLBACK_MODEL = 'gemini-1.5-flash';
+const GEMINI_FALLBACK_MODEL = 'models/gemini-1.5-flash';
 const POST_MORTEM_LLM_TIMEOUT_MS = 12_000;
 
 /** Extract JSON string from model text (handles markdown fences and trailing text). Same logic for Groq and Gemini for consistent parsing. */
@@ -226,10 +227,14 @@ export async function generatePostMortem(
   try {
     const geminiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const model = genAI.getGenerativeModel({
-      model: GEMINI_FALLBACK_MODEL,
-      systemInstruction: 'You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).',
-    });
+    const selectedGeminiModel = resolveGeminiModel(GEMINI_FALLBACK_MODEL);
+    const model = genAI.getGenerativeModel(
+      {
+        model: selectedGeminiModel.model,
+        systemInstruction: 'You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).',
+      },
+      selectedGeminiModel.requestOptions
+    );
     const res = await Promise.race([
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
