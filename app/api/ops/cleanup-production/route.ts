@@ -17,6 +17,7 @@ import { deleteAllScannerAlertLog } from '@/lib/db/scanner-alert-log';
 import { resetScannerDiagnostics } from '@/lib/workers/market-scanner';
 import { invalidateTickerCache } from '@/lib/cache-service';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -25,17 +26,7 @@ const LAUNCH_MESSAGE =
   '🚀 Smart Money v1.0 באוויר! המערכת מאותחלת, נקייה וסורקת כעת בשידור חי.';
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const secret =
-    process.env.PRODUCTION_CLEANUP_SECRET ||
-    process.env.CRON_SECRET ||
-    process.env.WORKER_CRON_SECRET ||
-    '';
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const token = authHeader.slice(7).trim();
-  if (!secret || token !== secret) {
+  if (!validateAdminOrCronAuth(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

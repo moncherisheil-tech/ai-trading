@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { CheckCircle2, Circle, Play, Loader2 } from 'lucide-react';
+import { runOpsSandboxAction } from '@/app/actions';
 
 type RunResponse = {
   ok: boolean;
@@ -33,17 +34,14 @@ export default function OpsSandboxPage() {
     setResult(null);
     setActiveIndex(-1);
 
-    for (let i = 0; i < CHECKS.length; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 420));
-      setActiveIndex(i);
-    }
-
     try {
-      const res = await fetch('/api/ops/sandbox/run', { method: 'POST' });
-      const json = (await res.json()) as RunResponse;
+      const out = await runOpsSandboxAction();
+      const json = out.success ? (out.data as RunResponse) : ({ ok: false, error: out.error } as RunResponse);
       setResult(json);
+      setActiveIndex(json.ok ? CHECKS.length - 1 : -1);
     } catch (error) {
       setResult({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      setActiveIndex(-1);
     } finally {
       setRunning(false);
     }

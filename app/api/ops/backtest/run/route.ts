@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
 import { generateBacktestSummary, performanceTierFromAccuracy, runBacktest, type BacktestReport } from '@/lib/ops/backtest-engine';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 /**
  * Persist bestExpertKey per symbol to Deep Memory (app_settings.neural.bestExpertBySymbol) so runConsensusEngine can boost that expert's weight.
@@ -35,26 +36,16 @@ async function persistBestExpertFromReports(reports: BacktestReport[]): Promise<
  */
 
 export async function GET(req: NextRequest) {
-  const timerName = `backtest-get-${Math.random().toString(36).slice(2, 7)}`;
+  const timerName = `backtest-get-${crypto.randomUUID()}`;
   console.time(timerName);
   
   try {
-    // שימוש ב-nextUrl המובנה של Next.js 15 ליציבות מקסימלית
-    const { searchParams } = req.nextUrl;
-    
-    // שליפה בטוחה של הסוד
-    const rawSecret = searchParams.get('secret');
-    const incomingSecret = typeof rawSecret === 'string' ? rawSecret.trim() : "";
-    
-    const rawEnvSecret = process.env.WORKER_CRON_SECRET;
-    const envSecret = typeof rawEnvSecret === 'string' ? rawEnvSecret.trim() : "";
-
-    // בדיקת הרשאה
-    if (!incomingSecret || incomingSecret !== envSecret) {
-      console.warn('[Backtest] Unauthorized attempt or secret mismatch');
+    if (!validateAdminOrCronAuth(req)) {
       console.timeEnd(timerName);
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
+
+    const { searchParams } = req.nextUrl;
 
     // ניתוח סימבולים בטוח
     const symbolsParam = searchParams.get('symbols');
@@ -139,23 +130,16 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const timerName = `backtest-post-${Math.random().toString(36).slice(2, 7)}`;
+  const timerName = `backtest-post-${crypto.randomUUID()}`;
   console.time(timerName);
 
   try {
-    const { searchParams } = req.nextUrl;
-    const body = await req.json().catch(() => ({}));
-
-    const rawSecret = searchParams.get('secret');
-    const incomingSecret = typeof rawSecret === 'string' ? rawSecret.trim() : "";
-    
-    const rawEnvSecret = process.env.WORKER_CRON_SECRET;
-    const envSecret = typeof rawEnvSecret === 'string' ? rawEnvSecret.trim() : "";
-
-    if (!incomingSecret || incomingSecret !== envSecret) {
+    if (!validateAdminOrCronAuth(req)) {
       console.timeEnd(timerName);
       return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
     }
+
+    const body = await req.json().catch(() => ({}));
 
     let symbols: string[] = [];
     if (Array.isArray(body.symbols)) {

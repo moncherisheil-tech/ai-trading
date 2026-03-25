@@ -17,6 +17,7 @@ import { ArrowLeft, FileText, TrendingUp, Target, BarChart3, Loader2, AlertCircl
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToastOptional } from '@/context/ToastContext';
 import PortfolioAllocation from '@/components/PortfolioAllocation';
+import { getLearningAccuracyAction, getOpsMetricsHistoricalAction, getSimulationSummaryAction } from '@/app/actions';
 
 export type HistoricalMetricsPayload = {
   success: boolean;
@@ -106,12 +107,8 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
     try {
       const start = new Date(2020, 0, 1).toISOString();
       const end = new Date().toISOString();
-      const res = await fetch(
-        `/api/ops/metrics/historical?from_date=${encodeURIComponent(start)}&to_date=${encodeURIComponent(end)}`,
-        { credentials: 'include' }
-      );
-      const json = await res.json();
-      if (res.ok && json?.success) setData(json as HistoricalMetricsPayload);
+      const out = await getOpsMetricsHistoricalAction({ from_date: start, to_date: end });
+      if (out.success) setData(out.data as HistoricalMetricsPayload);
       else setData(null);
     } catch {
       setData(null);
@@ -128,12 +125,14 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/simulation/summary', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: SimSummary | null) => {
-        if (!cancelled && json) setSimSummary(json);
-      })
-      .catch(() => {});
+    void (async () => {
+      try {
+        const out = await getSimulationSummaryAction();
+        if (!cancelled && out.success) setSimSummary(out.data as SimSummary);
+      } catch {
+        // ignore
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -144,14 +143,17 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
     start.setDate(start.getDate() - 90);
     const from = start.toISOString().slice(0, 10);
     const to = end.toISOString().slice(0, 10);
-    fetch(`/api/ops/metrics/learning-accuracy?from_date=${encodeURIComponent(from)}&to_date=${encodeURIComponent(to)}`, {
-      credentials: 'include',
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { success?: boolean; data?: LearningAccuracyPoint[] } | null) => {
-        if (!cancelled && json?.success && Array.isArray(json.data)) setLearningAccuracy(json.data);
-      })
-      .catch(() => {});
+    void (async () => {
+      try {
+        const out = await getLearningAccuracyAction({ from_date: from, to_date: to });
+        if (!cancelled && out.success) {
+          const payload = out.data as { data?: LearningAccuracyPoint[] };
+          if (Array.isArray(payload?.data)) setLearningAccuracy(payload.data);
+        }
+      } catch {
+        // ignore
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -217,7 +219,7 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
           type="button"
           onClick={fetchData}
           disabled={loading}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl text-[var(--app-muted)] hover:text-[var(--app-text)] hover:scale-[1.02] active:scale-95 px-3 py-2 text-sm transition-all duration-300 ease-in-out disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-black/40 frosted-obsidian text-[var(--app-muted)] hover:text-[var(--app-text)] hover:scale-[1.02] active:scale-95 px-3 py-2 text-sm transition-all duration-300 ease-in-out disabled:opacity-60"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} aria-hidden />
           {loading ? 'מרענן…' : 'רענון נתונים'}
@@ -228,13 +230,13 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
         <div className="space-y-6" dir="rtl">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
+              <div key={i} className="rounded-xl border border-white/10 bg-black/40 frosted-obsidian p-6">
                 <Skeleton className="h-3 w-24 mb-2 animate-pulse" />
                 <Skeleton className="h-8 w-20 animate-pulse" />
               </div>
             ))}
           </div>
-          <div className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6">
+          <div className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian p-6">
             <Skeleton className="h-4 w-40 mb-4 animate-pulse" />
             <Skeleton className="h-72 w-full rounded-xl animate-pulse" />
           </div>
@@ -262,7 +264,7 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
           <div ref={reportRef} className="print-mode space-y-6">
           {/* Executive Summary card */}
           <section
-            className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 sm:p-8 shadow-lg overflow-hidden"
+            className="rounded-xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 shadow-lg overflow-hidden"
             aria-label="סיכום ביצועי מערכת"
           >
             <h2 className="text-sm font-semibold text-[var(--app-muted)] uppercase tracking-wider mb-5 flex items-center gap-2">
@@ -319,7 +321,7 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
           />
 
           {/* Main Equity Curve — Glassmorphism style */}
-          <section className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl shadow-xl p-6 sm:p-8 overflow-hidden">
+          <section className="rounded-xl border border-white/10 bg-black/40 frosted-obsidian shadow-xl p-6 sm:p-8 overflow-hidden">
             <h2 className="text-sm font-semibold text-[var(--app-muted)] uppercase tracking-wider mb-4 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[var(--app-accent)]" aria-hidden />
               עקומת הון מצטברת
@@ -379,7 +381,7 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
           </section>
 
           {/* Learning Progress — accuracy trend (v1.4) */}
-          <section className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 sm:p-8 overflow-hidden">
+          <section className="rounded-xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 overflow-hidden">
             <h2 className="text-sm font-semibold text-[var(--app-muted)] uppercase tracking-wider mb-4 flex items-center gap-2">
               <Brain className="w-4 h-4 text-[var(--app-accent)]" aria-hidden />
               התקדמות למידה
@@ -449,7 +451,7 @@ function PerformanceShowcaseInner({ initialData }: PerformanceShowcaseProps) {
           </section>
 
           {/* Monthly breakdown */}
-          <section className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 sm:p-8 overflow-hidden">
+          <section className="rounded-xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 overflow-hidden">
             <h2 className="text-sm font-semibold text-[var(--app-muted)] uppercase tracking-wider mb-4 flex items-center gap-2">
               <Target className="w-4 h-4 text-[var(--app-accent)]" aria-hidden />
               פירוט חודשי

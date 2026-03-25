@@ -5,10 +5,15 @@
 import { NextResponse } from 'next/server';
 import { resetSimulationTrades } from '@/lib/db/simulation-trades';
 import { APP_CONFIG } from '@/lib/config';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(): Promise<NextResponse> {
+export async function POST(request: Request): Promise<NextResponse> {
+  if (!validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   if (!APP_CONFIG.postgresUrl?.trim()) {
     return NextResponse.json(
       { success: false, error: 'DATABASE_URL (Vercel Postgres) required.' },

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useSimulation } from '@/context/SimulationContext';
 import DashboardCard from '@/components/DashboardCard';
+import { getPortfolioVirtualAction } from '@/app/actions';
 
 interface VirtualSummary {
   totalVirtualBalancePct: number;
@@ -51,11 +52,17 @@ export default function PortfolioPage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/portfolio/virtual')
-      .then((res) => res.json())
-      .then((data) => setVirtual(data))
-      .catch(() => setVirtual(null))
-      .finally(() => setVirtualLoading(false));
+    void (async () => {
+      try {
+        const out = await getPortfolioVirtualAction();
+        if (out.success) setVirtual(out.data as VirtualSummary);
+        else setVirtual(null);
+      } catch {
+        setVirtual(null);
+      } finally {
+        setVirtualLoading(false);
+      }
+    })();
   }, [mounted]);
 
   const allTrades = trades;

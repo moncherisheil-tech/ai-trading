@@ -11,6 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { getTradingMetricsAction } from '@/app/actions';
 
 type MetricsPoint = {
   date: string;
@@ -67,12 +68,14 @@ export default function AIAccuracyChart() {
         setLoading(!hasLoadedOnceRef.current);
         setIsRefreshing(hasLoadedOnceRef.current);
         setError(null);
-        const res = await fetch(`/api/trading/metrics?days=${timeframeDays}`, { cache: 'no-store' });
-        const payload = (await res.json()) as MetricsResponse;
-        if (!res.ok || !payload?.success) {
-          if (mounted) {
-            setError(payload?.error || 'Failed to load AI learning metrics.');
-          }
+        const out = await getTradingMetricsAction({ days: timeframeDays });
+        if (!out.success) {
+          if (mounted) setError(out.error);
+          return;
+        }
+        const payload = out.data as MetricsResponse;
+        if (!payload?.success) {
+          if (mounted) setError(payload?.error || 'Failed to load AI learning metrics.');
           return;
         }
         if (mounted) {
@@ -112,7 +115,7 @@ export default function AIAccuracyChart() {
   const latest = chartData[chartData.length - 1] ?? null;
 
   return (
-    <section className="rounded-2xl border border-cyan-500/20 bg-gradient-to-b from-[#071320] to-[#040b14] p-4 sm:p-5">
+    <section className="frosted-obsidian sovereign-tilt z-depth-2 rounded-2xl border border-cyan-500/20 bg-gradient-to-b from-[#071320] to-[#040b14] p-4 sm:p-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-cyan-100">AI Learning Curve</h3>
@@ -123,7 +126,7 @@ export default function AIAccuracyChart() {
         {latest && (
           <div className="text-right">
             <div className="text-xs text-zinc-500">Latest Prediction Accuracy</div>
-            <div className="text-sm font-semibold text-emerald-300">
+            <div className="text-sm font-semibold text-emerald-300 live-data-number">
               {latest.prediction_accuracy_pct.toFixed(1)}%
             </div>
           </div>
@@ -138,7 +141,7 @@ export default function AIAccuracyChart() {
               key={option.days}
               type="button"
               onClick={() => setTimeframeDays(option.days)}
-              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold tracking-wide transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11px] font-semibold tracking-wide live-data-number transition-all ${
                 active
                   ? 'bg-cyan-400/20 text-cyan-200 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]'
                   : 'text-zinc-400 hover:bg-white/[0.05] hover:text-zinc-200'
@@ -176,14 +179,14 @@ export default function AIAccuracyChart() {
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
               <XAxis
                 dataKey="label"
-                tick={{ fill: 'rgb(161 161 170)', fontSize: 11 }}
+                tick={{ fill: 'rgb(161 161 170)', fontSize: 11, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
                 axisLine={false}
                 tickLine={false}
                 minTickGap={24}
               />
               <YAxis
                 domain={[0, 100]}
-                tick={{ fill: 'rgb(161 161 170)', fontSize: 11 }}
+                tick={{ fill: 'rgb(161 161 170)', fontSize: 11, fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v) => `${v}%`}
@@ -196,15 +199,18 @@ export default function AIAccuracyChart() {
                   borderRadius: '10px',
                   color: 'rgb(226 232 240)',
                   fontSize: '12px',
+                  fontFamily: 'JetBrains Mono, ui-monospace, monospace',
                 }}
-                labelStyle={{ color: 'rgb(186 230 253)' }}
-                formatter={(value: number, name: string) => {
-                  if (name === 'win_rate_pct') return [`${Number(value).toFixed(1)}%`, 'Daily Win Rate'];
-                  if (name === 'moving_avg_7d') return [`${Number(value).toFixed(1)}%`, '7-Day Moving Avg'];
-                  if (name === 'prediction_accuracy_pct') {
-                    return [`${Number(value).toFixed(1)}%`, 'Prediction Accuracy'];
+                labelStyle={{ color: 'rgb(186 230 253)', fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
+                formatter={(value, name) => {
+                  const v = typeof value === 'number' ? value : Number(value ?? 0);
+                  const n = String(name);
+                  if (n === 'win_rate_pct') return [`${v.toFixed(1)}%`, 'Daily Win Rate'];
+                  if (n === 'moving_avg_7d') return [`${v.toFixed(1)}%`, '7-Day Moving Avg'];
+                  if (n === 'prediction_accuracy_pct') {
+                    return [`${v.toFixed(1)}%`, 'Prediction Accuracy'];
                   }
-                  return [value, name];
+                  return [String(value ?? ''), n];
                 }}
                 labelFormatter={(_, payload) => {
                   const row = payload?.[0]?.payload as ChartPoint | undefined;
@@ -212,7 +218,7 @@ export default function AIAccuracyChart() {
                 }}
               />
               <Legend
-                wrapperStyle={{ color: 'rgb(186 230 253)', fontSize: '12px' }}
+                wrapperStyle={{ color: 'rgb(186 230 253)', fontSize: '12px', fontFamily: 'JetBrains Mono, ui-monospace, monospace' }}
                 formatter={(value) =>
                   value === 'win_rate_pct' ? 'Daily Win Rate' : value === 'moving_avg_7d' ? '7-Day Moving Avg' : value
                 }

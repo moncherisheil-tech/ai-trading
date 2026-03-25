@@ -4,6 +4,7 @@ import { useEffect, useState, memo } from 'react';
 import { motion } from 'motion/react';
 import { getT } from '@/lib/i18n';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { getOpsMetricsAction } from '@/app/actions';
 
 const t = getT('he');
 
@@ -30,31 +31,39 @@ function OpsMetricsBlockInner() {
   const [unauthorized, setUnauthorized] = useState(false);
 
   useEffect(() => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), METRICS_FETCH_TIMEOUT_MS);
+    let cancelled = false;
+    setLoading(true);
 
-    fetch('/api/ops/metrics', {
-      cache: 'no-store',
-      signal: controller.signal,
-      credentials: 'include',
-    })
-      .then(async (r) => {
-        if (r.status === 401) return { _unauthorized: true as const };
-        if (!r.ok) return null;
-        try {
-          return await r.json();
-        } catch {
-          return null;
-        }
-      })
-      .then((data) => {
-        if (data && typeof data === 'object' && '_unauthorized' in data && data._unauthorized) {
-          setUnauthorized(true);
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => resolve(null), METRICS_FETCH_TIMEOUT_MS);
+    });
+
+    void (async () => {
+      try {
+        const out = await Promise.race([getOpsMetricsAction(), timeout]);
+        if (cancelled) return;
+        if (out === null) {
           setMetrics(null);
-          setFetchFailed(false);
+          setFetchFailed(true);
+          setUnauthorized(false);
           return;
         }
-        if (data && typeof data?.db === 'object') {
+
+        if (!out.success) {
+          if (out.error === 'UNAUTHORIZED') {
+            setUnauthorized(true);
+            setMetrics(null);
+            setFetchFailed(false);
+            return;
+          }
+          setMetrics(null);
+          setFetchFailed(true);
+          setUnauthorized(false);
+          return;
+        }
+
+        const data = out.data as Metrics;
+        if (data && typeof (data as any)?.db === 'object') {
           setMetrics(data);
           setFetchFailed(false);
           setUnauthorized(false);
@@ -62,17 +71,19 @@ function OpsMetricsBlockInner() {
           setMetrics(null);
           setFetchFailed(true);
         }
-      })
-      .catch(() => {
-        setMetrics(null);
-        setFetchFailed(true);
-      })
-      .finally(() => {
-        clearTimeout(timeoutId);
-        setLoading(false);
-      });
+      } catch {
+        if (!cancelled) {
+          setMetrics(null);
+          setFetchFailed(true);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {
@@ -137,19 +148,19 @@ function OpsMetricsBlockInner() {
       className="space-y-4"
     >
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 min-w-0 overflow-hidden">
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">{t.totalPredictions}</div>
           <div className="text-2xl font-semibold text-zinc-100">{db.total}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">{t.pending}</div>
           <div className="text-2xl font-semibold text-amber-400">{db.pending}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">{t.evaluated}</div>
           <div className="text-2xl font-semibold text-emerald-400">{db.evaluated}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">{t.avgLatency}</div>
           <div className="text-2xl font-semibold text-zinc-100">{quality.avgLatencyMs} ms</div>
         </div>
@@ -184,19 +195,19 @@ function OpsMetricsBlockInner() {
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 min-w-0 overflow-hidden">
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">מודל גיבוי</div>
           <div className="text-2xl font-semibold text-zinc-100">{quality.fallbackUsed}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">תיקון ולידציה</div>
           <div className="text-2xl font-semibold text-zinc-100">{quality.repaired}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">אזהרות ביקורת</div>
           <div className="text-2xl font-semibold text-amber-400">{audit.warnings}</div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-4 overflow-hidden transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
           <div className="text-xs text-zinc-400">שגיאות ביקורת</div>
           <div className="text-2xl font-semibold text-red-400">{audit.errors}</div>
         </div>

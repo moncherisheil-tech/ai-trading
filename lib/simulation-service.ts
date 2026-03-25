@@ -11,6 +11,8 @@ import {
   getVirtualTradeById,
   listOpenVirtualTrades,
   listClosedVirtualTrades,
+  patchVirtualTradeExecState,
+  applyAgentScaleOutHalf,
   type VirtualPortfolioRow,
   type InsertVirtualTradeInput,
 } from '@/lib/db/virtual-portfolio';
@@ -102,6 +104,23 @@ export async function closeVirtualTradeBySymbol(symbol: string): Promise<{ succe
  * Auto-close open trades when live price hits target profit, stop-loss, or liquidation threshold.
  * Applies slippage to exit price (selling the long = worse price). Uses Decimal for PnL.
  */
+function computeTrailingEffectiveStop(
+  trade: VirtualPortfolioRow,
+  pct: number,
+  state: { scaleOutDone?: boolean; peakUnrealizedPct?: number; effectiveStopLossPct?: number }
+): number {
+  const baseSl = trade.stop_loss_pct;
+  let eff = state.effectiveStopLossPct ?? baseSl;
+  eff = Math.max(eff, baseSl);
+  const tp = Math.max(0.05, trade.target_profit_pct);
+  const peak = Math.max(state.peakUnrealizedPct ?? pct, pct);
+  if (pct >= tp * 0.25) eff = Math.max(eff, Math.min(-0.15, baseSl * 0.55));
+  if (pct >= tp * 0.5) eff = Math.max(eff, -0.03);
+  if (pct >= tp * 0.75) eff = Math.max(eff, tp * 0.38);
+  if (peak >= tp * 0.35) eff = Math.max(eff, peak - tp * 0.42);
+  return eff;
+}
+
 export async function checkAndCloseTrades(livePrices: Map<string, number>): Promise<{ closed: number }> {
   if (!usePostgres()) return { closed: 0 };
   const openTrades = await listOpenVirtualTrades();
@@ -115,18 +134,44 @@ export async function checkAndCloseTrades(livePrices: Map<string, number>): Prom
     const pct = toDecimal(price).minus(entry).div(entry).times(100).toNumber();
     if (!Number.isFinite(pct)) continue;
     const hitLiquidation = pct <= LIQUIDATION_PCT;
+
+    const st = trade.exec_state ?? {};
+    const peak = Math.max(st.peakUnrealizedPct ?? pct, pct);
+    const effStop =
+      trade.source === 'agent'
+        ? computeTrailingEffectiveStop(trade, pct, { ...st, peakUnrealizedPct: peak })
+        : trade.stop_loss_pct;
+
+    if (
+      trade.source === 'agent' &&
+      (peak !== st.peakUnrealizedPct || effStop !== (st.effectiveStopLossPct ?? trade.stop_loss_pct))
+    ) {
+      await patchVirtualTradeExecState(trade.id, { peakUnrealizedPct: peak, effectiveStopLossPct: effStop });
+    }
+
     const hitTarget = trade.target_profit_pct != null && pct >= trade.target_profit_pct;
-    const hitStop = trade.stop_loss_pct != null && pct <= trade.stop_loss_pct;
-    if (hitTarget || hitStop || hitLiquidation) {
+    const hitStop = effStop != null && pct <= effStop;
+
+    if (hitLiquidation || hitTarget || hitStop) {
       const exitPrice = applySlippage(price, 'sell', slippageBps);
       const reason = hitLiquidation ? 'liquidation' : hitTarget ? 'take_profit' : 'stop_loss';
       await closeVirtualTrade(trade.id, exitPrice, reason);
       if (trade.source === 'agent') {
-        const closed = await getVirtualTradeById(trade.id);
-        const pnlPct = closed?.pnl_pct ?? 0;
-        runPostMortemWithTimeout(closed ?? trade, exitPrice, reason, pnlPct);
+        const closedRow = await getVirtualTradeById(trade.id);
+        const pnlPct = closedRow?.pnl_pct ?? 0;
+        runPostMortemWithTimeout(closedRow ?? trade, exitPrice, reason, pnlPct);
       }
       closed++;
+      continue;
+    }
+
+    if (trade.source === 'agent' && !st.scaleOutDone && trade.target_profit_pct != null && pct >= trade.target_profit_pct * 0.5) {
+      await applyAgentScaleOutHalf(trade.id);
+      await patchVirtualTradeExecState(trade.id, {
+        scaleOutDone: true,
+        peakUnrealizedPct: peak,
+        effectiveStopLossPct: Math.max(effStop, -0.03),
+      });
     }
   }
   return { closed };

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Loader2, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { triggerRetrospectiveAction } from '@/app/actions';
 
 type TriggerRetrospectiveButtonProps = {
   label: string;
@@ -17,16 +18,11 @@ export default function TriggerRetrospectiveButton({ label }: TriggerRetrospecti
     setLoading(true);
     setToast(null);
     try {
-      const res = await fetch('/api/ops/trigger-retrospective', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json.ok) {
+      const out = await triggerRetrospectiveAction();
+      if (out.success) {
         setToast({ type: 'success', message: 'מחזור הלמידה הושלם בהצלחה. הדוח נשלח לטלגרם.' });
       } else {
-        setToast({ type: 'error', message: json?.error ?? 'הפעולה נכשלה' });
+        setToast({ type: 'error', message: out.error || 'הפעולה נכשלה' });
       }
     } catch {
       setToast({ type: 'error', message: 'שגיאת רשת או שרת' });

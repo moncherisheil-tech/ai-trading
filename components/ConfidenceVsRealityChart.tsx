@@ -27,14 +27,22 @@ export default function ConfidenceVsRealityChart({ data }: Props) {
 
   if (!hasData) {
     return (
-      <div className="h-48 flex items-center justify-center text-slate-500 text-sm rounded-lg border border-slate-700 bg-slate-800/50" dir="rtl">
+      <div
+        className="h-48 flex items-center justify-center text-slate-500 text-sm rounded-lg border border-white/10 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+        style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+        dir="rtl"
+      >
         אין עדיין נתונים להצגה. התחזיות שאומתו יופיעו כאן.
       </div>
     );
   }
 
   return (
-    <div className="w-full h-56" dir="rtl">
+    <div
+      className="w-full h-56 rounded-lg border border-white/10 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian p-2"
+      style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+      dir="rtl"
+    >
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
           <XAxis

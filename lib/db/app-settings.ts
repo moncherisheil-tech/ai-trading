@@ -59,6 +59,8 @@ export interface AppSettings {
     minConfidenceToExecute: number;
     /** True only when live exchange API credentials are configured and validated. */
     liveApiKeyConfigured: boolean;
+    /** CEO Terminal: user confirmed slippage / Kelly / stop-loss checklist before arming LIVE. */
+    goLiveSafetyAcknowledged: boolean;
   };
 }
 
@@ -107,6 +109,7 @@ const DEFAULTS: AppSettings = {
     mode: 'PAPER',
     minConfidenceToExecute: 80,
     liveApiKeyConfigured: false,
+    goLiveSafetyAcknowledged: false,
   },
 };
 

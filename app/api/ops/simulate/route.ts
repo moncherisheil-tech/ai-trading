@@ -1,26 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAllowedIp } from '@/lib/security';
 import { runCryptoAnalysisCore } from '@/app/actions';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 /** Deep Execution: allow up to 60s for full AI consensus. */
 export const maxDuration = 60;
-import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   if (!isAllowedIp(request)) {
     return NextResponse.json({ success: false, error: 'IP is not allowed.' }, { status: 403 });
   }
 
-  const secret = process.env.WORKER_CRON_SECRET;
-  const authHeader = request.headers.get('authorization');
-  const bearerOk = secret && authHeader === `Bearer ${secret}`;
-
-  const cookieToken = request.cookies.get('app_auth_token')?.value || '';
-  const session = verifySessionToken(cookieToken);
-  const sessionOk = isSessionEnabled() && session && hasRequiredRole(session.role, 'admin');
-
-  if (!bearerOk && !sessionOk) {
-    return NextResponse.json({ success: false, error: 'Unauthorized. Use Bearer token or admin session.' }, { status: 401 });
+  if (!validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
   let body: { symbol?: string } = {};

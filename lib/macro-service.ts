@@ -4,6 +4,8 @@
  * All labels in professional Hebrew. Use "הנהלה", "אלגוריתם ה-AI" — no personal names.
  */
 
+import { fetchForexUplink } from '@/lib/api-utils';
+
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 const COINGECKO_GLOBAL_URL = 'https://api.coingecko.com/api/v3/global';
 const FETCH_TIMEOUT_MS = 8_000;
@@ -15,6 +17,22 @@ export interface MacroPulseResult {
   macroSentimentScore: number;
   minimumConfidenceThreshold: number;
   strategyLabelHe: string;
+  /** DXY / EURUSD / USDILS + Hebrew note for ILS localization risk. */
+  forexUplink?: {
+    dxy?: number;
+    eurUsd?: number;
+    usdIls?: number;
+    ilsRiskNoteHe: string;
+  };
+}
+
+function ilsRiskNoteHe(usdIls?: number): string {
+  if (usdIls == null || !Number.isFinite(usdIls)) {
+    return 'שער USD/ILS לא זמין — הערכת סיכון מקומית ניטרלית.';
+  }
+  if (usdIls >= 3.72) return 'דולר חזק מול השקל — עלות המרה לנכסים בדולר גבוהה יותר בש"ח.';
+  if (usdIls <= 3.48) return 'שקל חזק מול הדולר — סיכון מרות להמרות מקומיות.';
+  return 'שער USD/ILS בטווח מאוזן — סיכון המרה מתון.';
 }
 
 const DEFAULT_MACRO: MacroPulseResult = {
@@ -100,7 +118,7 @@ export async function getMacroPulse(): Promise<MacroPulseResult> {
     const { getStrategyOverride } = await import('@/lib/db/prediction-weights');
     const override = await getStrategyOverride();
     if (override != null && Number.isFinite(override)) {
-      const [fng, btcDom] = await Promise.all([fetchFearGreed(), fetchBtcDominance()]);
+      const [fng, btcDom, fx] = await Promise.all([fetchFearGreed(), fetchBtcDominance(), fetchForexUplink(FETCH_TIMEOUT_MS)]);
       const macroSentimentScore = computeMacroSentimentScore(fng.value, btcDom);
       return {
         fearGreedIndex: fng.value,
@@ -109,10 +127,16 @@ export async function getMacroPulse(): Promise<MacroPulseResult> {
         macroSentimentScore,
         minimumConfidenceThreshold: override,
         strategyLabelHe: getStrategyLabelForOverride(override),
+        forexUplink: {
+          dxy: fx.dxy,
+          eurUsd: fx.eurUsd,
+          usdIls: fx.usdIls,
+          ilsRiskNoteHe: ilsRiskNoteHe(fx.usdIls),
+        },
       };
     }
 
-    const [fng, btcDom] = await Promise.all([fetchFearGreed(), fetchBtcDominance()]);
+    const [fng, btcDom, fx] = await Promise.all([fetchFearGreed(), fetchBtcDominance(), fetchForexUplink(FETCH_TIMEOUT_MS)]);
     const macroSentimentScore = computeMacroSentimentScore(fng.value, btcDom);
     const minimumConfidenceThreshold = getMinimumConfidenceThreshold(fng.value);
     const strategyLabelHe = getActiveStrategyLabelHe(fng.value);
@@ -124,6 +148,12 @@ export async function getMacroPulse(): Promise<MacroPulseResult> {
       macroSentimentScore,
       minimumConfidenceThreshold,
       strategyLabelHe,
+      forexUplink: {
+        dxy: fx.dxy,
+        eurUsd: fx.eurUsd,
+        usdIls: fx.usdIls,
+        ilsRiskNoteHe: ilsRiskNoteHe(fx.usdIls),
+      },
     };
   } catch {
     return { ...DEFAULT_MACRO };

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Play, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getT } from '@/lib/i18n';
+import { runOpsSimulationAction } from '@/app/actions';
 
 const t = getT('he');
 
@@ -21,21 +22,9 @@ export default function SimulateBtcButton() {
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch('/api/ops/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: 'BTC' }),
-      });
-      if (res.status === 504) {
-        setResult({ success: false, error: 'השרת עמוס, מבצע אופטימיזציה אוטומטית... נסה שוב' });
-        return;
-      }
-      const data = await res.json().catch(() => null);
-      if (!data) {
-        setResult({ success: false, error: 'תגובת שרת לא תקינה. נסה שוב.' });
-        return;
-      }
-      if (data.success && data.data) {
+      const out = await runOpsSimulationAction({ symbol: 'BTC' });
+      const data = out.success ? (out.data as any) : null;
+      if (out.success && data?.success && data?.data) {
         setResult({
           success: true,
           sentiment_score: data.data.sentiment_score,
@@ -44,13 +33,19 @@ export default function SimulateBtcButton() {
           probability: data.data.probability,
         });
       } else {
-        const rawError = data.error || 'הסימולציה נכשלה.';
+        const rawError = out.success ? (data?.error as string | undefined) : undefined;
         const isValidationError =
           typeof rawError === 'string' &&
           (rawError.includes('ZodError') || rawError.includes('validation') || rawError.includes('אימות'));
         setResult({
           success: false,
-          error: isValidationError ? 'שגיאה באימות הנתונים. נסה שוב.' : rawError,
+          error: isValidationError
+            ? 'שגיאה באימות הנתונים. נסה שוב.'
+            : out.success
+              ? rawError || 'הסימולציה נכשלה.'
+              : String(out.error ?? '').includes('504')
+                ? 'השרת עמוס, מבצע אופטימיזציה אוטומטית... נסה שוב'
+                : out.error || 'הסימולציה נכשלה.',
         });
       }
     } catch (e) {

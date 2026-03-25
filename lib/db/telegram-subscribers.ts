@@ -27,10 +27,10 @@ function hasPostgres(): boolean {
 export async function listActiveSubscriberChatIds(): Promise<string[]> {
   if (!hasPostgres()) return [];
   try {
-    const { rows } = await sql<{ chat_id: string }>`
+    const { rows } = await sql`
       SELECT chat_id FROM telegram_subscribers WHERE is_active = true
     `;
-    return rows.map((r) => r.chat_id).filter(Boolean);
+    return (rows as { chat_id: string }[]).map((r) => r.chat_id).filter(Boolean);
   } catch (err) {
     console.error('[telegram-subscribers] listActiveSubscriberChatIds failed:', err);
     return [];
@@ -43,11 +43,11 @@ export async function listActiveSubscriberChatIds(): Promise<string[]> {
 export async function listSubscribers(): Promise<TelegramSubscriber[]> {
   if (!hasPostgres()) return [];
   try {
-    const { rows } = await sql<TelegramSubscriber>`
+    const { rows } = await sql`
       SELECT id, chat_id, username, is_active, role, created_at, updated_at
       FROM telegram_subscribers ORDER BY id ASC
     `;
-    return rows;
+    return rows as TelegramSubscriber[];
   } catch (err) {
     console.error('[telegram-subscribers] listSubscribers failed:', err);
     return [];
@@ -65,7 +65,7 @@ export async function upsertSubscriber(params: {
 }): Promise<TelegramSubscriber | null> {
   if (!hasPostgres()) return null;
   try {
-    const { rows } = await sql<TelegramSubscriber>`
+    const { rows } = await sql`
       INSERT INTO telegram_subscribers (chat_id, username, is_active, role, updated_at)
       VALUES (${params.chat_id}, ${params.username ?? null}, ${params.is_active ?? true}, ${params.role ?? 'subscriber'}, CURRENT_TIMESTAMP)
       ON CONFLICT (chat_id) DO UPDATE SET
@@ -75,7 +75,7 @@ export async function upsertSubscriber(params: {
         updated_at = CURRENT_TIMESTAMP
       RETURNING id, chat_id, username, is_active, role, created_at, updated_at
     `;
-    return rows[0] ?? null;
+    return (rows[0] as TelegramSubscriber | undefined) ?? null;
   } catch (err) {
     console.error('[telegram-subscribers] upsertSubscriber failed:', err);
     return null;

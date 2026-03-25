@@ -173,3 +173,38 @@ export function assertOpenPositionsLimit(openPositionsCount: number): void {
     );
   }
 }
+
+/**
+ * Fractional Kelly position size in USD from Overseer confidence and optional realized win rate.
+ * Uses half-Kelly capped to MAX_ACCOUNT_RISK_PER_TRADE; blends with confidence as edge proxy.
+ */
+export function computeKellyPositionUsd(params: {
+  accountBalance: number;
+  overseerConfidencePct: number;
+  /** 0–100; when unknown, defaults to 50. */
+  historicalWinRatePct?: number;
+  /** Reward:risk of the trade (TP distance / SL distance). */
+  rewardRiskRatio?: number;
+}): { positionUsd: number; kellyFraction: number; note: string } {
+  const balance = Math.max(0, params.accountBalance);
+  if (balance <= 0) {
+    return { positionUsd: 0, kellyFraction: 0, note: 'Zero balance.' };
+  }
+  const conf = Math.max(0, Math.min(100, params.overseerConfidencePct));
+  const winRate = Math.max(0.05, Math.min(0.95, (params.historicalWinRatePct ?? 50) / 100));
+  const b = Math.max(0.5, params.rewardRiskRatio ?? MIN_RISK_REWARD_RATIO);
+  const edgeFromConfidence = Math.max(0.05, Math.min(0.92, conf / 100 * 0.92));
+  const p = Math.min(0.9, (winRate + edgeFromConfidence) / 2);
+  const q = 1 - p;
+  const kellyFull = (b * p - q) / b;
+  const halfKelly = Math.max(0, kellyFull) * 0.5;
+  const capped = Math.min(halfKelly, MAX_ACCOUNT_RISK_PER_TRADE);
+  const confidenceDampen = 0.65 + (conf / 100) * 0.35;
+  const kellyFraction = Math.max(0.0025, Math.min(MAX_ACCOUNT_RISK_PER_TRADE, capped * confidenceDampen));
+  const positionUsd = round(balance * kellyFraction, 2);
+  return {
+    positionUsd,
+    kellyFraction,
+    note: `Half-Kelly×confidence p≈${p.toFixed(2)} b=${b.toFixed(2)} cap=${MAX_ACCOUNT_RISK_PER_TRADE}`,
+  };
+}

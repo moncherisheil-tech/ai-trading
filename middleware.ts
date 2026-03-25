@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 const AUTH_COOKIE_NAME = 'app_auth_token';
 
@@ -76,8 +77,7 @@ async function verifyAuthCookie(request: NextRequest): Promise<boolean> {
 /**
  * Paths that are always allowed without authentication (whitelist).
  * Everything else requires a valid app_auth_token cookie.
- * Cron paths: allowed without cookie when CRON_SECRET is valid (Bearer or ?secret=).
- * No x-vercel-cron required — external cron (e.g. cron-job.org) can trigger when secret matches.
+ * Cron paths: no longer accept URL query secrets; headers only.
  */
 function isWhitelisted(pathname: string, request: NextRequest): boolean {
   if (pathname === '/login') return true;
@@ -89,18 +89,17 @@ function isWhitelisted(pathname: string, request: NextRequest): boolean {
   if (pathname === '/favicon.ico') return true;
   if (pathname === '/icon' || pathname === '/apple-icon') return true;
   if (pathname.startsWith('/api/auth/login') || pathname.startsWith('/api/auth/logout')) return true;
-  if (pathname.startsWith('/api/cron/')) {
-    const cronSecret = process.env.CRON_SECRET ?? '';
-    if (!cronSecret) return false;
-    const authHeader = request.headers.get('authorization');
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.slice(7).trim();
-      if (token === cronSecret) return true;
-    }
-    const querySecret = request.nextUrl.searchParams.get('secret');
-    if (querySecret != null && querySecret === cronSecret) return true;
-  }
   return false;
+}
+
+function isStrictOperationalApi(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/ops/') ||
+    pathname === '/api/portfolio/virtual' ||
+    pathname === '/api/simulation/reset' ||
+    pathname === '/api/trading/execute-signal' ||
+    pathname === '/api/academy/rag'
+  );
 }
 
 function isProtectedPath(pathname: string): boolean {
@@ -115,6 +114,10 @@ function isProtectedPath(pathname: string): boolean {
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (isStrictOperationalApi(pathname) && !validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  }
 
   if (isWhitelisted(pathname, request)) {
     return NextResponse.next();
@@ -138,5 +141,10 @@ export const config = {
     '/',
     '/ops/:path*',
     '/admin/:path*',
+    '/api/ops/:path*',
+    '/api/portfolio/virtual',
+    '/api/simulation/reset',
+    '/api/trading/execute-signal',
+    '/api/academy/rag',
   ],
 };

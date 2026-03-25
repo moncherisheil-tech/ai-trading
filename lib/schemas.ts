@@ -20,7 +20,7 @@ export const sourceCitationSchema = z.object({
   source_type: z.string().catch('derived'),
   timestamp: z.string().nullable().optional(),
   evidence_snippet: z.string().min(1),
-  relevance_score: z.number().optional(),
+  relevance_score: z.number().min(0).max(1).optional(),
 });
 
 /** Risk level as output by the Quantitative AI engine. */
@@ -36,7 +36,7 @@ export const aiPredictionSchema = z.object({
   logic: z.string().min(1),
   strategic_advice: z.string().min(1),
   learning_context: z.string().min(1),
-  sources: z.array(sourceCitationSchema).min(0).max(1000).catch([]),
+  sources: z.array(sourceCitationSchema).min(0).max(1000),
   tactical_opinion_he: z.string().optional(),
 });
 

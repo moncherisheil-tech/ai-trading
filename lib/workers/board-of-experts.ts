@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import { XMLParser } from 'fast-xml-parser';
 import { APP_CONFIG } from '@/lib/config';
 import { getGeminiApiKey } from '@/lib/env';
@@ -409,14 +410,16 @@ Output strictly as JSON with these keys exactly:
   "action": "clear action recommendation from this expert"
 }`;
   try {
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 600,
-        responseMimeType: 'application/json',
-      },
-    });
+    const result = await withGeminiRateLimitRetry(() =>
+      model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+          maxOutputTokens: 600,
+          responseMimeType: 'application/json',
+        },
+      })
+    );
     const parsed = JSON.parse(parseJsonObject(result.response.text() ?? '')) as Partial<ExpertOutput>;
     const stance = parsed.stance === 'bullish' || parsed.stance === 'bearish' || parsed.stance === 'neutral'
       ? parsed.stance
@@ -464,14 +467,16 @@ Output JSON exactly:
   "actionPlan": "decisive next actions"
 }`;
   try {
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 700,
-        responseMimeType: 'application/json',
-      },
-    });
+    const result = await withGeminiRateLimitRetry(() =>
+      model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.15,
+          maxOutputTokens: 700,
+          responseMimeType: 'application/json',
+        },
+      })
+    );
     const parsed = JSON.parse(parseJsonObject(result.response.text() ?? '')) as Partial<OverseerOutput>;
     const finalVerdict = parsed.finalVerdict === 'go' || parsed.finalVerdict === 'caution' || parsed.finalVerdict === 'no-go'
       ? parsed.finalVerdict
@@ -684,7 +689,11 @@ export async function runBoardOfExperts(context: 'morning' | 'evening'): Promise
     the_6_expert_verdicts: experts,
     overseer_final_action_plan: overseer.actionPlan,
     market_context: {
-      fearGreed,
+      fearGreed: {
+        value: fearGreed.value ?? 50,
+        valueClassification: fearGreed.valueClassification ?? 'Unknown',
+        fetchedAt: fearGreed.fetchedAt,
+      },
       topHeadlines,
       expert4LiquiditySignals: expert4Data.whaleProxySignals,
     },

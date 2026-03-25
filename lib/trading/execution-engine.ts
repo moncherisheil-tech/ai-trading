@@ -1,5 +1,5 @@
 import { getAppSettings } from '@/lib/db/app-settings';
-import { listOpenVirtualTrades, closeVirtualTrade, type VirtualPortfolioRow } from '@/lib/db/virtual-portfolio';
+import { listOpenVirtualTrades, listClosedVirtualTrades, closeVirtualTrade, type VirtualPortfolioRow } from '@/lib/db/virtual-portfolio';
 import {
   insertVirtualTradeHistory,
   hasVirtualTradeExecutionEvent,
@@ -8,7 +8,7 @@ import {
   type ExecutionMode,
   type ExecutionSignalSide,
 } from '@/lib/db/virtual-trades-history';
-import { fetchBinanceTickerPrices, fetchBinanceMarkPrices } from '@/lib/api-utils';
+import { fetchBinanceTickerPrices, fetchBinanceMarkPrices, fetchBinanceOrderBookDepth } from '@/lib/api-utils';
 import { applySlippage, round2, toDecimal } from '@/lib/decimal';
 import { openVirtualTrade, getVirtualPortfolioSummary } from '@/lib/simulation-service';
 import {
@@ -16,16 +16,21 @@ import {
   assertOpenPositionsLimit,
   assertTradeRiskWithinLimit,
   calculatePositionSize,
-  calculateTradeLevels,
+  computeKellyPositionUsd,
 } from '@/lib/trading/risk-manager';
+import {
+  estimateBuySlippageFraction,
+  estimateSellSlippageFraction,
+  pickTwapSchedule,
+  shouldUseStealthTwap,
+} from '@/lib/trading/execution-liquidity';
+import { buildScalpExecutionPlan, inferScalpTierFromVolatility } from '@/lib/trading/scalp-tiers';
 import { createBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-adapter';
 import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
 import { ReinforcementEngine } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
 
 const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
-const DEFAULT_TWAP_DURATION_MINUTES = 1;
-const DEFAULT_TWAP_CHUNKS = 4;
 
 export interface AutonomousExecutionInput {
   predictionId: string;
@@ -51,12 +56,45 @@ export interface AutonomousExecutionResult {
   virtualTradeId?: number;
 }
 
+export interface AlphaEvolutionPoint {
+  closedAt: string;
+  cumulativePnlUsd: number;
+  rollingWinRatePct: number;
+}
+
+function buildAlphaEvolutionCurve(closed: VirtualPortfolioRow[], rollingWindow = 10): AlphaEvolutionPoint[] {
+  const sorted = [...closed]
+    .filter((c) => c.closed_at && c.status === 'closed')
+    .sort((a, b) => new Date(a.closed_at!).getTime() - new Date(b.closed_at!).getTime());
+  let cum = 0;
+  const outcomes: boolean[] = [];
+  const out: AlphaEvolutionPoint[] = [];
+  for (const t of sorted) {
+    const pnlUsd =
+      t.pnl_net_usd != null && Number.isFinite(Number(t.pnl_net_usd))
+        ? Number(t.pnl_net_usd)
+        : (t.amount_usd * (t.pnl_pct ?? 0)) / 100;
+    cum += pnlUsd;
+    const won = (t.pnl_pct ?? 0) > 0;
+    outcomes.push(won);
+    if (outcomes.length > rollingWindow) outcomes.shift();
+    const wr = outcomes.length ? (outcomes.filter(Boolean).length / outcomes.length) * 100 : 0;
+    out.push({
+      closedAt: t.closed_at!,
+      cumulativePnlUsd: round2(cum),
+      rollingWinRatePct: round2(wr),
+    });
+  }
+  return out;
+}
+
 export interface ExecutionDashboardSnapshot {
   mode: ExecutionMode;
   masterSwitchEnabled: boolean;
   minConfidenceToExecute: number;
   liveApiKeyConfigured: boolean;
   liveLocked: boolean;
+  goLiveSafetyAcknowledged: boolean;
   virtualBalanceUsd: number;
   winRatePct: number;
   activeTradesCount: number;
@@ -93,6 +131,8 @@ export interface ExecutionDashboardSnapshot {
     virtualTradeId: number | null;
     createdAt: string;
   }>;
+  /** Cumulative realized PnL vs rolling win rate over last N closed paper trades. */
+  alphaEvolution: AlphaEvolutionPoint[];
 }
 
 function mapSignalToBrokerSide(signal: ExecutionSignalSide): BrokerOrderSide {
@@ -350,7 +390,17 @@ export async function executeAutonomousConsensusSignal(
         (virtualEquityUsd * Math.max(0, settings.risk.singleAssetConcentrationLimitPct ?? 20)) / 100;
       const availableGlobalUsd = Math.max(0, round2(globalExposureCapUsd - totalOpenExposureUsd));
       const availableSingleAssetUsd = Math.max(0, round2(singleAssetCapUsd - openExposureForSymbolUsd));
-      const amountUsd = Math.max(0, round2(Math.min(desiredAmountUsd, sizing.positionSizeUsd, availableGlobalUsd, availableSingleAssetUsd)));
+      const kelly = computeKellyPositionUsd({
+        accountBalance: virtualEquityUsd,
+        overseerConfidencePct: input.finalConfidence,
+        historicalWinRatePct: summary.winRatePct,
+      });
+      const amountUsd = Math.max(
+        0,
+        round2(
+          Math.min(desiredAmountUsd, sizing.positionSizeUsd, kelly.positionUsd, availableGlobalUsd, availableSingleAssetUsd)
+        )
+      );
 
       if (amountUsd <= 0) {
         const reason = `Risk limit blocked BUY: desired ${desiredAmountUsd.toFixed(
@@ -379,15 +429,39 @@ export async function executeAutonomousConsensusSignal(
       }
 
       const entryPrice = applySlippage(livePrice, 'buy', 5);
-      const dynamicLevels = calculateTradeLevels(entryPrice, marketVolatility, 'LONG');
-      const targetProfitPct = round2(((dynamicLevels.takeProfit - entryPrice) / entryPrice) * 100);
-      const stopLossPct = -Math.abs(round2(((entryPrice - dynamicLevels.stopLoss) / entryPrice) * 100));
+      const scalpTier = inferScalpTierFromVolatility(marketVolatility);
+      const scalpPlan = buildScalpExecutionPlan(symbol, scalpTier, input.finalConfidence);
+      const targetProfitPct = round2(scalpPlan.targetProfitPct);
+      const stopLossPct = round2(scalpPlan.stopLossPct);
+      const stopLossPx = entryPrice * (1 + stopLossPct / 100);
       assertTradeRiskWithinLimit({
         accountBalance: virtualEquityUsd,
         positionSizeUsd: amountUsd,
         entryPrice,
-        stopLoss: dynamicLevels.stopLoss,
+        stopLoss: stopLossPx,
       });
+
+      const depth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
+      const slipFrac = estimateBuySlippageFraction(depth, amountUsd, livePrice ?? entryPrice);
+      const twapSched = pickTwapSchedule(shouldUseStealthTwap(slipFrac));
+
+      const enrichedBreakdown = JSON.stringify({
+        ...(safeJsonParse(expertBreakdownJson) ?? {}),
+        protocolOmega: {
+          scalpTier: scalpPlan.tier,
+          holdTimeMinutes: scalpPlan.holdTimeMinutes,
+          targetProfitPct: scalpPlan.targetProfitPct,
+          stopLossPct: scalpPlan.stopLossPct,
+          aiConfidenceScore: scalpPlan.aiConfidenceScore,
+          kellyFraction: kelly.kellyFraction,
+          kellyNote: kelly.note,
+          estSlippagePct: round2(slipFrac * 1000) / 10,
+          twapMinutes: twapSched.durationMinutes,
+          twapChunks: twapSched.chunks,
+        },
+      });
+
+      /** Persist tactical state in JSONB `exec_state` so trailing-stop / sim logic keeps Kelly + tier after restart. */
       const opened = await openVirtualTrade({
         symbol,
         entry_price: entryPrice,
@@ -395,6 +469,12 @@ export async function executeAutonomousConsensusSignal(
         target_profit_pct: targetProfitPct,
         stop_loss_pct: stopLossPct,
         source: 'agent',
+        exec_state: {
+          peakUnrealizedPct: 0,
+          effectiveStopLossPct: stopLossPct,
+          kellyFraction: kelly.kellyFraction,
+          scalpTier: scalpPlan.tier,
+        },
       });
       if (!opened.success) {
         const reason = opened.error || 'Failed to open virtual trade.';
@@ -414,6 +494,11 @@ export async function executeAutonomousConsensusSignal(
           executionPrice: entryPrice,
           amountUsd,
         });
+        await dispatchCriticalAlert(
+          'Execution Engine — Virtual Trade Open Failed',
+          `${symbol}: ${reason}`,
+          'CRITICAL'
+        );
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
       }
 
@@ -422,13 +507,14 @@ export async function executeAutonomousConsensusSignal(
         testnet: process.env.EXCHANGE_TESTNET === 'true',
       });
       const stealth = new StealthExecutionEngine(broker);
-      const totalAssetAmount = roundAmount(amountUsd / Math.max(livePrice, 0.00000001), 8);
+      const priceForSize = livePrice ?? entryPrice;
+      const totalAssetAmount = roundAmount(amountUsd / Math.max(priceForSize, 0.00000001), 8);
       const twapResult = await stealth.executeTWAP(
         symbol,
         mapSignalToBrokerSide(signal),
         totalAssetAmount,
-        DEFAULT_TWAP_DURATION_MINUTES,
-        DEFAULT_TWAP_CHUNKS
+        twapSched.durationMinutes,
+        twapSched.chunks
       );
       const executionLabel = broker.isSimulated ? 'Simulated TWAP BUY executed.' : 'TWAP BUY executed via exchange.';
 
@@ -443,12 +529,12 @@ export async function executeAutonomousConsensusSignal(
         executionStatus: 'executed',
         reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
           twapResult.intervalMs
-        )}. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
+        )}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
           2
-        )}%, sizing=${sizing.riskFraction.toFixed(4)}.`,
+        )}%, Kelly f=${kelly.kellyFraction.toFixed(4)}, volSizing=${sizing.riskFraction.toFixed(4)}.`,
         overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
         overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-        expertBreakdownJson,
+        expertBreakdownJson: enrichedBreakdown,
         executionPrice: entryPrice,
         amountUsd,
         virtualTradeId: opened.id,
@@ -466,9 +552,7 @@ export async function executeAutonomousConsensusSignal(
         status: 'executed',
         reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
           twapResult.intervalMs
-        )}. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
-          2
-        )}%, sizing=${sizing.riskFraction.toFixed(4)}.`,
+        )}. Tier=${scalpPlan.tier}, Kelly+TWAP institutional path.`,
         virtualTradeId: opened.id,
       };
     }
@@ -498,13 +582,20 @@ export async function executeAutonomousConsensusSignal(
       testnet: process.env.EXCHANGE_TESTNET === 'true',
     });
     const stealth = new StealthExecutionEngine(broker);
+    const exitDepth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
+    const slipSell = estimateSellSlippageFraction(
+      exitDepth,
+      openForSymbol.amount_usd,
+      livePrice ?? openForSymbol.entry_price
+    );
+    const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
     const totalAssetAmount = roundAmount(openForSymbol.amount_usd / Math.max(openForSymbol.entry_price, 0.00000001), 8);
     const twapResult = await stealth.executeTWAP(
       symbol,
       mapSignalToBrokerSide(signal),
       totalAssetAmount,
-      DEFAULT_TWAP_DURATION_MINUTES,
-      DEFAULT_TWAP_CHUNKS
+      twapSellSched.durationMinutes,
+      twapSellSched.chunks
     );
     const exitPrice = applySlippage(livePrice, 'sell', 5);
     const closeResult = await closeVirtualTrade(openForSymbol.id, exitPrice, 'manual');
@@ -565,6 +656,7 @@ export async function executeAutonomousConsensusSignal(
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson,
     });
+    await dispatchCriticalAlert('PROTOCOL OMEGA — Execution Engine Exception', `${symbol}: ${reason}`, 'CRITICAL');
     return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
   }
 }
@@ -583,11 +675,13 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
   const execution = settings.execution;
   const mode: ExecutionMode = execution.mode ?? 'PAPER';
   const liveReady = Boolean(execution.liveApiKeyConfigured);
-  const [summary, openTrades, history] = await Promise.all([
+  const [summary, openTrades, history, closedTrades] = await Promise.all([
     getVirtualPortfolioSummary(),
     listOpenVirtualTrades(),
     listVirtualTradeHistory(120),
+    listClosedVirtualTrades(400),
   ]);
+  const alphaEvolution = buildAlphaEvolutionCurve(closedTrades, 10);
 
   const symbols = openTrades.map((t) => t.symbol);
   const [markPrices, tickerPrices] = symbols.length > 0
@@ -632,6 +726,7 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
     minConfidenceToExecute: execution.minConfidenceToExecute ?? 80,
     liveApiKeyConfigured: liveReady,
     liveLocked: !liveReady,
+    goLiveSafetyAcknowledged: Boolean(execution.goLiveSafetyAcknowledged),
     virtualBalanceUsd,
     winRatePct: round2(summary.winRatePct),
     activeTradesCount: activeTrades.length,
@@ -653,5 +748,6 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
       virtualTradeId: h.virtual_trade_id,
       createdAt: h.created_at,
     })),
+    alphaEvolution,
   };
 }

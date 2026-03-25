@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { motion } from 'motion/react';
 import {
   Activity,
   Wallet,
@@ -12,30 +13,49 @@ import {
   UserCircle2,
 } from 'lucide-react';
 import TelegramStatus from '@/components/TelegramStatus';
+import ForexTicker from '@/components/ForexTicker';
 import LogoutButton from '@/components/LogoutButton';
 import LanguageToggle from '@/components/LanguageToggle';
 import { useLocale } from '@/hooks/use-locale';
 import { useSimulationOptional } from '@/context/SimulationContext';
+import { useMarketState } from '@/context/MarketStateContext';
 import { NAV_ITEMS, getNavLabel } from '@/lib/nav-config';
+import { getRiskPulseAction } from '@/app/actions';
 
 type RiskLevel = 'green' | 'amber' | 'red';
+
+function magnetMove(e: MouseEvent<HTMLElement>) {
+  const target = e.currentTarget;
+  const rect = target.getBoundingClientRect();
+  const x = (e.clientX - rect.left) / rect.width - 0.5;
+  const y = (e.clientY - rect.top) / rect.height - 0.5;
+  target.style.transform = `translate3d(${x * 8}px, ${y * 8}px, 0)`;
+}
+
+function magnetReset(e: MouseEvent<HTMLElement>) {
+  e.currentTarget.style.transform = 'translate3d(0,0,0)';
+}
 
 export default function AppHeader() {
   const { t, locale, isRtl } = useLocale();
   const pathname = usePathname();
   const sim = useSimulationOptional();
+  const { isDefcon1 } = useMarketState();
   const [menuOpen, setMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [riskPulse, setRiskPulse] = useState<RiskLevel>('green');
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/ops/risk-pulse', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: { level?: RiskLevel } | null) => {
+    void (async () => {
+      try {
+        const out = await getRiskPulseAction();
+        const data = out.success ? (out.data as { level?: RiskLevel }) : null;
         if (!cancelled && data?.level) setRiskPulse(data.level);
-      })
-      .catch(() => {});
+      } catch {
+        // ignore
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
 
@@ -51,15 +71,20 @@ export default function AppHeader() {
   }, [sidebarCollapsed]);
 
   const isOpsArea = pathname.startsWith('/ops');
+  const marketModeClass = riskPulse === 'red' ? 'market-mode-bear' : 'market-mode-bull';
 
   const isGuideActive = pathname === '/guide';
   return (
     <>
       {/* Desktop premium sidebar */}
-      <aside
-        className={`hidden md:flex fixed top-0 ${isRtl ? 'end-0 border-s' : 'start-0 border-e'} bottom-0 z-[var(--z-header)] backdrop-blur-2xl shadow-2xl overflow-hidden border-[var(--app-border)] bg-[var(--app-surface)]/92 transition-[width] duration-200 ${
+      <motion.aside
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, type: 'spring', stiffness: 100, damping: 20 }}
+        className={`hidden md:flex fixed top-3 ${isRtl ? 'end-3 border-s' : 'start-3 border-e'} bottom-3 z-[var(--z-header)] shadow-2xl overflow-hidden border-[var(--app-border)] bg-[var(--app-surface)]/45 transition-[width,transform,box-shadow] duration-300 rounded-[2rem] ${marketModeClass} ${
           sidebarCollapsed ? 'w-[92px]' : 'w-[280px]'
-        }`}
+        } frosted-obsidian`}
+        style={{ boxShadow: '0 32px 60px rgba(0,0,0,0.58), 0 0 30px rgba(var(--market-border-rgb),0.24)' }}
         dir={isRtl ? 'rtl' : 'ltr'}
         aria-label={locale === 'he' ? 'ניווט צדדי' : 'Sidebar navigation'}
       >
@@ -90,27 +115,37 @@ export default function AppHeader() {
             </button>
           </div>
 
+          <div className="px-2 pb-2">
+            <ForexTicker collapsed={sidebarCollapsed} />
+          </div>
+
           <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1" aria-label={locale === 'he' ? 'ניווט ראשי' : 'Primary navigation'}>
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const label = getNavLabel(item, t as Record<string, string>);
               const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+              const defconSoft = Boolean(item.softInDefcon && isDefcon1);
 
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   prefetch={true}
+                  onMouseMove={magnetMove}
+                  onMouseLeave={magnetReset}
                   title={sidebarCollapsed ? label : undefined}
-                  className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                  className={`magnet-link relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                    defconSoft ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
+                  } ${
                     isActive
-                      ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                      : 'text-zinc-300 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/15'
+                      ? 'text-amber-300 bg-white/10 border border-white/20 scale-[1.02]'
+                      : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:scale-[1.04]'
                   } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
                     isActive
-                      ? 'before:bg-amber-500/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
+                      ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
                       : 'before:bg-transparent'
                   } ${sidebarCollapsed ? 'justify-center gap-0 px-3' : ''}`}
+                  style={!isActive ? { boxShadow: '0 0 0 rgba(0,0,0,0)' } : { boxShadow: '0 0 22px rgba(var(--market-border-rgb),0.35)' }}
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon className="w-5 h-5 shrink-0" aria-hidden />
@@ -123,14 +158,18 @@ export default function AppHeader() {
             <Link
               href="/guide"
               prefetch={true}
+              onMouseMove={magnetMove}
+              onMouseLeave={magnetReset}
               title={sidebarCollapsed ? (locale === 'he' ? 'מדריך למשתמש' : 'User Guide') : undefined}
-              className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+              className={`magnet-link relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
+                isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
+              } ${
                 isGuideActive
-                  ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                  : 'text-zinc-300 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/15'
+                  ? 'text-amber-300 bg-white/10 border border-white/20 scale-[1.02]'
+                  : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:scale-[1.04]'
               } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
                 isGuideActive
-                  ? 'before:bg-amber-500/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
+                  ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
                   : 'before:bg-transparent'
               } ${sidebarCollapsed ? 'justify-center gap-0 px-3' : ''}`}
               aria-current={isGuideActive ? 'page' : undefined}
@@ -165,7 +204,7 @@ export default function AppHeader() {
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-800/70 border border-zinc-700/50 text-amber-300/90 text-xs font-medium">
                 <Wallet className="w-4 h-4 shrink-0" aria-hidden />
                 <span className="truncate">
-                  {sim.selectedSymbol} • ${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {sim.selectedSymbol} • <span className="live-data-number">${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                 </span>
               </div>
             )}
@@ -208,11 +247,11 @@ export default function AppHeader() {
             )}
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Mobile header */}
       <header
-        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] backdrop-blur-xl z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden"
+        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden"
         dir={isRtl ? 'rtl' : 'ltr'}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 lg:gap-6 min-w-0">

@@ -22,6 +22,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useSimulationOptional } from '@/context/SimulationContext';
 import { useToastOptional } from '@/context/ToastContext';
 import { round2, toDecimal, D, formatPriceForSymbol, formatAmountForSymbol, formatFiat } from '@/lib/decimal';
+import { getPortfolioVirtualAction, getSimulationSummaryAction } from '@/app/actions';
 import { formatDateTimeLocal } from '@/lib/i18n';
 import { REPORT_BRANDING, REPORT_LEGAL_DISCLAIMER } from '@/lib/print-report';
 
@@ -143,29 +144,33 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
     if (!mounted) return;
     setSimSummaryLoading(true);
     let cancelled = false;
-    fetch('/api/simulation/summary', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: SimulationSummary | null) => {
-        if (!cancelled) {
-          setSimSummary(json);
-          setSimSummaryLoading(false);
-        }
-      })
-      .catch(() => {
+    void (async () => {
+      try {
+        const out = await getSimulationSummaryAction();
+        if (!cancelled) setSimSummary(out.success ? (out.data as SimulationSummary) : null);
+      } catch {
+        // ignore
+      } finally {
         if (!cancelled) setSimSummaryLoading(false);
-      });
+      }
+    })();
     return () => { cancelled = true; };
   }, [mounted, tradesSignature]);
 
   useEffect(() => {
     if (!mounted) return;
     let cancelled = false;
-    fetch('/api/portfolio/virtual', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { closedTrades?: VirtualClosedTrade[] } | null) => {
-        if (!cancelled && json?.closedTrades) setVirtualClosedTrades(json.closedTrades.slice(0, 50));
-      })
-      .catch(() => {});
+    void (async () => {
+      try {
+        const out = await getPortfolioVirtualAction();
+        if (!cancelled && out.success) {
+          const json = out.data as { closedTrades?: VirtualClosedTrade[] };
+          if (json?.closedTrades) setVirtualClosedTrades(json.closedTrades.slice(0, 50));
+        }
+      } catch {
+        // ignore
+      }
+    })();
     return () => { cancelled = true; };
   }, [mounted]);
 
@@ -370,12 +375,12 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
 
       {/* Core Metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 min-w-0 overflow-hidden" dir="rtl">
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">תיק כולל</div>
-          <div className="text-lg sm:text-2xl font-bold text-white truncate" suppressHydrationWarning><span dir="ltr" className="inline-block">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-          <div className="text-xs text-zinc-500 mt-0.5"><span dir="ltr">התחלה ${(data.startingBalance ?? D.startingBalance.toNumber()).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} · {L}x</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white truncate" suppressHydrationWarning><span dir="ltr" className="inline-block live-data-number">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+          <div className="text-xs text-zinc-500 mt-0.5"><span dir="ltr" className="live-data-number">התחלה ${(data.startingBalance ?? D.startingBalance.toNumber()).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} · {L}x</span></div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden group relative">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden group relative">
           <div className="flex items-center gap-1.5 mb-1">
             <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">רווח נקי (%)</span>
             <span
@@ -387,24 +392,24 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
             </span>
           </div>
           <div className={`text-lg sm:text-2xl font-bold truncate ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
-            <span dir="ltr" className="inline-block">${totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} ({(totalPnlPct >= 0 ? '+' : '')}{totalPnlPct.toFixed(2)}%)</span>
+            <span dir="ltr" className="inline-block live-data-number">${totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} ({(totalPnlPct >= 0 ? '+' : '')}{totalPnlPct.toFixed(2)}%)</span>
           </div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">אחוז הצלחה</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block">{winRatePct.toFixed(1)}%</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{winRatePct.toFixed(1)}%</span></div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">מקדם רווח</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block">{data?.totalTrades ? profitFactorSafe.toFixed(2) : 'N/A'}</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? profitFactorSafe.toFixed(2) : 'N/A'}</span></div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden" title="מדד יציבות (Sharpe) — תשואה ליחידת סיכון">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden" title="מדד יציבות (Sharpe) — תשואה ליחידת סיכון">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">מדד יציבות (שרפ)</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">משיכה מקסימלית</div>
-          <div className="text-lg sm:text-2xl font-bold text-rose-500 truncate"><span dir="ltr" className="inline-block">${maxDrawdown.toFixed(2)} ({maxDrawdownPctSafe.toFixed(1)}%)</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-rose-500 truncate"><span dir="ltr" className="inline-block live-data-number">${maxDrawdown.toFixed(2)} ({maxDrawdownPctSafe.toFixed(1)}%)</span></div>
         </div>
       </div>
 
@@ -428,7 +433,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       {/* Executive summary block — Print Mode layout for PDF (A4 one-page) */}
       <div
         ref={reportRef}
-        className="print-mode rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 space-y-4 w-full max-w-full sm:max-w-[210mm] min-w-0 overflow-hidden"
+        className="print-mode rounded-2xl bg-black/40 frosted-obsidian p-6 space-y-4 w-full max-w-full sm:max-w-[210mm] min-w-0 overflow-hidden"
         style={{ fontFamily: 'system-ui, sans-serif' }}
       >
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -444,12 +449,12 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
           <span className="text-xs text-zinc-500">מינוף {L}x</span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-sm">
-          <div><span className="text-zinc-500">תיק</span> <span className="text-white font-medium" dir="ltr">${balance.toFixed(2)}</span></div>
-          <div><span className="text-zinc-500">רווח/הפסד</span> <span className={totalPnl >= 0 ? 'text-emerald-400 font-medium' : 'text-rose-500 font-medium'} dir="ltr">${totalPnl.toFixed(2)}</span></div>
-          <div><span className="text-zinc-500">אחוז הצלחה</span> <span className="text-white font-medium" dir="ltr">{winRatePct.toFixed(1)}%</span></div>
-          <div><span className="text-zinc-500">מקדם רווח</span> <span className="text-white font-medium" dir="ltr">{profitFactorSafe.toFixed(2)}</span></div>
-          <div><span className="text-zinc-500">מדד יציבות (שרפ)</span> <span className="text-white font-medium" dir="ltr">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
-          <div><span className="text-zinc-500">משיכה מקסימלית</span> <span className="text-rose-500 font-medium" dir="ltr">${maxDrawdown.toFixed(2)}</span></div>
+          <div><span className="text-zinc-500">תיק</span> <span className="text-white font-medium live-data-number" dir="ltr">${balance.toFixed(2)}</span></div>
+          <div><span className="text-zinc-500">רווח/הפסד</span> <span className={totalPnl >= 0 ? 'text-emerald-400 font-medium live-data-number' : 'text-rose-500 font-medium live-data-number'} dir="ltr">${totalPnl.toFixed(2)}</span></div>
+          <div><span className="text-zinc-500">אחוז הצלחה</span> <span className="text-white font-medium live-data-number" dir="ltr">{winRatePct.toFixed(1)}%</span></div>
+          <div><span className="text-zinc-500">מקדם רווח</span> <span className="text-white font-medium live-data-number" dir="ltr">{profitFactorSafe.toFixed(2)}</span></div>
+          <div><span className="text-zinc-500">מדד יציבות (שרפ)</span> <span className="text-white font-medium live-data-number" dir="ltr">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
+          <div><span className="text-zinc-500">משיכה מקסימלית</span> <span className="text-rose-500 font-medium live-data-number" dir="ltr">${maxDrawdown.toFixed(2)}</span></div>
         </div>
         {topStrategies.length > 0 && (
           <div className="pt-2 border-t border-white/5">
@@ -465,7 +470,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
 
       {/* Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 min-w-0">
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 w-full transition-all duration-300 ease-in-out overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 w-full transition-all duration-300 ease-in-out overflow-hidden">
           <h3 className="text-sm font-bold text-white mb-4">עקומת הון</h3>
           <div className="h-56 sm:h-64 min-h-[200px] w-full min-w-0">
             {equityCurveScaled.length > 0 ? (
@@ -489,7 +494,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
             )}
           </div>
         </div>
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 min-w-0 w-full transition-all duration-300 ease-in-out overflow-hidden">
+        <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 w-full transition-all duration-300 ease-in-out overflow-hidden">
           <h3 className="text-sm font-bold text-white mb-4">ביצועים יומיים / חודשיים</h3>
           <div className="h-56 sm:h-64 min-h-[200px] w-full min-w-0">
             {(dailyPnlScaled.length > 0 || monthlyPnlScaled.length > 0) ? (
@@ -514,7 +519,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       </div>
 
       {/* Trade Log — card list on mobile, table with horizontal scroll on desktop */}
-      <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden min-w-0" dir="rtl">
+      <div className="rounded-xl bg-black/40 frosted-obsidian overflow-hidden min-w-0" dir="rtl">
         <h3 className="text-sm font-bold text-white px-6 py-4 border-b border-white/5">20 עסקאות אחרונות</h3>
         {isMobile ? (
           <div className="divide-y divide-white/5">
@@ -548,7 +553,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
         ) : (
           <div className="overflow-x-auto overflow-y-visible max-h-[70vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
             <table className="w-full text-sm min-w-[580px] border-collapse">
-              <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 backdrop-blur border-b border-white/10 shadow-sm">
+              <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 backdrop-blur-[60px] border-b border-white/10 shadow-sm">
                 <tr>
                   <th className="text-end py-3 px-4 text-zinc-500 font-medium">
                     <button type="button" onClick={() => handleSort('date')} className="inline-flex items-center gap-0.5 hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 rounded">
@@ -609,7 +614,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
               </tbody>
             </table>
             {sortedTrades.length > ROWS_PER_PAGE && (
-              <div className="sticky bottom-0 flex items-center justify-between gap-2 px-4 py-2 border-t border-white/5 bg-zinc-900/95 backdrop-blur text-xs text-zinc-400">
+              <div className="sticky bottom-0 flex items-center justify-between gap-2 px-4 py-2 border-t border-white/5 bg-zinc-900/95 backdrop-blur-[60px] text-xs text-zinc-400">
                 <span>
                   עמוד {tradePage + 1} מתוך {totalPages} ({sortedTrades.length} עסקאות)
                 </span>
@@ -646,7 +651,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
 
       {/* Persistent Simulation (Paper Trading) — from DB, live P&L */}
       {simSummaryLoading && (
-        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden min-w-0" dir="rtl">
+        <div className="rounded-xl bg-black/40 frosted-obsidian overflow-hidden min-w-0" dir="rtl">
           <Skeleton className="h-14 w-full rounded-none" />
           <div className="p-6 space-y-4">
             <div className="rounded-xl border border-white/10 bg-white/[0.02] p-6 space-y-4">

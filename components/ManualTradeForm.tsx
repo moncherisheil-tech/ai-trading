@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useToastOptional } from '@/context/ToastContext';
 import { formatAmountForSymbol, formatPriceForSymbol } from '@/lib/decimal';
+import { closeVirtualPortfolioTradeAction, createVirtualPortfolioTradeAction } from '@/app/actions';
 
 type Side = 'buy' | 'sell';
 
@@ -70,46 +71,46 @@ export default function ManualTradeForm() {
         const tp = parseFloat(tpPct);
         if (Number.isFinite(tp) && tp > 0) body.target_profit_pct = tp;
         if (Number.isFinite(sl) && sl < 0) body.stop_loss_pct = sl;
-        const res = await fetch('/api/portfolio/virtual', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        const data = (await res.json()) as {
-          success?: boolean;
-          error?: string;
-          entry_price?: number;
-          amount_usd?: number;
-          symbol?: string;
-        };
-        if (data.success && data.entry_price != null && data.amount_usd != null && data.symbol) {
-          const units = data.amount_usd / data.entry_price;
-          const timeStr = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          toast?.success(
-            `נרכשו ${formatAmountForSymbol(units, data.symbol)} של ${data.symbol.replace('USDT', '')} בשעה ${timeStr} (מחיר ${formatPriceForSymbol(data.entry_price, data.symbol)} $)`
-          );
-          setAmountUsd('');
-          setSymbol('');
-          setSymbolQuery('');
-          setSlPct('');
-          setTpPct('');
-        } else {
-          toast?.error(data.error || 'פתיחת עסקה נכשלה.');
-        }
+          const out = await createVirtualPortfolioTradeAction(body as {
+            symbol: string;
+            amount_usd: number;
+            target_profit_pct?: number;
+            stop_loss_pct?: number;
+          });
+          if (out.success) {
+            const data = out.data as {
+              success?: boolean;
+              error?: string;
+              entry_price?: number;
+              amount_usd?: number;
+              symbol?: string;
+            };
+            if (data.entry_price != null && data.amount_usd != null && data.symbol) {
+              const units = data.amount_usd / data.entry_price;
+              const timeStr = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+              toast?.success(
+                `נרכשו ${formatAmountForSymbol(units, data.symbol)} של ${data.symbol.replace('USDT', '')} בשעה ${timeStr} (מחיר ${formatPriceForSymbol(data.entry_price, data.symbol)} $)`
+              );
+              setAmountUsd('');
+              setSymbol('');
+              setSymbolQuery('');
+              setSlPct('');
+              setTpPct('');
+            } else {
+              toast?.error('פתיחת עסקה נכשלה.');
+            }
+          } else {
+            toast?.error(out.error || 'פתיחת עסקה נכשלה.');
+          }
       } else {
-        const res = await fetch('/api/portfolio/virtual/close', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol: sym }),
-        });
-        const data = (await res.json()) as { success?: boolean; error?: string };
-        if (data.success) {
-          toast?.success(`נסגרה פוזיציה עבור ${sym.replace('USDT', '')}.`);
-          setSymbol('');
-          setSymbolQuery('');
-        } else {
-          toast?.error(data.error || 'סגירת פוזיציה נכשלה.');
-        }
+          const out = await closeVirtualPortfolioTradeAction({ symbol: sym });
+          if (out.success) {
+            toast?.success(`נסגרה פוזיציה עבור ${sym.replace('USDT', '')}.`);
+            setSymbol('');
+            setSymbolQuery('');
+          } else {
+            toast?.error(out.error || 'סגירת פוזיציה נכשלה.');
+          }
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'שגיאה בביצוע העסקה';

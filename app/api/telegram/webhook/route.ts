@@ -41,12 +41,15 @@ import { APP_CONFIG } from '@/lib/config';
 import { escapeHtml } from '@/lib/telegram';
 import { getOverseerChatReply } from '@/lib/system-overseer';
 import { recordAuditLog } from '@/lib/db/audit-logs';
+import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
+import { listVirtualTradeHistory } from '@/lib/db/virtual-trades-history';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
 /** Main menu keyboard for /start — sends command as button text. */
 const MAIN_MENU_KEYBOARD = [
-  ['/status', '/report'],
+  ['/status', '/brief'],
+  ['/halt', '/report'],
   ['/analyze', '/help'],
 ];
 
@@ -128,7 +131,9 @@ function handleStart(): string {
     'שלום! הבוט מחובר ומאפשר שליטה מלאה באיתותים ובתיק הסימולציה.',
     '',
     'השתמש בתפריט למטה או שלח פקודה:',
-    '• <code>/status</code> — סיכום ארנק סימולציה + מאקרו + סורק',
+    '• <code>/status</code> — סיכום ארנק סימולציה + מאקרו + סורק + פורקס',
+    '• <code>/halt</code> — עצירת חירום (כיבוי ביצוע אוטונומי)',
+    '• <code>/brief</code> — תמונת מצב שעה אחרונה (ביצועים)',
     '• <code>/report</code> — דוח מנהלים: 5 העסקאות האחרונות',
     '• <code>/analyze BTC</code> — ניתוח MoE לסימבול',
     '• <code>/help</code> — רשימת פקודות מלאה',
@@ -180,7 +185,57 @@ async function handleStatus(): Promise<string> {
       `• נסרקו: ${scanner.lastRunStats.coinsChecked} | נמצאו: ${scanner.lastRunStats.gemsFound} | התראות נשלחו: ${scanner.lastRunStats.alertsSent}`
     );
   }
+  const fx = macro.forexUplink;
+  if (fx) {
+    parts.push(
+      '',
+      '<b>פורקס (uplink):</b>',
+      `<pre>DXY ${fx.dxy != null ? fx.dxy.toFixed(2) : '—'} | EUR/USD ${fx.eurUsd != null ? fx.eurUsd.toFixed(4) : '—'} | USD/ILS ${fx.usdIls != null ? fx.usdIls.toFixed(3) : '—'}</pre>`,
+      escapeHtml(fx.ilsRiskNoteHe)
+    );
+  }
   return parts.join('\n');
+}
+
+/** /halt — emergency: master execution switch OFF (הנהלה). */
+async function handleHalt(): Promise<string> {
+  if (!APP_CONFIG.postgresUrl?.trim()) {
+    return '❌ עצירת חירום דורשת חיבור ל־Postgres (DATABASE_URL).';
+  }
+  const cur = await getAppSettings();
+  const res = await setAppSettings({
+    execution: { ...cur.execution, masterSwitchEnabled: false },
+  });
+  if (!res.ok) {
+    return `❌ עצירת חירום נכשלה: ${escapeHtml(res.error)}`;
+  }
+  return '🛑 <b>עצירת חירום הופעלה</b>\nביצוע אוטונומי כובה (Master Switch OFF). הנהלה יכולה להדליק שוב ממרכז הפקודות.';
+}
+
+/** /brief — last-hour execution log summary (monospace). */
+async function handleBrief(): Promise<string> {
+  if (!APP_CONFIG.postgresUrl?.trim()) {
+    return '❌ תקציר שעה דורש חיבור ל־Postgres.';
+  }
+  const rows = await listVirtualTradeHistory(150);
+  const since = Date.now() - 60 * 60 * 1000;
+  const recent = rows.filter((r) => new Date(r.created_at).getTime() >= since);
+  const lines = [
+    '⏱ <b>תקציר שעה אחרונה — ביצועים</b>',
+    `<pre>אירועים: ${recent.length}</pre>`,
+  ];
+  for (const r of recent.slice(0, 12)) {
+    const side = r.signal_side === 'BUY' ? 'BUY ' : 'SELL';
+    const st = r.execution_status;
+    lines.push(
+      `<pre>${escapeHtml(r.symbol)} ${side}| ${st} | ${r.executed ? 'EXEC' : '—'} | conf ${Number(r.confidence).toFixed(1)}
+${escapeHtml((r.reason ?? '').slice(0, 120))}</pre>`
+    );
+  }
+  if (recent.length === 0) {
+    lines.push('<pre>אין רישומי ביצוע בשעה האחרונה.</pre>');
+  }
+  return lines.join('\n\n');
 }
 
 /** /report — Executive summary of last 5 closed trades */
@@ -311,7 +366,9 @@ async function handleHelp(): Promise<string> {
     '',
     'פקודות זמינות:',
     '• <code>/start</code> — הודעת פתיחה ותפריט ראשי.',
-    '• <code>/status</code> — סיכום ארנק סימולציה (מאזן, אחוז הצלחה, רווח/הפסד יומי) + מאקרו + סורק.',
+    '• <code>/status</code> — סיכום ארנק סימולציה (מאזן, אחוז הצלחה, רווח/הפסד יומי) + מאקרו + סורק + פורקס.',
+    '• <code>/halt</code> — עצירת חירום: כיבוי ביצוע אוטונומי (Master Switch).',
+    '• <code>/brief</code> — תקציר טקסט/מבנה של ביצועי הרובוט בשעה האחרונה.',
     '• <code>/report</code> — דוח מנהלים: סיכום 5 העסקאות הסגורות האחרונות.',
     '• <code>/analyze [סימבול]</code> — ניתוח MoE עמוק לנכס (למשל <code>/analyze BTCUSDT</code>).',
     '• <code>/strategy standard|conservative|aggressive</code> — עדכון סף כניסה (80% / 90% / 75%).',
@@ -330,6 +387,10 @@ async function handleCommand(cmd: string, arg: string): Promise<string> {
       return handleStart();
     case 'status':
       return handleStatus();
+    case 'halt':
+      return handleHalt();
+    case 'brief':
+      return handleBrief();
     case 'report':
       return handleReport();
     case 'analyze':

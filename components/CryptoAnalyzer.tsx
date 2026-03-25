@@ -25,12 +25,19 @@ import {
   Target,
   Globe,
 } from 'lucide-react';
-import { analyzeCrypto, getHistory, evaluatePendingPredictions } from '@/app/actions';
+import {
+  analyzeCrypto,
+  getHistory,
+  evaluatePendingPredictions,
+  getGemsTicker24hAction,
+  getAppSettingsForViewerAction,
+} from '@/app/actions';
 import type { PredictionRecord } from '@/lib/db';
 import { useLocale } from '@/hooks/use-locale';
 import { useSimulation, INITIAL_WALLET_USD } from '@/context/SimulationContext';
 import { useToast } from '@/context/ToastContext';
 import { toSymbol } from '@/lib/symbols';
+import type { Ticker24hElite } from '@/lib/gem-finder';
 import SymbolSelect from '@/components/SymbolSelect';
 
 const PriceHistoryChart = dynamic(() => import('@/components/PriceHistoryChart'));
@@ -42,13 +49,6 @@ const DIRECTION_HE: Record<string, string> = {
   Bearish: 'דובי',
   Neutral: 'ניטרלי',
 };
-
-const DEEP_LOADING_MESSAGES: { afterMs: number; message: string }[] = [
-  { afterMs: 0, message: 'מתחבר למסדי נתונים ומושך היסטוריית מחירים...' },
-  { afterMs: 4000, message: 'מומחה טכני ומאקרו מנתחים זרימת הון...' },
-  { afterMs: 10000, message: 'מומחה On-Chain סורק פעילות לוויתנים ברשת...' },
-  { afterMs: 18000, message: 'המפקח העליון מצליב נתונים ומנסח פסק דין סופי...' },
-];
 
 export default function CryptoAnalyzer() {
   const { t, locale } = useLocale();
@@ -66,7 +66,6 @@ export default function CryptoAnalyzer() {
   const symbol = useMemo(() => `${selectedSymbol}USDT`, [selectedSymbol]);
 
   const [loading, setLoading] = useState(false);
-  const [loadingStartedAt, setLoadingStartedAt] = useState<number | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [evaluating, setEvaluating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,43 +87,52 @@ export default function CryptoAnalyzer() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/crypto/gems', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: { symbol?: string }[]) => {
+    const load = async () => {
+      try {
+        const data = await getGemsTicker24hAction();
         if (cancelled || !Array.isArray(data)) return;
         const bases = data.map((t) => String(t.symbol || '').replace('USDT', '')).filter(Boolean);
         setGemBaseSymbols(bases.length > 0 ? bases : null);
-      })
-      .catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+    void load();
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/crypto/gems?elite=1', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : []))
-      .then((data: { symbol?: string; isElite?: boolean }[]) => {
+    const load = async () => {
+      try {
+        const data = await getGemsTicker24hAction({ elite: true });
         if (cancelled || !Array.isArray(data)) return;
         const set = new Set<string>();
-        data.forEach((t) => {
+        (data as Ticker24hElite[]).forEach((t) => {
           if (t.isElite && t.symbol) set.add(String(t.symbol));
         });
         setEliteSymbolSet(set.size > 0 ? set : null);
-      })
-      .catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+    void load();
     return () => { cancelled = true; };
   }, []);
 
   // Pre-fill simulation amount from AppSettings (Default Position Size USD)
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/settings/app', { credentials: 'include' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((s: { risk?: { defaultPositionSizeUsd?: number } } | null) => {
+    const load = async () => {
+      try {
+        const s = await getAppSettingsForViewerAction();
         if (cancelled || !s?.risk?.defaultPositionSizeUsd) return;
         setSimAmountUsd((prev) => (prev === '' ? String(s.risk!.defaultPositionSizeUsd) : prev));
-      })
-      .catch(() => {});
+      } catch {
+        // ignore
+      }
+    };
+    void load();
     return () => { cancelled = true; };
   }, []);
 
@@ -225,31 +233,10 @@ export default function CryptoAnalyzer() {
     }
   };
 
-  useEffect(() => {
-    if (!loading || loadingStartedAt == null) {
-      setLoadingMessage('');
-      return;
-    }
-    const pickMessage = () => {
-      const elapsed = Date.now() - loadingStartedAt;
-      let msg = DEEP_LOADING_MESSAGES[0]!.message;
-      for (let i = DEEP_LOADING_MESSAGES.length - 1; i >= 0; i--) {
-        if (elapsed >= DEEP_LOADING_MESSAGES[i]!.afterMs) {
-          msg = DEEP_LOADING_MESSAGES[i]!.message;
-          break;
-        }
-      }
-      setLoadingMessage(msg);
-    };
-    pickMessage();
-    const interval = setInterval(pickMessage, 800);
-    return () => clearInterval(interval);
-  }, [loading, loadingStartedAt]);
-
   const handleAnalyze = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setLoadingStartedAt(Date.now());
+    setLoadingMessage('AWAITING_LIVE_DATA · Cyber-Decrypt in progress...');
     setError(null);
     setSimError(null);
     setChartData([]);
@@ -280,7 +267,6 @@ export default function CryptoAnalyzer() {
       setChartData([]);
     }
     setLoading(false);
-    setLoadingStartedAt(null);
     setLoadingMessage('');
   }, [formRenderedAt, honeypot, loadHistory, symbol, t.analysisErrorDefault, t.unauthorizedRequest]);
 
@@ -418,7 +404,7 @@ export default function CryptoAnalyzer() {
       {/* Currency switcher + Input */}
       <div className="lg:col-span-4 space-y-4 md:space-y-5">
         {/* Multi-currency switcher */}
-        <div className="ui-panel-dense ui-card min-w-0 min-h-[260px]">
+        <div className="ui-panel-dense ui-card frosted-obsidian min-w-0 min-h-[260px]">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-500 shrink-0">
               <Activity className="w-5 h-5" />
@@ -471,7 +457,7 @@ export default function CryptoAnalyzer() {
         </div>
 
         {/* Simulation wallet & quick trade — Deep Sea Trading Station theme */}
-        <div className="ui-panel-dense ui-card rounded-2xl min-w-0 min-h-[230px] bg-gradient-to-b from-[#0a1628] to-[#06101a] border-cyan-500/24 shadow-[0_0_24px_rgba(34,211,238,0.08)]">
+        <div className="ui-panel-dense ui-card frosted-obsidian rounded-2xl min-w-0 min-h-[230px] bg-gradient-to-b from-[#0a1628] to-[#06101a] border-cyan-500/24 shadow-[0_0_24px_rgba(34,211,238,0.08)]">
           <div className="flex items-center justify-between mb-4 gap-2 min-w-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="p-2 bg-cyan-500/15 border border-cyan-400/30 rounded-lg text-cyan-400 shrink-0">
@@ -490,10 +476,10 @@ export default function CryptoAnalyzer() {
               איפוס
             </button>
           </div>
-          <div className="text-2xl font-bold text-cyan-50 tabular-nums mb-1" suppressHydrationWarning>
+          <div className="text-2xl font-bold text-cyan-50 tabular-nums live-data-number mb-1" suppressHydrationWarning>
             ${walletUsd.toLocaleString(undefined, { minimumFractionDigits: 2 })}
           </div>
-          <p className="text-xs text-slate-500 mb-4" suppressHydrationWarning>יתרה התחלתית: ${INITIAL_WALLET_USD.toLocaleString()}</p>
+          <p className="text-xs text-slate-500 mb-4" suppressHydrationWarning>יתרה התחלתית: <span className="live-data-number">${INITIAL_WALLET_USD.toLocaleString()}</span></p>
 
           {/* Manual symbol + fetch live price */}
           <div className="mb-4 space-y-2">
@@ -526,7 +512,7 @@ export default function CryptoAnalyzer() {
           {displayPrice > 0 && (
             <>
               <p className="text-sm text-slate-400 mb-2 flex items-center gap-2 flex-wrap" suppressHydrationWarning>
-                <span>מחיר נוכחי: <span dir="ltr">${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span></span>
+                <span>מחיר נוכחי: <span dir="ltr" className="live-data-number">${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span></span>
                 {livePriceConnected && (
                   <span className="inline-flex items-center gap-1.5 text-cyan-400" title="מחיר חי — Binance">
                     <span className="relative flex h-2 w-2">
@@ -560,7 +546,7 @@ export default function CryptoAnalyzer() {
                       onClick={() => setSimAmountUsd(String(Math.max(0, (walletUsd * pct) / 100)))}
                       className="btn-terminal-secondary min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-medium touch-manipulation focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
                     >
-                      {pct}%
+                      <span className="live-data-number">{pct}%</span>
                     </button>
                   ))}
                 </div>
@@ -595,7 +581,7 @@ export default function CryptoAnalyzer() {
         </div>
 
         {/* Evaluate */}
-        <div className="ui-panel-dense ui-card">
+        <div className="ui-panel-dense ui-card frosted-obsidian">
           <div className="flex items-center gap-3 mb-3">
             <RefreshCw className="w-5 h-5 text-amber-500" />
             <h2 className="text-base font-bold text-white">{t.feedbackLoop}</h2>
@@ -630,7 +616,7 @@ export default function CryptoAnalyzer() {
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-rose-500/10 border border-rose-500/20 text-rose-500 p-4 rounded-xl flex items-start gap-3"
+            className="frosted-obsidian bg-rose-500/10 border border-rose-500/20 text-rose-500 p-4 rounded-xl flex items-start gap-3"
             role="status"
             aria-live="polite"
           >
@@ -640,7 +626,7 @@ export default function CryptoAnalyzer() {
         )}
 
         {error ? (
-          <div className="min-h-[280px] flex flex-col items-center justify-center text-center p-6 bg-[#111111] rounded-2xl border border-white/5">
+          <div className="frosted-obsidian min-h-[280px] flex flex-col items-center justify-center text-center p-6 rounded-2xl border border-white/5">
             <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 rounded-2xl flex items-center justify-center mb-4">
               <AlertTriangle className="w-8 h-8 text-rose-500" />
             </div>
@@ -661,7 +647,7 @@ export default function CryptoAnalyzer() {
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-[#111111] border border-white/5 rounded-2xl overflow-hidden min-w-0 max-w-full"
+              className="frosted-obsidian border border-white/5 rounded-2xl overflow-hidden min-w-0 max-w-full"
             >
               <div
                 className={`p-6 border-b border-white/5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0 ${
@@ -704,18 +690,18 @@ export default function CryptoAnalyzer() {
               <div className="grid grid-cols-2 sm:grid-cols-3 divide-x divide-white/5 border-b border-white/5 min-w-0">
                 <div className="p-6 min-w-0">
                   <div className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-wider mb-1">הסתברות</div>
-                  <div className="text-lg sm:text-2xl font-semibold text-white truncate"><span dir="ltr">{latestPrediction.probability != null ? `${latestPrediction.probability}%` : '—'}</span></div>
+                  <div className="text-lg sm:text-2xl font-semibold text-white truncate"><span dir="ltr" className="live-data-number">{latestPrediction.probability != null ? `${latestPrediction.probability}%` : '—'}</span></div>
                 </div>
                 <div className="p-6 min-w-0">
                   <div className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-wider mb-1">תנועה צפויה</div>
                   <div className="text-lg sm:text-2xl font-semibold text-white truncate">
-                    <span dir="ltr">{(latestPrediction.target_percentage ?? 0) > 0 ? '+' : ''}{latestPrediction.target_percentage ?? 0}%</span>
+                    <span dir="ltr" className="live-data-number">{(latestPrediction.target_percentage ?? 0) > 0 ? '+' : ''}{latestPrediction.target_percentage ?? 0}%</span>
                   </div>
                 </div>
                 <div className="p-6 col-span-2 sm:col-span-1 min-w-0">
                   <div className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-wider mb-1">מחיר כניסה</div>
                   <div className="text-lg sm:text-2xl font-semibold text-white truncate" suppressHydrationWarning>
-                    <span dir="ltr">${(latestPrediction.entry_price ?? 0).toLocaleString()}</span>
+                    <span dir="ltr" className="live-data-number">${(latestPrediction.entry_price ?? 0).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -728,7 +714,7 @@ export default function CryptoAnalyzer() {
                 <div className="p-6">
                   <div className="text-[10px] text-zinc-500 uppercase mb-1">זמן תגובה</div>
                   <div className="text-sm font-semibold text-zinc-100">
-                    {latestPrediction.latency_ms ? `${latestPrediction.latency_ms} ms` : '—'}
+                    <span className="live-data-number">{latestPrediction.latency_ms ? `${latestPrediction.latency_ms} ms` : '—'}</span>
                   </div>
                 </div>
                 <div className="p-6">
@@ -742,8 +728,8 @@ export default function CryptoAnalyzer() {
                   <div className="text-sm font-semibold text-zinc-100">
                     {typeof latestPrediction.sentiment_score === 'number'
                       ? latestPrediction.sentiment_score >= 0
-                        ? `+${latestPrediction.sentiment_score.toFixed(2)}`
-                        : latestPrediction.sentiment_score.toFixed(2)
+                        ? <span className="live-data-number">{`+${latestPrediction.sentiment_score.toFixed(2)}`}</span>
+                        : <span className="live-data-number">{latestPrediction.sentiment_score.toFixed(2)}</span>
                       : '—'}
                   </div>
                 </div>
@@ -790,19 +776,19 @@ export default function CryptoAnalyzer() {
                     {latestPrediction.suggested_sl != null && (
                       <div className="rounded-lg bg-black/20 p-3 border border-rose-500/20">
                         <p className="text-[10px] text-rose-400/90 uppercase mb-0.5">סטופ לוס מוצע</p>
-                        <p className="text-sm font-bold text-white tabular-nums">${latestPrediction.suggested_sl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
+                        <p className="text-sm font-bold text-white tabular-nums live-data-number">${latestPrediction.suggested_sl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
                       </div>
                     )}
                     {latestPrediction.suggested_tp != null && (
                       <div className="rounded-lg bg-black/20 p-3 border border-emerald-500/20">
                         <p className="text-[10px] text-emerald-400/90 uppercase mb-0.5">יעד רווח מוצע</p>
-                        <p className="text-sm font-bold text-white tabular-nums">${latestPrediction.suggested_tp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
+                        <p className="text-sm font-bold text-white tabular-nums live-data-number">${latestPrediction.suggested_tp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
                       </div>
                     )}
                     {(latestPrediction.hvn_levels?.length ?? 0) > 0 && (
                       <div className="col-span-2 rounded-lg bg-black/20 p-3 border border-cyan-500/20">
                         <p className="text-[10px] text-cyan-400/90 uppercase mb-1">רמות HVN (תמיכה/התנגדות)</p>
-                        <p className="text-xs font-medium text-zinc-300 tabular-nums" dir="ltr">
+                        <p className="text-xs font-medium text-zinc-300 tabular-nums live-data-number" dir="ltr">
                           {latestPrediction.hvn_levels!.map((v) => `$${v.toLocaleString(undefined, { minimumFractionDigits: 2 })}`).join(' · ')}
                         </p>
                       </div>
@@ -863,7 +849,7 @@ export default function CryptoAnalyzer() {
                                 style={{ width: `${pct}%` }}
                               />
                             </div>
-                            <span className="text-xs font-semibold text-white tabular-nums shrink-0">{Math.round(pct)}</span>
+                            <span className="text-xs font-semibold text-white tabular-nums live-data-number shrink-0">{Math.round(pct)}</span>
                           </div>
                         </div>
                       );
@@ -955,7 +941,7 @@ export default function CryptoAnalyzer() {
                         >
                           <div className="text-xs font-semibold text-zinc-100">{source?.source_name ?? 'לא זמין'}</div>
                           <div className="text-[11px] text-zinc-500">
-                            {source?.source_type ?? '—'} • ציון {Number(source?.relevance_score ?? 0).toFixed(2)}
+                            {source?.source_type ?? '—'} • ציון <span className="live-data-number">{Number(source?.relevance_score ?? 0).toFixed(2)}</span>
                           </div>
                           <div className="text-[11px] text-zinc-500">{source?.evidence_snippet ?? 'לא זמין'}</div>
                         </div>
@@ -968,7 +954,7 @@ export default function CryptoAnalyzer() {
 
             {/* Simulation trades for this symbol */}
             {simulationTrades.length > 0 && (
-              <div className="bg-[#111111] border border-white/5 rounded-2xl p-6">
+              <div className="frosted-obsidian border border-white/5 rounded-2xl p-6">
                 <h3 className="text-base font-bold text-white mb-3 flex items-center gap-2">
                   <Wallet className="w-5 h-5 text-amber-500" />
                   היסטוריית סימולציה — {symbol}
@@ -986,7 +972,7 @@ export default function CryptoAnalyzer() {
                       >
                         {tr.side === 'buy' ? 'קנייה' : 'מכירה'}
                       </span>
-                      <span className="text-zinc-100">
+                      <span className="text-zinc-100 live-data-number">
                         ${tr.amountUsd.toFixed(0)} @ ${tr.price.toLocaleString()}
                       </span>
                       <span className="text-zinc-500 text-xs" suppressHydrationWarning>{tr.dateLabel}</span>
@@ -997,28 +983,28 @@ export default function CryptoAnalyzer() {
             )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div className="bg-[#111111] border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
+              <div className="frosted-obsidian border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
                 <div className="text-[10px] uppercase text-zinc-500 tracking-wider">תוקן</div>
                 <div className="text-xl font-bold text-white mt-0.5">{repairedCount}</div>
               </div>
-              <div className="bg-[#111111] border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
+              <div className="frosted-obsidian border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
                 <div className="text-[10px] uppercase text-zinc-500 tracking-wider">גיבוי</div>
                 <div className="text-xl font-bold text-white mt-0.5">{fallbackCount}</div>
               </div>
-              <div className="bg-[#111111] border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
+              <div className="frosted-obsidian border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
                 <div className="text-[10px] uppercase text-zinc-500 tracking-wider">עם מקורות</div>
                 <div className="text-xl font-bold text-white mt-0.5">{withSourcesCount}</div>
               </div>
-              <div className="bg-[#111111] border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
+              <div className="frosted-obsidian border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]">
                 <div className="text-[10px] uppercase text-zinc-500 tracking-wider">זמן ממוצע</div>
                 <div className="text-xl font-bold text-white mt-0.5">
-                  {Number.isFinite(avgLatency) ? `${Math.round(avgLatency)} ms` : '—'}
+                  <span className="live-data-number">{Number.isFinite(avgLatency) ? `${Math.round(avgLatency)} ms` : '—'}</span>
                 </div>
               </div>
             </div>
           </div>
         ) : (
-          <div className="min-h-[280px] flex flex-col items-center justify-center text-center p-6 bg-[#111111] rounded-2xl border border-white/5">
+          <div className="frosted-obsidian min-h-[280px] flex flex-col items-center justify-center text-center p-6 rounded-2xl border border-white/5">
             <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/20 rounded-2xl flex items-center justify-center mb-4">
               <BarChart2 className="w-8 h-8 text-amber-500" />
             </div>
@@ -1044,7 +1030,7 @@ export default function CryptoAnalyzer() {
               {windowedRows.map((record) => (
                 <div
                   key={record.id}
-                  className="bg-[#111111] border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]"
+                  className="frosted-obsidian border border-white/5 rounded-xl p-6 transition-all duration-300 hover:bg-white/[0.02]"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1069,12 +1055,12 @@ export default function CryptoAnalyzer() {
                               : 'bg-zinc-800/80 text-zinc-300'
                         }`}
                       >
-                        {(DIRECTION_HE[record.predicted_direction] ?? record.predicted_direction)} ({record.probability}%)
+                        {(DIRECTION_HE[record.predicted_direction] ?? record.predicted_direction)} (<span className="live-data-number">{record.probability}%</span>)
                       </span>
                       {typeof record.sentiment_score === 'number' && (
                         <span className="text-xs px-2 py-1 rounded-md bg-zinc-800/80 text-zinc-300">
                           סנטימנט: {record.sentiment_score >= 0 ? '+' : ''}
-                          {record.sentiment_score.toFixed(2)}
+                          <span className="live-data-number">{record.sentiment_score.toFixed(2)}</span>
                         </span>
                       )}
                       {record.status === 'pending' ? (

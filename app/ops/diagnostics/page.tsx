@@ -14,6 +14,7 @@ import {
   RefreshCw,
   FlaskConical,
 } from 'lucide-react';
+import { getOpsDiagnosticsAction, runOpsAuditCheckAction } from '@/app/actions';
 
 type Status = 'ok' | 'fail' | 'skip';
 
@@ -89,17 +90,16 @@ export default function DiagnosticsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/ops/diagnostics', { credentials: 'include' });
-      if (!res.ok) {
-        if (res.status === 401) {
+      const out = await getOpsDiagnosticsAction();
+      if (!out.success) {
+        if (out.error === 'UNAUTHORIZED') {
           setError('נדרשת הרשמה כמנהל.');
           return;
         }
-        setError(`שגיאה: ${res.status}`);
+        setError(out.error || 'שגיאה בטעינת אבחון');
         return;
       }
-      const json = (await res.json()) as DiagnosticsData;
-      setData(json);
+      setData(out.data as DiagnosticsData);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שגיאת רשת');
     } finally {
@@ -117,18 +117,9 @@ export default function DiagnosticsPage() {
     setAuditLoading(true);
     setAuditResult(null);
     try {
-      const res = await fetch('/api/ops/audit-check', { credentials: 'include' });
-      const rawBody = await res.text();
-      let json: AuditReport;
-      try {
-        json = JSON.parse(rawBody) as AuditReport;
-      } catch {
-        throw new Error(rawBody.trim() || `Audit check returned invalid JSON (HTTP ${res.status}).`);
-      }
-      if (!res.ok) {
-        throw new Error(json.error?.message || `Audit check failed (HTTP ${res.status}).`);
-      }
-      setAuditResult(json);
+      const out = await runOpsAuditCheckAction();
+      if (!out.success) throw new Error(out.error);
+      setAuditResult(out.data as AuditReport);
     } catch (e) {
       setAuditResult({
         ok: false,

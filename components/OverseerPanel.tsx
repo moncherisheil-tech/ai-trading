@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { Shield, Activity, Settings, RefreshCw, CheckCircle, XCircle, MinusCircle } from 'lucide-react';
+import { getOverseerHealthAction, getOverseerLogsAction } from '@/app/actions';
+import NeuralConsensusVisualizer from '@/components/NeuralConsensusVisualizer';
 
 type OverseerLog = {
   symbol: string;
@@ -9,6 +11,14 @@ type OverseerLog = {
   final_confidence: number | null;
   prediction_date: string;
   consensus_approved: boolean;
+  debate_resolution?: string | null;
+  tech_score?: number | null;
+  risk_score?: number | null;
+  psych_score?: number | null;
+  macro_score?: number | null;
+  onchain_score?: number | null;
+  deep_memory_score?: number | null;
+  predicted_direction?: string | null;
 };
 
 type Health = {
@@ -42,19 +52,13 @@ export default function OverseerPanel() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [logsRes, healthRes, settingsRes] = await Promise.all([
-        fetch('/api/ops/overseer-logs', { credentials: 'include', cache: 'no-store' }),
-        fetch('/api/ops/health', { credentials: 'include', cache: 'no-store' }),
+      const [logsOut, healthOut, settingsRes] = await Promise.all([
+        getOverseerLogsAction(),
+        getOverseerHealthAction(),
         fetch('/api/settings/app', { credentials: 'include', cache: 'no-store' }),
       ]);
-      if (logsRes.ok) {
-        const data = await logsRes.json();
-        setLogs(data.logs ?? []);
-      }
-      if (healthRes.ok) {
-        const data = await healthRes.json();
-        setHealth(data);
-      }
+      if (logsOut.success) setLogs((logsOut.data as any)?.logs ?? []);
+      if (healthOut.success) setHealth(healthOut.data as any);
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setSettings(data);
@@ -93,17 +97,35 @@ export default function OverseerPanel() {
 
   if (loading && !health && !settings) {
     return (
-      <div className="rounded-xl border border-white/10 bg-black/40 p-6 animate-pulse">
-        <div className="h-6 w-48 bg-zinc-700 rounded mb-4" />
-        <div className="h-4 w-full bg-zinc-800 rounded mb-2" />
-        <div className="h-4 w-3/4 bg-zinc-800 rounded" />
+      <div className="rounded-xl border border-white/10 bg-black/40 p-6">
+        <p className="text-xs text-zinc-500 mb-4 font-mono tabular-nums tracking-tight">
+          AWAITING_LIVE_DATA · NEURAL_STREAM_HANDSHAKE…
+        </p>
+        <div className="h-6 w-48 bg-zinc-700 rounded mb-4 animate-pulse" />
+        <div className="h-4 w-full bg-zinc-800 rounded mb-2 animate-pulse" />
+        <div className="h-4 w-3/4 bg-zinc-800 rounded animate-pulse" />
       </div>
     );
   }
 
+  const latestNeural =
+    logs.length > 0
+      ? {
+          debate_resolution: logs[0]!.debate_resolution ?? null,
+          tech_score: logs[0]!.tech_score ?? null,
+          risk_score: logs[0]!.risk_score ?? null,
+          psych_score: logs[0]!.psych_score ?? null,
+          macro_score: logs[0]!.macro_score ?? null,
+          onchain_score: logs[0]!.onchain_score ?? null,
+          deep_memory_score: logs[0]!.deep_memory_score ?? null,
+          final_confidence: logs[0]!.final_confidence ?? null,
+          predicted_direction: logs[0]!.predicted_direction ?? null,
+        }
+      : null;
+
   return (
     <section
-      className="rounded-2xl border border-amber-500/20 bg-black/40 backdrop-blur-xl overflow-hidden"
+      className="rounded-2xl border border-amber-500/20 bg-black/40 frosted-obsidian overflow-hidden"
       aria-labelledby="overseer-panel-heading"
     >
       <div className="p-4 sm:p-6 border-b border-white/10 flex flex-wrap items-center justify-between gap-3">
@@ -122,6 +144,8 @@ export default function OverseerPanel() {
       </div>
 
       <div className="p-4 sm:p-6 space-y-6" dir="rtl">
+        <NeuralConsensusVisualizer data={latestNeural} />
+
         {/* API Health */}
         <div>
           <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-300 mb-3">

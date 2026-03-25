@@ -1,3 +1,6 @@
+import { getGeminiApiKey } from '@/lib/env';
+import { withGeminiRateLimitRetry } from '@/lib/gemini-model';
+
 /**
  * Vector DB (Pinecone) for Agent Deep Memory / RAG.
  * When Learning Center generates a Post-Mortem (why_win_lose), store it as an embedding.
@@ -8,10 +11,6 @@
 const POST_MORTEMS_NAMESPACE = 'post-mortems';
 const BOARD_MEETINGS_NAMESPACE = 'board-meetings';
 const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
-/** Must match your Pinecone index dimension (e.g. 1024 or 1536). Set PINECONE_EMBEDDING_DIM in .env if index uses 1024. */
-const EMBEDDING_DIM = typeof process.env.PINECONE_EMBEDDING_DIM !== 'undefined' && Number.isFinite(Number(process.env.PINECONE_EMBEDDING_DIM))
-  ? Math.max(1, Math.min(4096, Number(process.env.PINECONE_EMBEDDING_DIM)))
-  : 1536;
 const DEFAULT_TOP_K = 3;
 type PineconeRecordMetadata = Record<string, unknown>;
 
@@ -46,20 +45,116 @@ async function setLastUpsertNow(): Promise<void> {
   }
 }
 
+/** Primary id for docs / env override; runtime tries fallbacks on 404 (004 retired for many AI Studio keys). */
+export const GEMINI_EMBEDDING_MODEL_ID = 'text-embedding-004';
+
+/** Default vector size when Pinecone env dim unset (Matryoshka / reduced dim for gemini-embedding-001). */
+export const GEMINI_EMBEDDING_DIMENSION = 768;
+
+function getEmbeddingModelCandidates(): string[] {
+  const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
+  const fallback = ['text-embedding-004', 'gemini-embedding-001', 'text-embedding-005'];
+  if (env) return [env, ...fallback.filter((m) => m !== env)];
+  return fallback;
+}
+
+function getExpectedEmbeddingDim(): number {
+  const raw = process.env.PINECONE_EMBEDDING_DIM;
+  if (typeof raw === 'undefined' || raw.trim() === '') return GEMINI_EMBEDDING_DIMENSION;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return GEMINI_EMBEDDING_DIMENSION;
+  return Math.max(1, Math.min(4096, parsed));
+}
+
 /**
- * Placeholder embedding when no real embedding API (e.g. OpenAI, Gemini) is wired.
- * Produces deterministic pseudo-vectors so Pinecone ops don't fail; replace with real embed() for production.
+ * v1beta REST :embedContent. Tries `GEMINI_EMBEDDING_MODEL_ID` then 004 → gemini-embedding-001 → 005 so live stacks
+ * keep working when Google drops a model id for a given API key.
  */
-function mockEmbed(text: string): number[] {
-  const arr: number[] = [];
-  let h = 0;
-  for (let i = 0; i < text.length; i++) {
-    h = (h * 31 + text.charCodeAt(i)) >>> 0;
+async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<number[]> {
+  const dim = getExpectedEmbeddingDim();
+  const candidates = getEmbeddingModelCandidates();
+  let lastBody = '';
+  for (const modelId of candidates) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
+    const bodyWithDim = JSON.stringify({
+      model: `models/${modelId}`,
+      content: { parts: [{ text }] },
+      outputDimensionality: dim,
+    });
+    const bodyPlain = JSON.stringify({
+      model: `models/${modelId}`,
+      content: { parts: [{ text }] },
+    });
+    let res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyWithDim,
+    });
+    if (res.status === 400) {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyPlain,
+      });
+    }
+    if (res.status === 429) {
+      const err = new Error(`Gemini embedContent rate limited (429).`) as Error & { status: number };
+      err.status = 429;
+      throw err;
+    }
+    if (res.status === 404) {
+      lastBody = await res.text().catch(() => '');
+      continue;
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Gemini embedContent failed (${res.status}) model=${modelId}: ${body.slice(0, 500)}`);
+    }
+    const json = (await res.json()) as { embedding?: { values?: number[] } };
+    const values = json.embedding?.values;
+    if (!Array.isArray(values) || values.length === 0) {
+      throw new Error(`Gemini embedding response empty (model=${modelId}).`);
+    }
+    if (!values.every((v) => Number.isFinite(v))) {
+      throw new Error('Gemini embedding contains non-finite values.');
+    }
+    return values;
   }
-  for (let i = 0; i < EMBEDDING_DIM; i++) {
-    arr.push(Math.sin((h + i) * 0.1) * 0.5 + 0.5);
+  throw new Error(
+    `Gemini embedContent: no working embedding model in [${candidates.join(', ')}]. Last 404: ${lastBody.slice(0, 400)}`
+  );
+}
+
+async function embedTextWithGemini(text: string): Promise<number[]> {
+  const apiKey = getGeminiApiKey();
+  const trimmed = text.trim();
+  if (!trimmed) throw new Error('Cannot embed empty text.');
+  const values = await withGeminiRateLimitRetry(() => embedTextWithGeminiRest(trimmed, apiKey), {
+    baseDelayMs: 10_000,
+    maxAttempts: 6,
+  });
+  const expectedDim = getExpectedEmbeddingDim();
+  if (values.length !== expectedDim) {
+    throw new Error(
+      `Embedding dimension mismatch (${values.length} !== ${expectedDim}). Set PINECONE_EMBEDDING_DIM to match the model output or your Pinecone index.`
+    );
   }
-  return arr;
+  return values;
+}
+
+/** Lightweight health check for CEO readiness (no Pinecone write). */
+export async function probeGeminiTextEmbedding004(): Promise<{
+  ok: boolean;
+  dimension?: number;
+  error?: string;
+}> {
+  try {
+    const vec = await embedTextWithGemini('sovereign-readiness-probe');
+    return { ok: true, dimension: vec.length };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: msg };
+  }
 }
 
 export interface PostMortemMetadata {
@@ -79,34 +174,42 @@ export async function storePostMortem(
 ): Promise<void> {
   const apiKey = getPineconeApiKey();
   const indexName = getPineconeIndexName();
-  console.log('🔍 [vector-db] storePostMortem invoked! apiKey present:', !!apiKey, '| index configured:', !!indexName, '| text length:', whyWinLose?.length || 0);
+  const devLog = process.env.NODE_ENV !== 'production';
+  if (devLog) {
+    console.log(
+      '[vector-db] storePostMortem invoked',
+      { hasKey: !!apiKey, hasIndex: !!indexName, textLen: whyWinLose?.length ?? 0 }
+    );
+  }
   if (!apiKey || !indexName || !whyWinLose?.trim()) {
-    if (!apiKey) {
-      console.log('[vector-db] Skipping storePostMortem: missing PINECONE_API_KEY.');
-    }
-    if (!indexName) {
-      console.log('[vector-db] Skipping storePostMortem: missing PINECONE_INDEX_NAME.');
-    }
-    if (!whyWinLose?.trim()) {
-      console.log('[vector-db] Skipping storePostMortem: whyWinLose text is empty or whitespace.');
+    if (devLog) {
+      if (!apiKey) console.log('[vector-db] Skipping storePostMortem: missing PINECONE_API_KEY.');
+      if (!indexName) console.log('[vector-db] Skipping storePostMortem: missing PINECONE_INDEX_NAME.');
+      if (!whyWinLose?.trim()) {
+        console.log('[vector-db] Skipping storePostMortem: whyWinLose text is empty or whitespace.');
+      }
     }
     return;
   }
   try {
     const { index } = await getPineconeIndexOrThrow();
-    const id = `pm-${metadata.symbol}-${metadata.trade_id}-${Date.now()}`;
+    const symKey = String(metadata.symbol || 'UNK')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '');
+    /** Stable id = UPSERT semantics: same paper-trade closure overwrites one vector. */
+    const id = `pm-${symKey}-${metadata.trade_id}`;
     let values: number[];
     try {
-      values = mockEmbed(whyWinLose);
+      values = await embedTextWithGemini(whyWinLose);
     } catch (err) {
       console.error('[vector-db] Failed to generate embedding for post-mortem:', {
         error: err instanceof Error ? err.message : err,
       });
       return;
     }
-    if (!Array.isArray(values) || values.length !== EMBEDDING_DIM) {
+    if (!Array.isArray(values) || values.length === 0) {
       console.error('[vector-db] Embedding dimension mismatch before upsert.', {
-        expectedDimension: EMBEDDING_DIM,
+        expectedDimension: getExpectedEmbeddingDim(),
         actualLength: Array.isArray(values) ? values.length : null,
       });
       return;
@@ -127,21 +230,23 @@ export async function storePostMortem(
       ],
     });
     await setLastUpsertNow();
-    console.log('[vector-db] Upserted post-mortem to Pinecone.', {
-      index: indexName,
-      namespace: POST_MORTEMS_NAMESPACE,
-      dimension: EMBEDDING_DIM,
-    });
+    if (devLog) {
+      console.log('[vector-db] Upserted post-mortem to Pinecone.', {
+        index: indexName,
+        namespace: POST_MORTEMS_NAMESPACE,
+        dimension: values.length,
+      });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
     console.error('[vector-db] Pinecone upsert failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
-      dimension: EMBEDDING_DIM,
+      dimension: getExpectedEmbeddingDim(),
       error: message,
       hint: isDimError
-        ? 'Check that PINECONE_EMBEDDING_DIM matches the index dimension (e.g., llama-text-embed-v2 is often 1024 or 3072).'
+        ? 'Pinecone index must be 768 dims for text-embedding-004 unless PINECONE_EMBEDDING_DIM overrides.'
         : undefined,
     });
   }
@@ -170,12 +275,20 @@ export async function querySimilarTrades(
   }
   try {
     const { index } = await getPineconeIndexOrThrow();
-    const queryVector = mockEmbed(`symbol ${symbol} trade post-mortem`);
-    const result = await index.namespace(POST_MORTEMS_NAMESPACE).query({
-      vector: queryVector,
-      topK: Math.min(topK, 10),
-      includeMetadata: true,
-    });
+    /** Pinecone client has no hard deadline; hung queries blocked the full MoE round. */
+    const result = await Promise.race([
+      (async () => {
+        const queryVector = await embedTextWithGemini(`symbol ${symbol} trade post-mortem`);
+        return index.namespace(POST_MORTEMS_NAMESPACE).query({
+          vector: queryVector,
+          topK: Math.min(topK, 10),
+          includeMetadata: true,
+        });
+      })(),
+      new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error('Pinecone similar-trades query timeout (30s)')), 30_000)
+      ),
+    ]);
     // Empty index or no matches returns []; do not throw.
     const matches = result?.matches ?? [];
     return matches
@@ -196,10 +309,10 @@ export async function querySimilarTrades(
     console.error('[vector-db] Pinecone query failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
-      dimension: EMBEDDING_DIM,
+      dimension: getExpectedEmbeddingDim(),
       error: message,
       hint: isDimError
-        ? 'Check that PINECONE_EMBEDDING_DIM matches the index dimension (e.g., llama-text-embed-v2 is often 1024 or 3072).'
+        ? 'Pinecone index must be 768 dims for text-embedding-004 unless PINECONE_EMBEDDING_DIM overrides.'
         : undefined,
     });
     return [];
@@ -232,9 +345,9 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
   try {
     const { index } = await getPineconeIndexOrThrow();
     const id = `bm-${input.symbol}-${Date.now()}`;
-    const values = mockEmbed(mergedSummary);
-    if (!Array.isArray(values) || values.length !== EMBEDDING_DIM) {
-      throw new Error(`Embedding dimension mismatch (${values.length} !== ${EMBEDDING_DIM})`);
+    const values = await embedTextWithGemini(mergedSummary);
+    if (!Array.isArray(values) || values.length === 0) {
+      throw new Error('Embedding vector is empty.');
     }
     await index.namespace(BOARD_MEETINGS_NAMESPACE).upsert({
       records: [
@@ -253,11 +366,13 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
       ],
     });
     await setLastUpsertNow();
-    console.log('[vector-db] Upserted board meeting memory to Pinecone.', {
-      index: indexName,
-      namespace: BOARD_MEETINGS_NAMESPACE,
-      symbol: input.symbol,
-    });
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[vector-db] Upserted board meeting memory to Pinecone.', {
+        index: indexName,
+        namespace: BOARD_MEETINGS_NAMESPACE,
+        symbol: input.symbol,
+      });
+    }
   } catch (err) {
     console.error('[vector-db] Board meeting memory upsert failed:', err);
   }
@@ -287,7 +402,7 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     const { index, indexName: resolvedIndexName } = await getPineconeIndexOrThrow();
     const probeId = `probe-${symbol}-${Date.now()}`;
     const text = `Integration probe for ${symbol} at ${new Date().toISOString()}`;
-    const vector = mockEmbed(text);
+    const vector = await embedTextWithGemini(text);
     await index.namespace(DIAGNOSTICS_NAMESPACE).upsert({
       records: [
         {

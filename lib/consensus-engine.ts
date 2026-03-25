@@ -2,7 +2,9 @@
  * Mixture of Experts (MoE) + Debate Room for Smart Money AI — Enterprise 2.0: The 6-Agent Board.
  * Runs 6 parallel experts: 1.Technician, 2.Risk Manager, 3.Market Psychologist, 4.Macro & Order Book (Groq),
  * 5.On-Chain Sleuth, 6.Deep Memory (Vector). Overseer (CEO) synthesizes all 6 into master_insight_he.
- * Final_Confidence = 1/6 per expert (~16.67% each). Positive prediction only if ≥ threshold (default 75).
+ * Baseline Final_Confidence = 1/6 per expert (~16.67% each). Dynamic override: On-Chain can be boosted by +20%
+ * when Deep Memory historical accuracy for this symbol is strong; remaining weights are re-normalized.
+ * Positive prediction only if ≥ threshold (default 75).
  *
  * Data flow (6+1 Board): All 6 expert outputs feed into runJudge() → master_insight_he + reasoning_path.
  * The returned ConsensusResult (including master_insight_he) is what gets saved to the DB and sent to Telegram
@@ -11,7 +13,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
-import { getGeminiApiKey, getGroqApiKey } from '@/lib/env';
+import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { listAgentInsightsBySymbol } from '@/lib/db/agent-insights';
 import { getAppSettings } from '@/lib/db/app-settings';
@@ -21,14 +23,20 @@ import { querySimilarTrades } from '@/lib/vector-db';
 import { getDeepMemoryLessonBlock, DEEP_MEMORY_LESSON_001 } from '@/lib/quant/deep-memory-lessons';
 import { fetchWithBackoff } from '@/lib/api-utils';
 import { getExpertWeights } from '@/lib/trading/expert-weights';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { getExpertHitRates30d } from '@/lib/db/expert-accuracy';
+import {
+  buildSentimentExpertAugmentation,
+  buildTechnicalLiquidityAugmentation,
+} from '@/lib/agents/psych-agent';
+import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
 /** Absolute upper-bound fail-safe (90s) only if external APIs (Groq/Gemini) become completely unresponsive. Experts run without aggressive per-expert cutoff. */
-const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 90_000;
+/** Wall-clock cap for one MoE round (parallel experts + 503 retry chains can approach 3× per-expert timeout). */
+const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 420_000;
 /** Neutral fallback message when an expert times out or fails — never show raw error to UI. */
 const NEUTRAL_FALLBACK_LOGIC = 'הנתונים אינם זמינים כרגע. ממשיכים במשקל ניטרלי.';
 
-/** Equal weight per expert: 6 agents → 1/6 each (~16.67%). */
+/** Baseline equal weight per expert: 6 agents → 1/6 each (~16.67%) before dynamic overrides. */
 const WEIGHT_PER_EXPERT = 1 / 6;
 const WEIGHT_TECH = WEIGHT_PER_EXPERT;
 const WEIGHT_RISK = WEIGHT_PER_EXPERT;
@@ -37,6 +45,7 @@ const WEIGHT_MACRO = WEIGHT_PER_EXPERT;
 const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const SAFE_GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
 /** Fallback when options.moeConfidenceThreshold not provided; otherwise read from getAppSettings(). */
 export const CONSENSUS_THRESHOLD = 75;
 
@@ -121,6 +130,11 @@ export interface ExpertDeepMemoryOutput {
   deep_memory_logic: string;
 }
 
+type FundamentalMetricsSnapshot = {
+  status: 'LIVE' | 'AWAITING_LIVE_DATA';
+  summary: string;
+};
+
 export interface ConsensusEngineInput {
   symbol: string;
   current_price: number;
@@ -185,6 +199,8 @@ export interface ConsensusResult {
   final_confidence: number;
   /** Only true when final_confidence >= CONSENSUS_THRESHOLD. */
   consensus_approved: boolean;
+  /** When the board is polarized, Overseer synthesizes opposing camps. */
+  debate_resolution?: string;
 }
 
 export interface ConsensusMockPayload {
@@ -234,6 +250,102 @@ export function computeMacdSignal(closes: number[]): number | null {
 
 /** Re-export for consumers; canonical definition in lib/quant/deep-memory-lessons.ts */
 export { DEEP_MEMORY_LESSON_001 } from '@/lib/quant/deep-memory-lessons';
+
+const COINGECKO_ID_BY_TICKER: Record<string, string> = {
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  SOL: 'solana',
+  XRP: 'ripple',
+  ADA: 'cardano',
+  DOGE: 'dogecoin',
+};
+
+const DEFILLAMA_SLUG_BY_TICKER: Record<string, string> = {
+  ETH: 'ethereum',
+  SOL: 'solana',
+};
+
+async function fetchFundamentalMetrics(symbol: string): Promise<FundamentalMetricsSnapshot> {
+  const normalized = normalizeSymbol(symbol);
+  const ticker = normalized.endsWith('USDT') ? normalized.slice(0, -4) : normalized;
+  const coingeckoId = COINGECKO_ID_BY_TICKER[ticker];
+  if (!coingeckoId) {
+    return {
+      status: 'AWAITING_LIVE_DATA',
+      summary: `Fundamental feed awaiting mapping for ${ticker}.`,
+    };
+  }
+
+  const coingeckoUrl = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(coingeckoId)}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=false`;
+  const defillamaSlug = DEFILLAMA_SLUG_BY_TICKER[ticker];
+  const tvlUrl = defillamaSlug
+    ? `https://api.llama.fi/protocol/${encodeURIComponent(defillamaSlug)}`
+    : null;
+  const glassnodeApiKey = (process.env.GLASSNODE_API_KEY || '').trim();
+  const activeAddressUrl = glassnodeApiKey
+    ? `https://api.glassnode.com/v1/metrics/addresses/active_count?a=${encodeURIComponent(ticker)}&i=24h&api_key=${encodeURIComponent(glassnodeApiKey)}`
+    : null;
+
+  try {
+    const [coingeckoRes, tvlRes, activeRes] = await Promise.all([
+      fetchWithBackoff(coingeckoUrl, { timeoutMs: APP_CONFIG.fetchTimeoutMs, maxRetries: 2, cache: 'no-store' }),
+      tvlUrl ? fetchWithBackoff(tvlUrl, { timeoutMs: APP_CONFIG.fetchTimeoutMs, maxRetries: 2, cache: 'no-store' }) : Promise.resolve(null),
+      activeAddressUrl ? fetchWithBackoff(activeAddressUrl, { timeoutMs: APP_CONFIG.fetchTimeoutMs, maxRetries: 2, cache: 'no-store' }) : Promise.resolve(null),
+    ]);
+    if (!coingeckoRes.ok) {
+      return {
+        status: 'AWAITING_LIVE_DATA',
+        summary: `Coingecko fundamentals unavailable for ${ticker} (${coingeckoRes.status}).`,
+      };
+    }
+    const coingeckoData = (await coingeckoRes.json()) as {
+      market_data?: {
+        market_cap?: { usd?: number };
+        fully_diluted_valuation?: { usd?: number };
+        circulating_supply?: number;
+        total_supply?: number;
+      };
+    };
+    const marketCap = coingeckoData.market_data?.market_cap?.usd;
+    const fdv = coingeckoData.market_data?.fully_diluted_valuation?.usd;
+    const circulating = coingeckoData.market_data?.circulating_supply;
+    const totalSupply = coingeckoData.market_data?.total_supply;
+
+    let tvlText = 'TVL: awaiting live protocol mapping.';
+    if (tvlRes?.ok) {
+      const tvlData = (await tvlRes.json()) as { tvl?: number };
+      const tvl = typeof tvlData.tvl === 'number' ? tvlData.tvl : null;
+      tvlText = tvl != null ? `TVL: ${Math.round(tvl).toLocaleString()} USD.` : 'TVL: live endpoint returned no value.';
+    } else if (tvlUrl != null) {
+      tvlText = `TVL feed unavailable (${tvlRes?.status ?? 'n/a'}).`;
+    }
+
+    let activeText = 'Active addresses: awaiting live provider key.';
+    if (activeRes?.ok) {
+      const activeData = (await activeRes.json()) as Array<{ v?: number; t?: number }>;
+      const latest = Array.isArray(activeData) && activeData.length > 0 ? activeData[activeData.length - 1] : null;
+      activeText =
+        typeof latest?.v === 'number'
+          ? `Active addresses (24h): ${Math.round(latest.v).toLocaleString()}.`
+          : 'Active addresses: live endpoint returned no value.';
+    } else if (activeAddressUrl != null) {
+      activeText = `Active addresses feed unavailable (${activeRes?.status ?? 'n/a'}).`;
+    }
+
+    const summary =
+      `Tokenomics: market cap=${Number.isFinite(marketCap) ? Math.round(marketCap as number).toLocaleString() : 'n/a'} USD, ` +
+      `FDV=${Number.isFinite(fdv) ? Math.round(fdv as number).toLocaleString() : 'n/a'} USD, ` +
+      `circulating=${Number.isFinite(circulating) ? Math.round(circulating as number).toLocaleString() : 'n/a'}, ` +
+      `totalSupply=${Number.isFinite(totalSupply) ? Math.round(totalSupply as number).toLocaleString() : 'n/a'}. ` +
+      `${tvlText} ${activeText}`;
+    return { status: 'LIVE', summary };
+  } catch (error) {
+    return {
+      status: 'AWAITING_LIVE_DATA',
+      summary: `Fundamental metrics unavailable for ${ticker}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
 
 /**
  * Build Deep Memory context from last 3 agent_insights for this symbol + Vector DB (Pinecone) similar trades.
@@ -354,16 +466,18 @@ async function callGeminiJson<T>(
 
   const res = await withRetry(
     () =>
-      withTimeout(
-        generativeModel.generateContent({
-          contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-          generationConfig: {
-            temperature: 0.25,
-            maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-          },
-        }),
-        timeoutMs
+      withGeminiRateLimitRetry(() =>
+        withTimeout(
+          generativeModel.generateContent({
+            contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+            generationConfig: {
+              temperature: 0.25,
+              maxOutputTokens: 8192,
+              responseMimeType: 'application/json',
+            },
+          }),
+          timeoutMs
+        )
       ),
     { ...retryMeta, provider: 'Gemini' }
   );
@@ -411,9 +525,12 @@ async function runExpertTechnician(
   const funding = input.funding_rate_signal ?? 'לא צוין';
   const sweeps = input.liquidity_sweep_context ?? 'לא צוין';
   const techCtx = input.technical_context ?? 'לא צוין';
+  const liquidityBlock = buildTechnicalLiquidityAugmentation();
   const prompt = `You are the Technical Expert in a hedge-fund grade MoE. Your domain: Liquidity Sweeps, Fair Value Gaps (FVG), and Order Block Mitigation. Output in professional Hebrew; no generic chatbot language.
 
 ${NO_MISSING_EMA_BB_RULE}
+
+${liquidityBlock}
 
 Input: Symbol ${input.symbol}, price ${input.current_price}, RSI(14)=${input.rsi_14}, MACD_signal=${input.macd_signal ?? 'N/A'}, Volume profile: ${input.volume_profile_summary}. HVN (S/R): ${input.hvn_levels.join(', ') || 'none'}. Momentum vs EMA: ${input.asset_momentum ?? 'N/A'}. Technical context: ${techCtx}. Open Interest: ${oi}. Funding: ${funding}. Liquidity context: ${sweeps}. Order book depth: ${input.order_book_summary ?? 'לא צוין'}.
 ${input.deep_memory_context}
@@ -487,13 +604,17 @@ async function runExpertPsych(
   const twitterTweets = input.twitter_realtime_tweets ?? 'לא צוין';
   const funding = input.funding_rate_signal ?? 'לא צוין';
   const oi = input.open_interest_signal ?? 'לא צוין';
-  const techCtx = input.technical_context ?? 'לא צוין';
+  const psychTruthBlock = buildSentimentExpertAugmentation();
   const prompt = `אתה Institutional Crypto Quantitative Analyst — מומחה Sentiment ו-PERP Microstructure מוסדי (The Market Psychologist). תפקידך: ניתוח סנטימנט, מימון (Funding), ליקווידציות ונפח סושיאל בלבד (לא צ'אט כללי). השתמש בשפה מקצועית קריפטו-נייטיבית בעברית.
 
 ${NO_MISSING_EMA_BB_RULE}
 
-נתונים: סמל ${input.symbol}, מחיר ${input.current_price}. טרנד BTC: ${input.btc_trend ?? 'לא צוין'}. מומנטום הנכס: ${input.asset_momentum ?? 'לא צוין'}.
-מדדים מתקדמים: הקשר טכני: ${techCtx}. שינויי מדדים on-chain: ${onchain}. נפח/דומיננטיות סושיאל: ${social}. Funding Rates/Perps: ${funding}. Open Interest: ${oi}.
+${psychTruthBlock}
+
+חשוב: אל תשתמש ב-RSI, MACD, FVG או הוראות טכניות מהטכנאי — אלה נשארים אצל מומחה הטכני בלבד. אל תסיק סנטימנט מספרי מחיר או אינדיקטורים שלא הופיעו בנתוני סושיאל/on-chain/funding/OI שלהלן.
+
+נתונים: סמל ${input.symbol}, מחיר ${input.current_price}. טרנד BTC: ${input.btc_trend ?? 'לא צוין'}. מומנטום הנכס (תיאור בלבד, לא לציון טכני): ${input.asset_momentum ?? 'לא צוין'}.
+מדדים: שינויי מדדים on-chain: ${onchain}. נפח/דומיננטיות סושיאל: ${social}. Funding Rates/Perps: ${funding}. Open Interest: ${oi}.
 טוויטר/סושיאל בזמן אמת (Real-time): ${twitterTweets}
 ${input.deep_memory_context}
 
@@ -626,14 +747,16 @@ async function runExpertMacro(
   ].join('; ');
   const userPrompt = `You are the Macro Expert in a hedge-fund grade MoE. Domain: DXY correlation, yield curves, FED pivot expectations, and order book liquidity. Output in professional Hebrew; no generic chatbot language.
 
-Focus: (1) DXY Correlation — inverse correlation with risk assets; DXY strength = headwind for crypto; DXY breakdown/weakness = tailwind; note regime (range vs trend). (2) Yield Curves — 2s10s inversion, front-end vs long-end; implications for liquidity and risk appetite; curve steepening post-inversion often precedes risk-on. (3) FED Pivot expectations — market-implied vs your read; earlier pivot = bullish for crypto; "higher for longer" = pressure; data dependency (CPI, NFP) and how it affects the setup. (4) When macro_context is provided (USDT dominance, ETF flows, Fear & Greed, BTC dominance), integrate: USDT dominance down = liquidity into crypto; ETF net inflows = institutional demand; outflows = selling pressure; Fear & Greed extreme fear = potential reversal, extreme greed = caution. (5) Order book — when order_book_summary is provided, use bid/ask imbalance and spread: bid-heavy = support, ask-heavy = resistance; thin spread = liquidity; use alongside macro. (6) Open Interest — use OI as a proxy for market participation and "Crowded Trades": rising OI with price = new money/leverage; falling OI = unwinding or liquidations; elevated OI in a weak market = crowded long risk.
+Focus: (1) DXY Correlation — inverse correlation with risk assets; DXY strength = headwind for crypto; DXY breakdown/weakness = tailwind; note regime (range vs trend). (2) Yield Curves — 2s10s inversion, front-end vs long-end; implications for liquidity and risk appetite; curve steepening post-inversion often precedes risk-on. (3) FED Pivot expectations — market-implied vs your read; earlier pivot = bullish for crypto; "higher for longer" = pressure; data dependency (CPI, NFP) and how it affects the setup. (4) When macro_context is provided (USDT dominance, ETF flows, Fear & Greed, BTC dominance), integrate: USDT dominance down = liquidity into crypto; ETF net inflows = institutional demand; outflows = selling pressure; Fear & Greed extreme fear = potential reversal, extreme greed = caution. (5) Order book — when order_book_summary is provided, use bid/ask imbalance and spread: bid-heavy = support, ask-heavy = resistance; thin spread = liquidity; use alongside macro. (6) Open Interest — use OI as a proxy for market participation and "Crowded Trades": rising OI with price = new money/leverage; falling OI = unwinding or liquidations; elevated OI in a weak market = crowded long risk. (7) SPOOFING / LIQUIDITY DECAY — flag likely spoofed walls (size vanishes as price tests the level); do not validate breakouts on evaporating depth; integrate with Psych Truth Matrix when headlines conflict with book integrity.
 
 Data: ${dataSummary}
 
 Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score (0-100), macro_logic (string, Hebrew). Higher score = macro tailwind for the trade.`;
 
-  const apiKey = getGroqApiKey();
+  const envVarName = 'GROQ_API_KEY';
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
+    console.error(`[ConsensusEngine] Missing Groq API key; attempted env var: ${envVarName}`);
     console.warn('[ConsensusEngine] GROQ_API_KEY missing; Macro agent skipped.');
     return {
       macro_score: 50,
@@ -806,6 +929,7 @@ async function runExpertDeepMemory(
   timeoutMs: number
 ): Promise<ExpertDeepMemoryOutput> {
   const normalized = normalizeSymbol(input.symbol);
+  const fundamentalMetrics = await fetchFundamentalMetrics(normalized);
   let similarTrades: { text: string; symbol: string; trade_id: number }[] = [];
   try {
     similarTrades = await querySimilarTrades(normalized, 3);
@@ -823,8 +947,9 @@ ${DEEP_MEMORY_LESSON_001}
 
 נתונים: סמל ${input.symbol}, מחיר נוכחי ${input.current_price}.
 עסקאות דומות מהעבר (מ־Pinecone/Vector DB): ${contextBlock}
+Fundamental metrics (${fundamentalMetrics.status}): ${fundamentalMetrics.summary}
 
-כללים: (1) אם יש לפחות עסקה דומה אחת — הסק מגוף הטקסט האם היו בעיות טוקנומיקס (FDV מנופח לעומת Market Cap, לוחות וסטינג אגרסיביים, אינפלציית טוקן, מודל הכנסות חלש) או יתרונות (FDV סביר, Vesting הדרגתי, הכנסות פרוטוקול יציבות); תרגם זאת לציון סיכוי/סיכון. (2) אם בתחקירי past trades מופיעים אירועי "unlock", "VC dump" או שחיקה מתמשכת במחיר סביב unlocks — סימן ברור ליתרון/חיסרון טוקנומיקס שיש לשקלל בציון. (3) נסח deep_memory_logic בעברית במשפט אחד ברור: "על בסיס X עסקאות היסטוריות דומות, הסתברות ההצלחה להערכתי Y%." ציין אם הסיבה העיקרית היא מבנה טוקן/וסטינג/הכנסות. (4) אם אין עסקאות דומות — החזר ציון 50 ו־deep_memory_logic: "אין מספיק נתוני Deep Memory — ציון ניטרלי."
+כללים: (1) חובה לשקלל גם fundamentals חיים: יחס FDV/Market Cap, TVL (כאשר זמין), Active Addresses (כאשר זמין), ונתוני היצע (circulating/total). (2) אם יש לפחות עסקה דומה אחת — הסק מגוף הטקסט האם היו בעיות טוקנומיקס (FDV מנופח לעומת Market Cap, לוחות וסטינג אגרסיביים, אינפלציית טוקן, מודל הכנסות חלש) או יתרונות (FDV סביר, Vesting הדרגתי, הכנסות פרוטוקול יציבות); תרגם זאת לציון סיכוי/סיכון. (3) אם בתחקירי past trades מופיעים אירועי "unlock", "VC dump" או שחיקה מתמשכת במחיר סביב unlocks — סימן ברור ליתרון/חיסרון טוקנומיקס שיש לשקלל בציון. (4) נסח deep_memory_logic בעברית במשפט אחד ברור: "על בסיס X עסקאות היסטוריות דומות + metrics פונדמנטליים חיים, הסתברות ההצלחה להערכתי Y%." (5) אם אין עסקאות דומות או שה-fundamentals לא זמינים, ציין זאת מפורשות אך אל תמציא ערכים; החזר ציון ניטרלי כשהראיות חלשות.
 החזר JSON בלבד: deep_memory_score, deep_memory_logic.`;
   const out = await callGeminiJson<ExpertDeepMemoryOutput>(
     prompt,
@@ -838,9 +963,18 @@ ${DEEP_MEMORY_LESSON_001}
   return { deep_memory_score, deep_memory_logic };
 }
 
+function isPolarizedExpertBoard(scores: number[]): boolean {
+  const valid = scores.filter((x) => Number.isFinite(x));
+  if (valid.length < 6) return false;
+  const strongBuy = valid.filter((s) => s >= 67).length;
+  const strongSell = valid.filter((s) => s <= 38).length;
+  const spread = Math.max(...valid) - Math.min(...valid);
+  return strongBuy >= 2 && strongSell >= 2 && spread >= 28;
+}
+
 /**
  * Judge (Overseer/CIO): Synthesizes all 6 experts into Gem Score 0–100.
- * Weight: 1/6 per expert (Tech, Risk, Psych, Macro, On-Chain, Deep Memory). Produces master_insight_he.
+ * Dynamic per-expert weights are computed in runConsensusEngine from 30d DB hit rates; Judge receives that summary.
  */
 async function runJudge(
   tech: ExpertTechnicianOutput,
@@ -851,12 +985,25 @@ async function runJudge(
   deepMemory: ExpertDeepMemoryOutput,
   symbol: string,
   model: string,
-  timeoutMs: number
-): Promise<{ master_insight_he: string; reasoning_path: string }> {
+  timeoutMs: number,
+  judgeOpts?: {
+    polarizedBoard: boolean;
+    expertHitRatesLine: string;
+  }
+): Promise<{ master_insight_he: string; reasoning_path: string; debate_resolution: string }> {
   const expertWeights = await getExpertWeights();
+  const polarized = judgeOpts?.polarizedBoard ?? false;
+  const hitLine = judgeOpts?.expertHitRatesLine ?? '';
+  const debateBlock = polarized
+    ? `POLARIZED_BOARD=true: שני מחנות מנוגדים (BUY חזק מול SELL חזק). חובה למלא debate_resolution בעברית: סיכום דיון — מה כל צד רואה, איזה ראיות דוחקות, ומה נתיב ההכרעה הסופית לפני ציון ביטחון.`
+    : `POLARIZED_BOARD=false: השאר debate_resolution כמחרוזת ריקה "".`;
+
   const prompt = `אתה Chief Investment Officer סקפטי (Supreme Inspector, Overseer/CIO) בחדר הדיונים — Institutional Crypto Quantitative Board. חובה: לסנתז (synthesize) ולהצליב (cross-reference) במפורש את כל ששת התשובות לפני קביעת התובנה הסופית, ולחפש קונפליקטים מובהקים בין מומחים. אין לתת תובנה בלי להתייחס להסכמה או סתירה בין מומחים או בלי להתייחס ל־Deep Memory (Pinecone).
 
+${debateBlock}
+
 מצב אמון מומחים דינמי (Reinforcement Learning): Data Expert=${expertWeights.dataExpertWeight.toFixed(2)}, News Expert=${expertWeights.newsExpertWeight.toFixed(2)}, Macro Expert=${expertWeights.macroExpertWeight.toFixed(2)}. משקלים אלה משקפים ביצועים אחרונים של המומחים — כאשר המשקל גבוה יותר תן משקל גדול יותר לעמדת המומחה, וכאשר המשקל נמוך היה ספקן יותר.
+${hitLine ? `שיעורי פגיעה אמפיריים (30 יום, DB פוסט-מורטם): ${hitLine}` : ''}
 
 ששת המומחים הגישו (הקשר קריפטו מוסדי — לא צ'אט כללי):
 - 1.Technician (Entry Zones, OI, Funding, Liquidity Sweeps): ציון ${tech.tech_score}, לוגיקה: ${tech.tech_logic}
@@ -866,18 +1013,19 @@ async function runJudge(
 - 5.On-Chain Sleuth (Whale, Exchange Inflow/Outflow): ציון ${onchain.onchain_score}, לוגיקה: ${onchain.onchain_logic}
 - 6.Deep Memory & Tokenomics (Vector — similar historical trades, FDV/MCap, Vesting, Protocol revenue models): ציון ${deepMemory.deep_memory_score}, לוגיקה: ${deepMemory.deep_memory_logic}
 
-תפקידך: (1) סינתזה רב-סוכנית סקפטית: הצלב במפורש טכני מול מקרו (setup טכני מול רוח מקרו), Order Book מול סנטימנט (Psych), On-Chain מול Psych (זרימות מול sentiment), ורכיב Deep Memory & Tokenomics מול כל שאר המומחים — אם היסטוריית Pinecone מצביעה על דפוסי כשל חוזרים (למשל vesting unlock dumps או שחיקת מחיר עקבית), עליך להוריד את רמת הביטחון גם אם יתר המומחים חיוביים. (2) הדגש בקבלת החלטה סופית מצבים של "קונפליקט חמור" (למשל Risk/MM פסימי ו-Deep Memory שלילי בזמן שסנטימנט הייפי) והעדף שמרנות. (3) Gem Score מחושב במערכת (1/6 לכל מומחה) — אל תחשב בעצמך. (4) נסח master_insight_he בעברית מקצועית קריפטו: מקסימום 2 משפטים קצרים והחלטיים — קונצנזוס והמלצה לסמל ${symbol} בהתבסס על הסינתזה בלבד, כולל אם CIO מחליט "No-go" למרות ציון גולמי גבוה בגלל דפוסי עבר מ-Pinecone. (5) reasoning_path: משפט אחד — איך הצלבת וסינתזת את ששת המומחים (למשל: "טכני ומקרו תומכים; Risk/MM ו-Deep Memory מזהירים בעקבות דפוס unlock; הכרעת CIO: משמעת סיכון גוברת.").
-חובה: החזר רק אובייקט JSON גולמי עם השדות בדיוק: master_insight_he, reasoning_path. אסור markdown, אסור טקסט מקדים, אסור שדות נוספים — JSON תקף בלבד.`;
-  const out = await callGeminiJson<{ master_insight_he: string; reasoning_path: string }>(
+תפקידך: (1) סינתזה רב-סוכנית סקפטית: הצלב במפורש טכני מול מקרו (setup טכני מול רוח מקרו), Order Book מול סנטימנט (Psych), On-Chain מול Psych (זרימות מול sentiment), ורכיב Deep Memory & Tokenomics מול כל שאר המומחים — אם היסטוריית Pinecone מצביעה על דפוסי כשל חוזרים (למשל vesting unlock dumps או שחיקת מחיר עקבית), עליך להוריד את רמת הביטחון גם אם יתר המומחים חיוביים. (2) הדגש בקבלת החלטה סופית מצבים של "קונפליקט חמור" (למשל Risk/MM פסימי ו-Deep Memory שלילי בזמן שסנטימנט הייפי) והעדף שמרנות. (3) Gem Score מחושב במערכת לפי משקלים דינמיים — אל תחשב בעצמך. (4) נסח master_insight_he בעברית מקצועית קריפטו: מקסימום 2 משפטים קצרים והחלטיים — קונצנזוס והמלצה לסמל ${symbol} בהתבסס על הסינתזה בלבד, כולל אם CIO מחליט "No-go" למרות ציון גולמי גבוה בגלל דפוסי עבר מ-Pinecone. (5) reasoning_path: משפט אחד — איך הצלבת וסינתזת את ששת המומחים. (6) debate_resolution: כאשר POLARIZED_BOARD=true — נתיב הכרעה לאחר דיון בין מחנות מנוגדים; כאשר false — "" בלבד.
+חובה: החזר רק אובייקט JSON גולמי עם השדות בדיוק: master_insight_he, reasoning_path, debate_resolution. אסור markdown, אסור טקסט מקדים — JSON תקף בלבד.`;
+  const out = await callGeminiJson<{ master_insight_he: string; reasoning_path: string; debate_resolution?: string }>(
     prompt,
-    ['master_insight_he', 'reasoning_path'],
+    ['master_insight_he', 'reasoning_path', 'debate_resolution'],
     model,
     timeoutMs,
     { symbol, expert: 'Judge' }
   );
   return {
     master_insight_he: String(out.master_insight_he || 'אין תובנה').slice(0, 600),
-    reasoning_path: String(out.reasoning_path || '').slice(0, 300),
+    reasoning_path: String(out.reasoning_path || '').slice(0, 320),
+    debate_resolution: String(out.debate_resolution ?? '').slice(0, 500),
   };
 }
 
@@ -889,7 +1037,9 @@ const FALLBACK_EXPERT_SCORE = 50;
  * 1) Fetches Deep Memory context (last 3 trades + Vector DB).
  * 2) Runs 6 experts in parallel: Tech, Risk, Psych (Gemini), Macro (Groq), On-Chain, Deep Memory (Gemini). Promise.allSettled — failure uses fallback score 50.
  * 3) Overseer (Judge) synthesizes all 6 into master_insight_he.
- * 4) Final_Confidence = 1/6 per expert (~16.67% each). Uses options.moeConfidenceThreshold or getAppSettings() or CONSENSUS_THRESHOLD.
+ * 4) Final_Confidence uses baseline 1/6 per expert (~16.67% each) with optional On-Chain +20% boost when Deep Memory
+ *    historical accuracy passes threshold; weights are re-normalized across available experts.
+ *    Uses options.moeConfidenceThreshold or getAppSettings() or CONSENSUS_THRESHOLD.
  */
 export async function runConsensusEngine(
   input: Omit<ConsensusEngineInput, 'deep_memory_context'>,
@@ -903,7 +1053,16 @@ export async function runConsensusEngine(
     mockPayload?: ConsensusMockPayload;
   }
 ): Promise<ConsensusResult> {
-  const model = options?.model ?? APP_CONFIG.primaryModel ?? 'gemini-2.5-flash';
+  const requestedModel = options?.model ?? APP_CONFIG.primaryModel ?? SAFE_GEMINI_FALLBACK_MODEL;
+  const model =
+    /gemini/i.test(requestedModel) || requestedModel.startsWith('models/gemini')
+      ? requestedModel
+      : SAFE_GEMINI_FALLBACK_MODEL;
+  if (model !== requestedModel) {
+    console.warn(
+      `[ConsensusEngine] Non-Gemini model "${requestedModel}" cannot run Gemini experts. Using "${model}" and continuing with Groq + Gemini providers.`
+    );
+  }
   const rawTimeout = options?.timeoutMs ?? Math.min(60_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
   const timeoutMs = Math.max(45_000, rawTimeout ?? 60_000);
   let threshold = options?.moeConfidenceThreshold;
@@ -958,6 +1117,7 @@ export async function runConsensusEngine(
       reasoning_path: options.mockPayload.judge.reasoning_path,
       final_confidence: Math.round(final_confidence * 10) / 10,
       consensus_approved: final_confidence >= effectiveThreshold,
+      debate_resolution: '',
     };
   }
 
@@ -1021,6 +1181,9 @@ export async function runConsensusEngine(
       ? psychSettled.value
       : { psych_score: FALLBACK_EXPERT_SCORE, psych_logic: 'פסיכולוג שוק לא זמין (timeout/שגיאה).' };
 
+  const techFailed = techSettled.status !== 'fulfilled';
+  const riskFailed = riskSettled.status !== 'fulfilled';
+  const psychFailed = psychSettled.status !== 'fulfilled';
   const macroFailed = macroSettled.status !== 'fulfilled';
   const expert4: ExpertMacroOutput =
     macroSettled.status === 'fulfilled'
@@ -1075,7 +1238,42 @@ export async function runConsensusEngine(
   });
   const effectiveThreshold = cohesion.marketUncertainty ? cohesion.suggestedMoeThreshold : threshold;
 
-  let judgeResult: { master_insight_he: string; reasoning_path: string };
+  const normalizedForHits = normalizeSymbol(input.symbol);
+  let hitRates = await getExpertHitRates30d({ symbol: normalizedForHits }).catch(() => ({
+    technician: 50,
+    risk: 50,
+    psych: 50,
+    macro: 50,
+    onchain: 50,
+    deepMemory: 50,
+  }));
+  const bestKey = bestExpertFromDeepMemory?.bestExpertKey;
+  const bestAcc = bestExpertFromDeepMemory?.accuracyPct;
+  if (bestKey && typeof bestAcc === 'number' && Number.isFinite(bestAcc)) {
+    const map: Record<string, keyof typeof hitRates> = {
+      technician: 'technician',
+      risk: 'risk',
+      psych: 'psych',
+      macro: 'macro',
+      onchain: 'onchain',
+      deepMemory: 'deepMemory',
+    };
+    const slot = map[bestKey];
+    if (slot) hitRates = { ...hitRates, [slot]: Math.max(hitRates[slot], bestAcc) };
+  }
+
+  const expertScoresForPolar = [
+    expert1.tech_score,
+    expert2.risk_score,
+    expert3.psych_score,
+    expert4.macro_score,
+    expert5.onchain_score,
+    expert6.deep_memory_score,
+  ];
+  const polarizedBoard = isPolarizedExpertBoard(expertScoresForPolar);
+  const expertHitRatesLine = `טכני=${hitRates.technician}%, סיכון=${hitRates.risk}%, פסיכ=${hitRates.psych}%, מקרו=${hitRates.macro}%, on-chain=${hitRates.onchain}%, DeepMemory=${hitRates.deepMemory}%.`;
+
+  let judgeResult: { master_insight_he: string; reasoning_path: string; debate_resolution: string };
   try {
     judgeResult = await runJudge(
       expert1,
@@ -1086,7 +1284,8 @@ export async function runConsensusEngine(
       expert6,
       input.symbol,
       model,
-      timeoutMs
+      timeoutMs,
+      { polarizedBoard, expertHitRatesLine }
     );
   } catch (judgeErr) {
     const judgeMsg = judgeErr instanceof Error ? judgeErr.message : String(judgeErr);
@@ -1094,24 +1293,38 @@ export async function runConsensusEngine(
     judgeResult = {
       master_insight_he: 'תובנת קונצנזוס לא זמינה (שגיאה בשופט). המערכת משתמשת בציוני ששת המומחים בלבד.',
       reasoning_path: 'שופט לא זמין — חישוב ציון סופי לפי משקלים בלבד.',
+      debate_resolution: '',
     };
   }
 
-  // Dynamic expert weighting: if Deep Memory says onchain has significantly higher historical accuracy for this symbol (e.g. 71.9% for BTC), boost onchain weight by 20%
-  const BOOST_THRESHOLD_PCT = 65;
-  const ONCHAIN_BOOST = 0.2;
-  const useOnchainBoost =
-    bestExpertFromDeepMemory?.bestExpertKey === 'onchain' &&
-    bestExpertFromDeepMemory.accuracyPct >= BOOST_THRESHOLD_PCT;
-  const wOnchain = useOnchainBoost ? WEIGHT_PER_EXPERT + ONCHAIN_BOOST : WEIGHT_PER_EXPERT;
-  const wOther = useOnchainBoost ? (1 - wOnchain) / 5 : WEIGHT_PER_EXPERT;
+  const hitToWeight = (pct: number) => {
+    const x = Math.max(0.38, Math.min(0.92, pct / 100));
+    return x ** 1.35;
+  };
+  const wTech = hitToWeight(hitRates.technician);
+  const wRisk = hitToWeight(hitRates.risk);
+  const wPsych = hitToWeight(hitRates.psych);
+  const wMacro = hitToWeight(hitRates.macro);
+  const wOnchain = hitToWeight(hitRates.onchain);
+  const wDeep = hitToWeight(hitRates.deepMemory);
+
+  const weightedExperts = [
+    { score: expert1.tech_score, weight: wTech, failed: techFailed },
+    { score: expert2.risk_score, weight: wRisk, failed: riskFailed },
+    { score: expert3.psych_score, weight: wPsych, failed: psychFailed },
+    { score: expert4.macro_score, weight: wMacro, failed: macroFailed },
+    { score: expert5.onchain_score, weight: wOnchain, failed: onchainFailed },
+    { score: expert6.deep_memory_score, weight: wDeep, failed: deepMemoryFailed },
+  ];
+  const availableWeight = weightedExperts
+    .filter((item) => !item.failed)
+    .reduce((sum, item) => sum + item.weight, 0);
   const final_confidence =
-    expert1.tech_score * wOther +
-    expert2.risk_score * wOther +
-    expert3.psych_score * wOther +
-    expert4.macro_score * wOther +
-    expert5.onchain_score * wOnchain +
-    expert6.deep_memory_score * wOther;
+    availableWeight > 0
+      ? weightedExperts
+          .filter((item) => !item.failed)
+          .reduce((sum, item) => sum + item.score * item.weight, 0) / availableWeight
+      : FALLBACK_EXPERT_SCORE;
   const consensus_approved = final_confidence >= effectiveThreshold;
 
   return {
@@ -1134,5 +1347,8 @@ export async function runConsensusEngine(
     reasoning_path: judgeResult.reasoning_path,
     final_confidence: Math.round(final_confidence * 10) / 10,
     consensus_approved,
+    ...(judgeResult.debate_resolution?.trim()
+      ? { debate_resolution: judgeResult.debate_resolution.trim() }
+      : {}),
   };
 }

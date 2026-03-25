@@ -189,6 +189,42 @@ export async function deleteAllAgentInsights(): Promise<{ deleted: number }> {
 }
 
 /** Agent insights with created_at within the given date range (inclusive). */
+export async function listAgentInsightsSince(isoSince: string, limit = 500): Promise<AgentInsightRow[]> {
+  if (!usePostgres()) return [];
+  try {
+    const ok = await ensureTable();
+    if (!ok) return [];
+    const since = new Date(isoSince);
+    if (Number.isNaN(since.getTime())) return [];
+    const { rows } = await sql`
+      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict
+      FROM agent_insights
+      WHERE created_at >= ${since.toISOString()}
+      ORDER BY created_at DESC
+      LIMIT ${Math.min(Math.max(1, limit), 2000)}
+    `;
+    return (rows || []).map((r: Record<string, unknown>) => ({
+      id: Number(r.id),
+      symbol: String(r.symbol),
+      trade_id: Number(r.trade_id),
+      entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
+      outcome: r.outcome != null ? String(r.outcome) : null,
+      insight: String(r.insight),
+      created_at: String(r.created_at),
+      tech_score: r.tech_score != null ? Number(r.tech_score) : null,
+      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
+      psych_score: r.psych_score != null ? Number(r.psych_score) : null,
+      master_insight: r.master_insight != null ? String(r.master_insight) : null,
+      reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
+      why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
+      agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
+    })) as AgentInsightRow[];
+  } catch (err) {
+    console.error('listAgentInsightsSince failed:', err);
+    return [];
+  }
+}
+
 export async function listAgentInsightsInRange(fromDate: string, toDate: string): Promise<AgentInsightRow[]> {
   if (!usePostgres()) return [];
   try {

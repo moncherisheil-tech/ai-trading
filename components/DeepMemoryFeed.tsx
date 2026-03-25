@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrainCircuit, Radio } from 'lucide-react';
+import { getTradingExecutionStatusAction } from '@/app/actions';
 
 type ExecutionRow = {
   symbol: string;
@@ -40,10 +41,9 @@ export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) 
     let mounted = true;
     const poll = async () => {
       try {
-        const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
-        const res = await fetch(`${baseUrl}/api/trading/execution/status`, { cache: 'no-store' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = (await res.json()) as ExecutionStatusPayload;
+        const out = await getTradingExecutionStatusAction();
+        if (!out.success) throw new Error(out.error);
+        const payload = out.data as ExecutionStatusPayload;
         const rows = Array.isArray(payload.recentExecutions) ? payload.recentExecutions : [];
         if (!mounted) return;
         if (rows.length === 0) {
@@ -103,7 +103,7 @@ export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) 
 
   return (
     <div
-      className={`flex flex-col min-h-[280px] bg-zinc-900/60 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden ${className}`}
+      className={`frosted-obsidian sovereign-tilt z-depth-2 flex flex-col min-h-[280px] border border-white/5 rounded-3xl shadow-2xl overflow-hidden ${className}`}
       dir="ltr"
     >
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/5 bg-black/20">
@@ -137,8 +137,8 @@ export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) 
               className="border-b border-white/[0.04] py-1.5 text-left break-words"
             >
               {pre ? <span className="text-zinc-500">{pre}</span> : null}
-              <span className="text-violet-400">[Deep Memory]</span>
-              <span className="text-emerald-200/85">{post}</span>
+              <span className="cyber-decrypt text-violet-300" data-scramble="MEMORY-STREAM">[Deep Memory]</span>
+              <span className="text-emerald-200/85 ms-1">{post}</span>
             </div>
           );
         })}

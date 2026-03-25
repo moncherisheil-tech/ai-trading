@@ -1,3 +1,5 @@
+import { LEVIATHAN_SPOOFING_BOOK_RULES } from '@/lib/agents/psych-agent';
+
 type LeviathanSignal = {
   provider: 'CryptoQuant' | 'CoinMarketCap';
   ok: boolean;
@@ -139,7 +141,8 @@ export async function getLeviathanSnapshot(symbol: string): Promise<LeviathanSna
   const institutionalWhaleContext =
     `Leviathan feed for ${baseAsset}: ` +
     `${cryptoQuant.provider}: ${cryptoQuant.summary}. ` +
-    `${coinMarketCap.provider}: ${coinMarketCap.summary}.`;
+    `${coinMarketCap.provider}: ${coinMarketCap.summary}. ` +
+    `Anti-spoofing mandate: ${LEVIATHAN_SPOOFING_BOOK_RULES}`;
 
   return {
     symbol: cleanSymbol,

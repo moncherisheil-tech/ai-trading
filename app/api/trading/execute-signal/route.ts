@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 type ExecuteSignalBody = {
   symbol?: string;
@@ -16,6 +17,10 @@ function normalizeSymbol(raw: string): string {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   try {
     const body = (await request.json()) as ExecuteSignalBody;
     const side = body.side;

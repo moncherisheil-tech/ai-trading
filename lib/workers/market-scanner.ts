@@ -278,6 +278,8 @@ export async function runOneCycle(): Promise<void> {
             macroLogicHe: result.data.macro_logic,
             onchainLogicHe: result.data.onchain_logic ?? undefined,
             deepMemoryLogicHe: result.data.deep_memory_logic ?? undefined,
+            takeProfitPct: Math.abs(targetPct) > 0.005 ? Math.abs(targetPct) : undefined,
+            stopLossPct: -1.5,
           });
           if (sendResult.ok) {
             alertsSent += 1;

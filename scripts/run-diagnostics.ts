@@ -163,7 +163,7 @@ function createDryRunBroker(): IBrokerAdapter {
     },
     async createMarketOrder(symbol: string, side: 'buy' | 'sell', amount: number): Promise<BrokerOrderResult> {
       return {
-        id: `dryrun-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        id: `dryrun-${crypto.randomUUID()}`,
         symbol,
         side,
         amount,

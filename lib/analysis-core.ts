@@ -34,7 +34,7 @@ import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine
 import { calculatePositionSize, calculateTradeLevels } from '@/lib/trading/risk-manager';
 import { getRecentWhaleMovements } from '@/lib/trading/whale-tracker';
 import { getDeveloperActivity } from '@/lib/trading/github-tracker';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import {
   computeEmaSeries,
   computeBollingerSeries,
@@ -135,7 +135,7 @@ async function withRetry<T>(work: () => Promise<T>, retries = APP_CONFIG.maxFetc
       lastError = error;
       if (attempt >= retries - 1) break;
       const base = 150 * (attempt + 1);
-      const jitter = Math.floor(Math.random() * 180);
+      const jitter = Math.min(150, (attempt + 1) * 30);
       await new Promise((resolve) => setTimeout(resolve, base + jitter));
     }
   }
@@ -253,6 +253,26 @@ function parseJsonWithFallback<T = unknown>(raw: string): T {
     const preview = (raw ?? '').trim().slice(0, 280);
     throw new Error(`JSON parse failed after extracting blob (length ${jsonStr.length}): ${msg}.${preview ? ` Raw: ${preview}` : ''}`);
   }
+}
+
+function getGroqApiKeyFromEnvWithLog(scope: string): string | undefined {
+  const envVarName = 'GROQ_API_KEY';
+  const key = process.env.GROQ_API_KEY?.trim();
+  if (!key) {
+    console.error(`[${scope}] Missing Groq API key; attempted env var: ${envVarName}`);
+    return undefined;
+  }
+  return key;
+}
+
+function getGeminiApiKeyFromEnvWithTrim(scope: string): string {
+  const envVarName = 'GEMINI_API_KEY';
+  const key = getGeminiApiKey().trim();
+  if (!key) {
+    console.error(`[${scope}] Missing Gemini API key after trim; attempted env var: ${envVarName}`);
+    throw new Error('Gemini API key is missing after trim.');
+  }
+  return key;
 }
 
 function normalizeDirectionValue(raw: unknown): string | undefined {
@@ -379,7 +399,7 @@ export async function doAnalysisCore(
   }
 
   let fallbackUsed = false;
-  const apiKey = getGeminiApiKey();
+  const apiKey = getGeminiApiKeyFromEnvWithTrim('analysis-core');
   const genAI = new GoogleGenerativeAI(apiKey);
 
   if (useCache) {
@@ -480,12 +500,14 @@ export async function doAnalysisCore(
     fetchOpenInterest(cleanSymbol, oiStartMs, nowMs).catch(() => [] as { timestamp: number; sumOpenInterest: number }[]),
     getRecentWhaleMovements(assetTicker).catch(() => ({
       assetTicker,
-      totalMovements: 0,
-      severeInflowsToExchanges: 0,
-      largestMovementUsd: 0,
-      netExchangeFlowUsd: 0,
+      status: 'AWAITING_LIVE_DATA' as const,
+      totalMovements: null,
+      severeInflowsToExchanges: null,
+      largestMovementUsd: null,
+      netExchangeFlowUsd: null,
       generatedAt: new Date().toISOString(),
       movements: [],
+      providerNote: 'Whale provider unavailable for this cycle.',
     })),
     getDeveloperActivity(repoPath).catch(() => ({
       repoPath,
@@ -661,6 +683,8 @@ export async function doAnalysisCore(
     : (macroContext!.dxyNote +
         (macroContext!.fearGreedIndex != null ? ` Fear & Greed: ${macroContext!.fearGreedIndex} (${macroContext!.fearGreedLabel ?? 'N/A'}).` : '') +
         (macroContext!.btcDominancePct != null ? ` BTC dominance: ${macroContext!.btcDominancePct}%.` : ''));
+  // Explicit diagnostic visibility for env loading issues in production logs.
+  getGroqApiKeyFromEnvWithLog('analysis-core');
   try {
     consensusResult = await runConsensusEngine(
       {
@@ -768,12 +792,14 @@ RULES:
       { model: selectedModel.model, systemInstruction },
       selectedModel.requestOptions
     );
-    apiResult = await withGeminiTimeout(
-      model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
-        generationConfig,
-      }),
-      geminiTimeoutMs
+    apiResult = await withGeminiRateLimitRetry(() =>
+      withGeminiTimeout(
+        model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          generationConfig,
+        }),
+        geminiTimeoutMs
+      )
     );
   } catch (primaryErr) {
     const errMsg = primaryErr instanceof Error ? primaryErr.message : String(primaryErr);
@@ -803,12 +829,14 @@ RULES:
           { model: selectedFallback.model, systemInstruction },
           selectedFallback.requestOptions
         );
-        apiResult = await withGeminiTimeout(
-          fallbackModel.generateContent({
-            contents: [{ role: 'user', parts: [{ text: promptText }] }],
-            generationConfig,
-          }),
-          geminiTimeoutMs
+        apiResult = await withGeminiRateLimitRetry(() =>
+          withGeminiTimeout(
+            fallbackModel.generateContent({
+              contents: [{ role: 'user', parts: [{ text: promptText }] }],
+              generationConfig,
+            }),
+            geminiTimeoutMs
+          )
         );
       } catch (fallbackErr) {
         const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
@@ -847,12 +875,14 @@ RULES:
       { model: selectedRetryModel.model, systemInstruction },
       selectedRetryModel.requestOptions
     );
-    apiResult = await withGeminiTimeout(
-      emptyRetryModel.generateContent({
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
-        generationConfig,
-      }),
-      geminiTimeoutMs
+    apiResult = await withGeminiRateLimitRetry(() =>
+      withGeminiTimeout(
+        emptyRetryModel.generateContent({
+          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          generationConfig,
+        }),
+        geminiTimeoutMs
+      )
     );
   }
 
@@ -899,12 +929,14 @@ RULES:
       { model: selectedRepairModel.model, systemInstruction: repairSystemInstruction },
       selectedRepairModel.requestOptions
     );
-    const repairResponse = await withGeminiTimeout(
-      repairModel.generateContent({
-        contents: [{ role: 'user', parts: [{ text: JSON.stringify(repairPrompt) }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json' as const },
-      }),
-      geminiTimeoutMs
+    const repairResponse = await withGeminiRateLimitRetry(() =>
+      withGeminiTimeout(
+        repairModel.generateContent({
+          contents: [{ role: 'user', parts: [{ text: JSON.stringify(repairPrompt) }] }],
+          generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json' as const },
+        }),
+        geminiTimeoutMs
+      )
     );
     let repairText: string | undefined;
     try {
@@ -1016,6 +1048,9 @@ RULES:
       master_insight_he: consensusResult.master_insight_he,
       reasoning_path: consensusResult.reasoning_path,
       final_confidence: consensusResult.final_confidence,
+      ...(consensusResult.debate_resolution?.trim()
+        ? { debate_resolution: consensusResult.debate_resolution.trim() }
+        : {}),
     }),
   };
 

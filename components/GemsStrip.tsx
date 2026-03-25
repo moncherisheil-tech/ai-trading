@@ -3,34 +3,47 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, TrendingDown, Gem } from 'lucide-react';
 import type { Ticker24h, SignalStrength } from '@/lib/gem-finder';
-import { formatPriceForSymbol } from '@/lib/decimal';
+import { getPriceDecimals, roundToSymbolDecimals } from '@/lib/decimal';
 import { useRefreshIntervalMs } from '@/context/AppSettingsContext';
+import { getGemsTicker24hAction } from '@/app/actions';
 
 export default function GemsStrip() {
   const refreshIntervalMs = useRefreshIntervalMs();
   const [tickers, setTickers] = useState<Ticker24h[]>([]);
   const [ready, setReady] = useState(false);
 
+  const formatMarqueePrice = (value: number, symbol: string): string => {
+    const decimals = getPriceDecimals(symbol);
+    const rounded = roundToSymbolDecimals(value, symbol, 'price');
+    return rounded.toFixed(decimals);
+  };
+
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+
     const load = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
-        const res = await fetch('/api/crypto/gems');
-        if (!res.ok) return;
-        const data = (await res.json()) as Ticker24h[];
+        const data = await getGemsTicker24hAction();
         if (cancelled) return;
-        const nextRows = data.slice(0, 12);
+        const nextRows = (Array.isArray(data) ? data : []).slice(0, 12);
         if (nextRows.length === 0) return;
+
         setTickers((prev) => {
-          if (prev.length === 0) return nextRows;
+          // Keep the marquee symbol set stable after first mount to prevent animation jumps.
+          if (prev.length === 0) {
+            setReady(true);
+            return nextRows;
+          }
           const bySymbol = new Map(nextRows.map((row) => [row.symbol, row]));
-          const merged = prev.map((row) => bySymbol.get(row.symbol) ?? row);
-          const missing = nextRows.filter((row) => !merged.some((m) => m.symbol === row.symbol));
-          return [...merged, ...missing].slice(0, 12);
+          return prev.map((row) => bySymbol.get(row.symbol) ?? row);
         });
-        setReady(true);
       } catch {
         // ignore
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -44,7 +57,16 @@ export default function GemsStrip() {
 
   const displayTickers = useMemo(() => tickers, [tickers]);
 
-  if (!ready || tickers.length === 0) return null;
+  if (!ready || tickers.length === 0) {
+    return (
+      <section
+        className="border-b border-[var(--app-border)] bg-[var(--app-surface)] py-2 px-4 overflow-hidden"
+        aria-label="מטבעות ג'מס — נפח 24 שעות"
+      >
+        <div className="max-w-7xl mx-auto text-xs text-zinc-500">AWAITING_LIVE_DATA · Cyber-Decrypt gems feed...</div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -67,15 +89,15 @@ export default function GemsStrip() {
                   const strengthLabel = strength === 'high' ? 'חזק' : strength === 'medium' ? 'בינוני' : 'חלש';
                   return (
                     <div
-                      key={`${t.symbol}-${i}-copy-${copyIndex}`}
+                      key={`${t.symbol}-copy-${copyIndex}`}
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--ui-radius-lg)] bg-white/[0.02] border border-white/5 text-zinc-100 whitespace-nowrap shrink-0"
                       aria-label={`${base} נפח 24h, שינוי ${t.priceChangePercent.toFixed(2)}%, עוצמת איתות ${strengthLabel}`}
                     >
                       <span className="font-semibold text-white text-xs">{base}</span>
-                      <span className="font-mono text-zinc-500 text-[11px]">
-                        ${formatPriceForSymbol(t.price, t.symbol)}
+                      <span className="font-mono tabular-nums text-zinc-500 text-[11px]">
+                        ${formatMarqueePrice(t.price, t.symbol)}
                       </span>
-                      <span className={`flex items-center text-[10px] font-semibold ${up ? 'text-emerald-400' : 'text-rose-500'}`}>
+                      <span className={`flex items-center tabular-nums text-[10px] font-semibold ${up ? 'text-emerald-400' : 'text-rose-500'}`}>
                         {up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                         {Math.abs(t.priceChangePercent).toFixed(2)}%
                       </span>

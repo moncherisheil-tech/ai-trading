@@ -10,6 +10,7 @@ import { getAppSettings } from '@/lib/db/app-settings';
 import { APP_CONFIG } from '@/lib/config';
 import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { applySlippage } from '@/lib/decimal';
+import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 function hasPostgresConfig(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
@@ -24,7 +25,11 @@ export const revalidate = 0;
  * GET /api/portfolio/virtual
  * Returns virtual P&L summary and trades. Runs auto-close check with live prices (read-only fetch).
  */
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (!validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   if (!hasPostgresConfig()) {
     return NextResponse.json({
       totalVirtualBalancePct: 0,
@@ -67,6 +72,10 @@ export async function GET(): Promise<NextResponse> {
  * Open a virtual trade (mock execution). Body: { symbol, entry_price, amount_usd [, target_profit_pct, stop_loss_pct ] }
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!validateAdminOrCronAuth(request)) {
+    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  }
+
   if (!hasPostgresConfig()) {
     return NextResponse.json({ success: false, error: 'DATABASE_URL (Vercel Postgres) required.' }, { status: 400 });
   }

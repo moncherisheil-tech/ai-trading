@@ -1,35 +1,61 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
-import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
+import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
 
 export const dynamic = 'force-dynamic';
 
-async function callAnthropic(): Promise<{ ok: boolean; rawText: string }> {
+async function callAnthropic(): Promise<{ ok: boolean; rawText: string; warning?: string }> {
   const apiKey = (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || '').trim();
   if (!apiKey) {
     return { ok: false, rawText: 'ANTHROPIC_API_KEY/CLAUDE_API_KEY missing' };
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: ANTHROPIC_HAIKU_MODEL,
-      max_tokens: 80,
-      messages: [{ role: 'user', content: 'Reply with exactly one short line: ANTHROPIC_OK' }],
-    }),
-    cache: 'no-store',
-  });
+  let saw404Mismatch = false;
+  let lastError = '';
 
-  const raw = await res.text();
-  if (!res.ok) {
-    return { ok: false, rawText: `HTTP ${res.status}: ${raw.slice(0, 500)}` };
+  for (const modelName of ANTHROPIC_MODEL_CANDIDATES) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: modelName,
+        max_tokens: 80,
+        messages: [{ role: 'user', content: 'Reply with exactly one short line: ANTHROPIC_OK' }],
+      }),
+      cache: 'no-store',
+    });
+
+    const raw = await res.text();
+    if (res.ok) {
+      return { ok: true, rawText: raw.slice(0, 1200) };
+    }
+
+    if (res.status === 429) {
+      return { ok: true, rawText: 'QUOTA_REACHED_BUT_CONNECTED' };
+    }
+
+    if (res.status === 404) {
+      saw404Mismatch = true;
+      lastError = `HTTP 404 (${modelName}): ${raw.slice(0, 500)}`;
+      continue;
+    }
+
+    return { ok: false, rawText: `HTTP ${res.status} (${modelName}): ${raw.slice(0, 500)}` };
   }
-  return { ok: true, rawText: raw.slice(0, 1200) };
+
+  if (saw404Mismatch) {
+    return {
+      ok: true,
+      rawText: lastError || 'ANTHROPIC_MODEL_MISMATCH_BUT_KEY_WORKS',
+      warning: 'ANTHROPIC_MODEL_MISMATCH_BUT_KEY_WORKS',
+    };
+  }
+
+  return { ok: false, rawText: lastError || 'Anthropic request failed.' };
 }
 
 async function callGroq(): Promise<{ ok: boolean; rawText: string }> {
@@ -89,12 +115,14 @@ export async function GET(): Promise<NextResponse> {
 
   const [anthropic, groq, gemini] = await Promise.all([callAnthropic(), callGroq(), callGemini()]);
 
-  if (anthropic.ok) console.log('[debug/test-llms] Anthropic raw success:', anthropic.rawText);
-  if (groq.ok) console.log('[debug/test-llms] Groq raw success:', groq.rawText);
-  if (gemini.ok) console.log('[debug/test-llms] Gemini raw success:', gemini.rawText);
+  const warnings = [anthropic.warning].filter((w): w is string => Boolean(w));
 
   if (anthropic.ok && groq.ok && gemini.ok) {
-    return NextResponse.json({ ok: true, status: 'SYSTEM STATUS: OPERATIONAL' });
+    return NextResponse.json({
+      ok: true,
+      status: 'SYSTEM STATUS: OPERATIONAL',
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   }
 
   return NextResponse.json(

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Brain, Cpu, Gauge, Shield, TerminalSquare } from 'lucide-react';
+import { getExpertWeightsAction, getOverseerLogsAction, getPortfolioVirtualAction, getTradingExecutionStatusAction } from '@/app/actions';
 
 type ExpertWeights = {
   dataExpertWeight: number;
@@ -43,8 +44,7 @@ type OverseerLog = {
   prediction_date: string;
 };
 
-const PANEL =
-  'rounded-2xl border border-white/10 bg-black/45 backdrop-blur-xl shadow-[0_0_0_1px_rgba(255,255,255,0.03),0_20px_50px_rgba(0,0,0,0.35)]';
+const PANEL = 'frosted-obsidian rounded-2xl bg-black/45';
 
 function formatUsd(value: number): string {
   return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -89,34 +89,36 @@ export default function QuantumCommandCenter() {
   const [execution, setExecution] = useState<ExecutionSnapshot>({ activeTrades: [], recentExecutions: [] });
   const [closedTrades, setClosedTrades] = useState<ClosedTrade[]>([]);
   const [logs, setLogs] = useState<OverseerLog[]>([]);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [weightsRes, executionRes, portfolioRes, logsRes] = await Promise.all([
-      fetch('/api/ops/expert-weights', { credentials: 'include', cache: 'no-store' }),
-      fetch('/api/trading/execution/status', { credentials: 'include', cache: 'no-store' }),
-      fetch('/api/portfolio/virtual', { credentials: 'include', cache: 'no-store' }),
-      fetch('/api/ops/overseer-logs', { credentials: 'include', cache: 'no-store' }),
+    const [weightsOut, executionOut, portfolioOut, logsOut] = await Promise.all([
+      getExpertWeightsAction(),
+      getTradingExecutionStatusAction(),
+      getPortfolioVirtualAction(),
+      getOverseerLogsAction(),
     ]);
 
-    if (weightsRes.ok) {
-      const data = (await weightsRes.json()) as { expertWeights?: ExpertWeights };
+    if (weightsOut.success) {
+      const data = weightsOut.data as { expertWeights?: ExpertWeights };
       if (data.expertWeights) setWeights(data.expertWeights);
     }
-    if (executionRes.ok) {
-      const data = (await executionRes.json()) as ExecutionSnapshot;
+    if (executionOut.success) {
+      const data = executionOut.data as ExecutionSnapshot;
       setExecution({
         activeTrades: data.activeTrades ?? [],
         recentExecutions: data.recentExecutions ?? [],
       });
     }
-    if (portfolioRes.ok) {
-      const data = (await portfolioRes.json()) as { closedTrades?: ClosedTrade[] };
+    if (portfolioOut.success) {
+      const data = portfolioOut.data as { closedTrades?: ClosedTrade[] };
       setClosedTrades((data.closedTrades ?? []).slice(0, 10));
     }
-    if (logsRes.ok) {
-      const data = (await logsRes.json()) as { logs?: OverseerLog[] };
+    if (logsOut.success) {
+      const data = logsOut.data as { logs?: OverseerLog[] };
       setLogs((data.logs ?? []).slice(0, 20));
     }
+    setIsBootstrapping(false);
   }, []);
 
   useEffect(() => {
@@ -190,7 +192,7 @@ export default function QuantumCommandCenter() {
             </div>
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full min-w-[640px] text-sm">
-                <thead className="sticky top-0 bg-[#090b10]/95 backdrop-blur">
+                <thead className="sticky top-0 bg-[#090b10]/95 backdrop-blur-[60px]">
                   <tr className="text-zinc-400">
                     <th className="px-4 py-3 text-right">Asset</th>
                     <th className="px-4 py-3 text-right">Entry</th>
@@ -271,7 +273,9 @@ export default function QuantumCommandCenter() {
             />
             <div className="relative space-y-2">
               {terminalLines.length === 0 ? (
-                <p className="text-zinc-500">Awaiting analysis-core and risk-manager logs...</p>
+                <p className="text-zinc-500">
+                  {isBootstrapping ? 'AWAITING_LIVE_DATA · Cyber-Decrypt telemetry sync...' : 'Awaiting analysis-core and risk-manager logs...'}
+                </p>
               ) : (
                 terminalLines.map((line, idx) => (
                   <p key={`${line}-${idx}`} className="break-words">{line}</p>

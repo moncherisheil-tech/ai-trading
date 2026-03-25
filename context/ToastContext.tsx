@@ -7,9 +7,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { CheckCircle2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, AlertCircle, Radio } from 'lucide-react';
 
-export type ToastType = 'success' | 'error';
+export type ToastType = 'success' | 'error' | 'cyber' | 'critical_cyber';
 
 export type ToastItem = {
   id: string;
@@ -21,11 +21,18 @@ type ToastContextValue = {
   toasts: ToastItem[];
   success: (message: string) => void;
   error: (message: string) => void;
+  /** High-visibility ops / stream anomaly toast (cyan/violet, longer duration). */
+  cyber: (message: string) => void;
+  /** Execution / sovereign robot failure — maximum visibility. */
+  criticalCyber: (message: string) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const TOAST_DURATION_MS = 4500;
+const CYBER_TOAST_DURATION_MS = 7000;
+const CRITICAL_CYBER_TOAST_DURATION_MS = 14_000;
+const createToastId = (): string => `toast-${crypto.randomUUID()}`;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -35,21 +42,35 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const success = useCallback((message: string) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const id = createToastId();
     setToasts((prev) => [...prev, { id, type: 'success', message }]);
     setTimeout(() => removeToast(id), TOAST_DURATION_MS);
   }, [removeToast]);
 
   const error = useCallback((message: string) => {
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const id = createToastId();
     setToasts((prev) => [...prev, { id, type: 'error', message }]);
     setTimeout(() => removeToast(id), TOAST_DURATION_MS);
+  }, [removeToast]);
+
+  const cyber = useCallback((message: string) => {
+    const id = createToastId();
+    setToasts((prev) => [...prev, { id, type: 'cyber', message }]);
+    setTimeout(() => removeToast(id), CYBER_TOAST_DURATION_MS);
+  }, [removeToast]);
+
+  const criticalCyber = useCallback((message: string) => {
+    const id = createToastId();
+    setToasts((prev) => [...prev, { id, type: 'critical_cyber', message }]);
+    setTimeout(() => removeToast(id), CRITICAL_CYBER_TOAST_DURATION_MS);
   }, [removeToast]);
 
   const value: ToastContextValue = {
     toasts,
     success,
     error,
+    cyber,
+    criticalCyber,
   };
 
   return (
@@ -65,15 +86,23 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             role="status"
-            aria-live={t.type === 'error' ? 'assertive' : 'polite'}
-            className={`pointer-events-auto flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg border backdrop-blur-md transition-all duration-300 ${
+            aria-live={t.type === 'error' || t.type === 'critical_cyber' ? 'assertive' : 'polite'}
+            className={`pointer-events-auto flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium shadow-lg border backdrop-blur-[60px] transition-all duration-300 ${
               t.type === 'success'
                 ? 'bg-emerald-500/95 text-white border-emerald-400/30'
-                : 'bg-rose-500/95 text-white border-rose-400/30'
+                : t.type === 'cyber'
+                  ? 'bg-gradient-to-r from-violet-950/95 via-cyan-950/90 to-zinc-950/95 text-cyan-100 border-cyan-400/40 shadow-[0_0_28px_rgba(34,211,238,0.35)] font-mono text-[13px] tracking-tight'
+                  : t.type === 'critical_cyber'
+                    ? 'bg-gradient-to-r from-rose-950/95 via-violet-950/95 to-zinc-950/95 text-rose-100 border-rose-400/55 shadow-[0_0_36px_rgba(244,63,94,0.45)] font-mono text-[13px] tracking-tight tabular-nums'
+                    : 'bg-rose-500/95 text-white border-rose-400/30'
             }`}
           >
             {t.type === 'success' ? (
               <CheckCircle2 className="w-5 h-5 shrink-0" aria-hidden />
+            ) : t.type === 'cyber' ? (
+              <Radio className="w-5 h-5 shrink-0 text-cyan-300 animate-pulse" aria-hidden />
+            ) : t.type === 'critical_cyber' ? (
+              <AlertCircle className="w-5 h-5 shrink-0 text-rose-300 animate-pulse" aria-hidden />
             ) : (
               <AlertCircle className="w-5 h-5 shrink-0" aria-hidden />
             )}

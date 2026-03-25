@@ -5,6 +5,7 @@ import { Sliders, Loader2, CheckCircle, AlertCircle, RefreshCw } from 'lucide-re
 import { useToast } from '@/context/ToastContext';
 import { useAppSettings } from '@/context/AppSettingsContext';
 import type { AppSettings } from '@/lib/db/app-settings';
+import { calibrateOpsAction } from '@/app/actions';
 
 export type CalibrationApiResult = {
   success: boolean;
@@ -47,12 +48,12 @@ export default function SystemOptimizationCard({ onApplied }: SystemOptimization
     setError(null);
     setResult(null);
     try {
-      const res = await fetch('/api/ops/calibrate', { credentials: 'include' });
-      const data = (await res.json()) as CalibrationApiResult & { error?: string };
-      if (!res.ok) {
-        setError(data?.error ?? 'שגיאה בהרצת כיול');
+      const out = await calibrateOpsAction();
+      if (!out.success) {
+        setError(out.error ?? 'שגיאה בהרצת כיול');
         return;
       }
+      const data = out.data as CalibrationApiResult & { error?: string };
       if (data.success) setResult(data);
       else setError(data?.error ?? 'לא התקבלו המלצות');
     } catch {

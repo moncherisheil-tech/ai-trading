@@ -85,7 +85,7 @@ export default async function StrategyOpsPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/5 bg-zinc-900/50 backdrop-blur-md p-4 sm:p-6">
+        <div className="rounded-2xl border border-white/5 bg-zinc-900/50 frosted-obsidian p-4 sm:p-6">
           <PerformanceTrendsCharts
             timeSeries={timeSeries}
             totalBacktests={totalBacktests}
@@ -96,18 +96,18 @@ export default async function StrategyOpsPage() {
         </div>
 
         {!strategies || !strategies.success ? (
-          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 backdrop-blur-md p-4 text-sm text-amber-400">
+          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 frosted-obsidian p-4 text-sm text-amber-400">
             {t.failedToLoadStrategies}
           </div>
         ) : strategies.data.length === 0 ? (
-          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 backdrop-blur-md p-4 text-sm text-zinc-500">
+          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 frosted-obsidian p-4 text-sm text-zinc-500">
             {t.noStrategiesYet}
           </div>
         ) : (
-          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 backdrop-blur-md overflow-hidden">
+          <div className="rounded-2xl border border-white/5 bg-zinc-900/50 frosted-obsidian overflow-hidden">
             <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
               <table className="min-w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 backdrop-blur border-b border-white/10 shadow-sm">
+                <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 backdrop-blur-[60px] border-b border-white/10 shadow-sm">
                   <tr>
                     <th className="px-4 py-3 text-xs font-semibold text-zinc-500 text-end">נוצר</th>
                     <th className="px-4 py-3 text-xs font-semibold text-zinc-500 text-end">סיכום דפוס</th>

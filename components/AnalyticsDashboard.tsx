@@ -26,6 +26,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import SystemOptimizationCard from '@/components/SystemOptimizationCard';
+import { getCeoBriefingAction, getOpsMetricsHistoricalAction } from '@/app/actions';
 
 const PRESETS = [
   { id: 'today', label: 'היום', getRange: () => {
@@ -110,17 +111,13 @@ export default function AnalyticsDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/ops/metrics/historical?from_date=${encodeURIComponent(fromIso)}&to_date=${encodeURIComponent(toIso)}`,
-        { credentials: 'include' }
-      );
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data?.error || 'שגיאה בטעינת נתונים');
+      const out = await getOpsMetricsHistoricalAction({ from_date: fromIso, to_date: toIso });
+      if (!out.success) {
+        setError(out.error || 'שגיאה בטעינת נתונים');
         setMetrics(null);
         return;
       }
-      setMetrics(data as HistoricalMetrics);
+      setMetrics(out.data as HistoricalMetrics);
     } catch (e) {
       setError('שגיאה בחיבור לשרת');
       setMetrics(null);
@@ -133,17 +130,13 @@ export default function AnalyticsDashboard() {
     if (!metrics) return;
     setBriefingLoading(true);
     try {
-      const params = new URLSearchParams({
+      const out = await getCeoBriefingAction({
         from_date: fromIso,
         to_date: toIso,
         total_pnl_pct: String(metrics.total_net_pnl_pct),
         win_rate_pct: String(metrics.win_rate_pct),
       });
-      const res = await fetch(`/api/ops/analytics/ceo-briefing?${params}`, {
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (data?.success) setBriefing(data as CeoBriefing);
+      if (out.success) setBriefing(out.data as CeoBriefing);
       else setBriefing(null);
     } catch {
       setBriefing(null);

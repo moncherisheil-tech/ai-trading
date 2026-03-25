@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { FormEvent, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
@@ -15,6 +16,7 @@ import {
   Cpu,
   AlertTriangle,
 } from 'lucide-react';
+import { runAcademyRagAction } from '@/app/actions';
 const AGENTS = [
   {
     name: 'מומחה טכני',
@@ -55,11 +57,38 @@ const AGENTS = [
 ];
 
 export default function AcademyPage() {
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [question, setQuestion] = useState('מה ניתן ללמוד מהיסטוריית העסקאות של הסמל הזה?');
+  const [loading, setLoading] = useState(false);
+  const [ragStatus, setRagStatus] = useState<'LIVE' | 'AWAITING_LIVE_DATA' | null>(null);
+  const [ragAnswer, setRagAnswer] = useState('');
+  const [retrieved, setRetrieved] = useState<Array<{ symbol: string; trade_id: number; text: string }>>([]);
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoading(true);
+    setRagStatus('AWAITING_LIVE_DATA');
+    try {
+      const payload = await runAcademyRagAction({ symbol, question });
+      if (!payload?.ok) {
+        setRagAnswer(payload?.error ?? 'בקשת RAG נכשלה. בדוק חיבור Pinecone/Gemini.');
+        setRetrieved([]);
+        return;
+      }
+
+      setRagStatus(payload.status ?? 'LIVE');
+      setRagAnswer(payload.answer ?? '');
+      setRetrieved(Array.isArray(payload.retrieved) ? payload.retrieved : []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#050505] overflow-x-hidden pb-20 sm:pb-0 max-w-full" dir="rtl" lang="he">
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16 pb-6 sm:pb-8 min-w-0 space-y-10">
         {/* Hero */}
-        <section className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 sm:p-8 overflow-hidden" aria-labelledby="academy-hero-heading">
+        <section className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 overflow-hidden" aria-labelledby="academy-hero-heading">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0" aria-hidden>
               <GraduationCap className="w-6 h-6 text-amber-500" />
@@ -76,9 +105,51 @@ export default function AcademyPage() {
           </p>
         </section>
 
+        <section className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 frosted-obsidian p-6 sm:p-8" aria-labelledby="academy-rag-heading">
+          <h2 id="academy-rag-heading" className="text-lg sm:text-xl font-bold text-white mb-3">
+            Deep Memory RAG — Live Retrieval
+          </h2>
+          <p className="text-sm text-zinc-300 mb-4">
+            ממשק חי ל־Pinecone + Gemini. אין תשובות מדומות: אם אין retrieval אמיתי, הסטטוס יציג AWAITING_LIVE_DATA.
+          </p>
+          <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
+            <input
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+              className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white"
+              placeholder="BTCUSDT"
+            />
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              className="rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white min-h-24"
+              placeholder="שאלת RAG"
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="rounded-lg border border-cyan-400/35 bg-cyan-500/15 px-4 py-2 text-sm font-semibold text-cyan-200 disabled:opacity-60"
+            >
+              {loading ? 'טוען...' : 'הרץ שאילתת RAG חיה'}
+            </button>
+          </form>
+          <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4">
+            <p className="text-xs font-mono text-zinc-400">STATUS: {ragStatus ?? 'IDLE'}</p>
+            <p className="mt-2 text-sm text-zinc-200 whitespace-pre-wrap">{ragAnswer || 'No response yet.'}</p>
+            <div className="mt-3 space-y-2">
+              {retrieved.map((item) => (
+                <div key={`${item.symbol}-${item.trade_id}`} className="rounded-md border border-white/10 p-2 text-xs text-zinc-300">
+                  <p className="font-mono text-zinc-400">{item.symbol} #{item.trade_id}</p>
+                  <p>{item.text}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Section A: Intro to Quant Trading */}
         <section
-          className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden"
+          className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian overflow-hidden"
           aria-labelledby="section-intro-heading"
         >
           <div className="p-6 sm:p-8 border-b border-white/5">
@@ -109,7 +180,7 @@ export default function AcademyPage() {
 
         {/* Section B: How the system thinks — 6 Experts + Overseer */}
         <section
-          className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden"
+          className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian overflow-hidden"
           aria-labelledby="section-experts-heading"
         >
           <div className="p-6 sm:p-8 border-b border-white/5">
@@ -157,7 +228,7 @@ export default function AcademyPage() {
 
         {/* Section C: Practical risk management — TP/SL */}
         <section
-          className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl overflow-hidden"
+          className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian overflow-hidden"
           aria-labelledby="section-risk-heading"
         >
           <div className="p-6 sm:p-8">
@@ -193,7 +264,7 @@ export default function AcademyPage() {
         </section>
 
         {/* Glossary — compact, with BookOpen */}
-        <section className="rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl p-6 sm:p-8 overflow-hidden" aria-labelledby="glossary-heading">
+        <section className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 overflow-hidden" aria-labelledby="glossary-heading">
           <h2 id="glossary-heading" className="flex items-center gap-2 text-lg font-bold text-white mb-4">
             <BookOpen className="w-5 h-5 text-amber-500 shrink-0" aria-hidden />
             מילון מונחים — קריפטו ומסחר
@@ -223,7 +294,7 @@ export default function AcademyPage() {
         </section>
 
         {/* CTA */}
-        <section className="rounded-2xl border border-amber-500/20 bg-amber-500/5 backdrop-blur-xl p-6 text-center">
+        <section className="rounded-2xl border border-amber-500/20 bg-amber-500/5 frosted-obsidian p-6 text-center">
           <p className="text-zinc-300 text-sm mb-4">רוצה לראות את המומחים והמערכת בפעולה?</p>
           <Link
             href="/"

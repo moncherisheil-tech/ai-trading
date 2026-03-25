@@ -104,7 +104,7 @@ function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
-async function fetch4hKlines(
+export async function fetch4hKlines(
   symbol: string,
   startTimeMs: number,
   endTimeMs: number
@@ -126,7 +126,9 @@ async function fetch4hKlines(
     )}/api/v3/klines?symbol=${encodeURIComponent(
       symbol
     )}&interval=4h&limit=${limit}&startTime=${from}&endTime=${finalEnd}`;
-    console.log(`[Backtest] Running analysis for: ${symbol}`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Backtest] Fetching klines for: ${symbol}`);
+    }
     const res = await fetchWithBackoff(url, {
       timeoutMs: APP_CONFIG.fetchTimeoutMs,
       maxRetries: 3,
@@ -274,7 +276,7 @@ export async function runBacktest({
   let oiRows: OpenInterestRow[] = [];
   try {
     oiRows = await fetchOpenInterest(cleanSymbol, startTimeMs, endTimeMs);
-    if (oiRows.length > 0) {
+    if (oiRows.length > 0 && process.env.NODE_ENV !== 'production') {
       console.log('[Backtest] Data Enrichment Complete: OI Active');
     }
   } catch (oiErr) {
@@ -592,7 +594,7 @@ export async function runMiniBacktest(params: {
   let oiRows: OpenInterestRow[] = [];
   try {
     oiRows = await fetchOpenInterest(cleanSymbol, startTimeMs, nowMs);
-    if (oiRows.length > 0) {
+    if (oiRows.length > 0 && process.env.NODE_ENV !== 'production') {
       console.log('[Backtest] Data Enrichment Complete: OI Active');
     }
   } catch (oiErr) {

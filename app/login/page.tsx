@@ -41,7 +41,7 @@ function LoginForm() {
   };
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-zinc-900/60 p-8 shadow-2xl backdrop-blur-xl sm:p-10" dir={isRtl ? 'rtl' : 'ltr'}>
+    <div className="relative overflow-hidden rounded-3xl border border-white/5 bg-zinc-900/60 p-8 shadow-2xl frosted-obsidian sm:p-10" dir={isRtl ? 'rtl' : 'ltr'}>
       <div className="pointer-events-none absolute -top-20 -start-20 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden />
       <div className="pointer-events-none absolute -bottom-24 -end-20 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" aria-hidden />
 
@@ -126,7 +126,7 @@ function LoginForm() {
 function LoginFallback() {
   const { locale } = useLocale();
   return (
-    <div className="rounded-3xl border border-white/5 bg-zinc-900/60 p-8 shadow-2xl backdrop-blur-xl">
+    <div className="rounded-3xl border border-white/5 bg-zinc-900/60 p-8 shadow-2xl frosted-obsidian">
       <div className="flex min-h-[220px] flex-col items-center justify-center gap-3">
         <Loader2 className="h-7 w-7 animate-spin text-cyan-300" aria-hidden />
         <p className="text-xs uppercase tracking-wider text-zinc-500">{locale === 'he' ? 'מכין סשן מאובטח' : 'Preparing Secure Session'}</p>

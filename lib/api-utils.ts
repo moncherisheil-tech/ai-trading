@@ -67,7 +67,7 @@ export async function fetchWithBackoff(
         if (typeof console !== 'undefined' && console.warn) {
           console.warn(`[fetchWithBackoff] Rate limit hit (${res.status}), backing off for ${waitSec} seconds.`);
         }
-        const jitter = Math.floor(Math.random() * 500);
+        const jitter = Math.min(400, attempt * 100);
         await new Promise((r) => setTimeout(r, waitMs + jitter));
         continue;
       }
@@ -79,7 +79,7 @@ export async function fetchWithBackoff(
       const isAbort = lastError.name === 'AbortError';
       if (attempt < maxRetries - 1 && (isAbort || /timeout|network|ECONNRESET/i.test(lastError.message))) {
         const waitMs = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
-        const jitter = Math.floor(Math.random() * 500);
+        const jitter = Math.min(400, attempt * 100);
         await new Promise((r) => setTimeout(r, waitMs + jitter));
         continue;
       }
@@ -339,5 +339,69 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
   } catch {
     // Keep default dxyNote
   }
+  return out;
+}
+
+export type ForexUplinkSnapshot = {
+  dxy?: number;
+  eurUsd?: number;
+  usdIls?: number;
+  updatedAt: string;
+};
+
+function parseYahooChartLastClose(raw: string): number | null {
+  try {
+    const data = JSON.parse(raw) as {
+      chart?: { result?: Array<{ meta?: { regularMarketPrice?: number }; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> };
+    };
+    const result = data.chart?.result?.[0];
+    const direct = result?.meta?.regularMarketPrice;
+    if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) return direct;
+    const closes = result?.indicators?.quote?.[0]?.close ?? [];
+    for (let i = closes.length - 1; i >= 0; i--) {
+      const v = closes[i];
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Live DXY, EUR/USD, USD/ILS for macro panel and localized ILS risk (Yahoo chart endpoints).
+ */
+export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<ForexUplinkSnapshot> {
+  const updatedAt = new Date().toISOString();
+  const out: ForexUplinkSnapshot = { updatedAt };
+  const symbols = [
+    { key: 'dxy' as const, yahoo: 'DX-Y.NYB' },
+    { key: 'eurUsd' as const, yahoo: 'EURUSD=X' },
+    { key: 'usdIls' as const, yahoo: 'ILS=X' },
+  ];
+  await Promise.all(
+    symbols.map(async ({ key, yahoo }) => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoo)}?range=1d&interval=5m`;
+        const res = await fetch(url, {
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+        });
+        if (!res.ok) return;
+        const text = await res.text();
+        const v = parseYahooChartLastClose(text);
+        if (v != null) out[key] = Math.round(v * 10_000) / 10_000;
+      } catch {
+        // skip symbol
+      } finally {
+        clearTimeout(t);
+      }
+    })
+  );
+  const dxySnap = await fetchDxySnapshot(timeoutMs).catch(() => null);
+  if (dxySnap && out.dxy == null) out.dxy = dxySnap.value;
   return out;
 }

@@ -4,7 +4,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDbAsync, saveDbAsync, PredictionRecord, SourceCitation } from '@/lib/db';
 import { getGeminiApiKey } from '@/lib/env';
-import { APP_CONFIG, shouldUseSecureCookies } from '@/lib/config';
+import { APP_CONFIG, shouldUseSecureCookies, getBaseUrl } from '@/lib/config';
 import { allowRequest } from '@/lib/rate-limit';
 import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
 import { aiPredictionSchema, aiPredictionPartialSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
@@ -13,10 +13,18 @@ import { z } from 'zod';
 import { cookies, headers } from 'next/headers';
 import { writeAudit } from '@/lib/audit';
 import { enqueueByKey } from '@/lib/task-queue';
-import { createSessionToken, hasRequiredRole, isSessionEnabled, verifySessionToken, type SessionRole } from '@/lib/session';
+import {
+  createSessionToken,
+  hasRequiredRole,
+  isDevelopmentAuthBypass,
+  isSessionEnabled,
+  verifySessionToken,
+  type SessionRole,
+} from '@/lib/session';
 import { evaluatePredictionOutcome } from '@/lib/agents/backtester';
 import { getBacktestRepository } from '@/lib/db/backtest-repository';
 import { getMarketSentiment, checkSentimentGuardrail } from '@/lib/agents/news-agent';
+import { getAdminSecret } from '@/lib/cron-auth';
 import {
   computePSuccess,
   computeRSI,
@@ -31,6 +39,8 @@ import { DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
 import type { SimulationResult, LoginResult, BinanceKline } from '@/lib/actions-types';
 import { getRequestLocale } from '@/lib/locale.server';
 import type { Locale } from '@/lib/i18n';
+import type { Ticker24h, SignalStrength } from '@/lib/gem-finder';
+import type { AppSettings } from '@/lib/db/app-settings';
 
 interface BinanceTickerPrice {
   symbol?: string;
@@ -44,6 +54,15 @@ type AnalyzeInput = {
   captchaToken?: string;
   locale?: Locale;
 };
+
+function deterministicJitter(seed: string, maxExclusive: number): number {
+  if (maxExclusive <= 0) return 0;
+  let hash = 5381;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = ((hash << 5) + hash) ^ seed.charCodeAt(i);
+  }
+  return Math.abs(hash >>> 0) % maxExclusive;
+}
 
 async function requireAuth(requiredRole: SessionRole = 'viewer'): Promise<void> {
   if (!isSessionEnabled()) return;
@@ -97,7 +116,7 @@ async function withRetry<T>(work: () => Promise<T>, retries = APP_CONFIG.maxFetc
       lastError = error;
       if (attempt >= retries - 1) break;
       const base = 150 * (attempt + 1);
-      const jitter = Math.floor(Math.random() * 180);
+      const jitter = deterministicJitter(`${Date.now()}-${attempt}`, 180);
       await new Promise((resolve) => setTimeout(resolve, base + jitter));
     }
   }
@@ -586,4 +605,400 @@ export async function getStrategyDashboard(): Promise<{
     weightChangeLog,
     accuracyByConfidence,
   };
+}
+
+/**
+ * Dashboard: execution snapshot and market risk sentinel status.
+ * These are Server Actions so client components never need to `fetch()` dashboard endpoints directly.
+ */
+export async function getExecutionDashboardSnapshotAction(): Promise<unknown> {
+  const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
+  return getExecutionDashboardSnapshot();
+}
+
+export async function getMarketRiskSentinelAction(): Promise<unknown> {
+  const { getMarketRiskSentiment } = await import('@/lib/market-sentinel');
+  return getMarketRiskSentiment();
+}
+
+/**
+ * Live gems ticker for the Market Marquee.
+ * Note: returns real Binance-derived feed from `lib/gem-finder` (no mocking).
+ */
+export async function getGemsTicker24hAction(input?: { elite?: boolean }): Promise<Ticker24h[]> {
+  const { fetchGemsTicker24h, fetchGemsTicker24hWithElite } = await import('@/lib/gem-finder');
+  const elite = Boolean(input?.elite);
+  return elite ? await fetchGemsTicker24hWithElite(undefined, 40) : await fetchGemsTicker24h();
+}
+
+/**
+ * App settings for authenticated viewers (matches `/api/settings/app` GET behavior).
+ */
+export async function getAppSettingsForViewerAction(): Promise<AppSettings> {
+  await requireAuth('viewer');
+  const { getAppSettings } = await import('@/lib/db/app-settings');
+  return getAppSettings();
+}
+
+type AcademyRagRetrieved = Array<{ symbol: string; trade_id: number; text: string }>;
+type AcademyRagResponse = {
+  ok?: boolean;
+  status?: 'LIVE' | 'AWAITING_LIVE_DATA';
+  answer?: string;
+  retrieved?: AcademyRagRetrieved;
+  error?: string;
+};
+
+/**
+ * Academy Deep Memory RAG.
+ * Secure bridge: attaches `ADMIN_SECRET` on the server and calls the strict `/api/academy/rag` endpoint.
+ * No secret is exposed to the client.
+ */
+export async function runAcademyRagAction(input: { symbol: string; question: string }): Promise<AcademyRagResponse> {
+  const symbol = (input.symbol || '').toUpperCase().trim();
+  const question = (input.question || '').trim();
+
+  if (!symbol || !question) {
+    return { ok: false, error: 'symbol and question are required.' };
+  }
+
+  try {
+    // Keep RAG access behind authenticated viewer session (Fort Knox policy).
+    await requireAuth('viewer');
+  } catch {
+    return { ok: false, error: 'Unauthorized request.' };
+  }
+
+  const adminSecret = (process.env.ADMIN_SECRET || '').trim();
+  if (!adminSecret) {
+    return { ok: false, error: 'ADMIN_SECRET is not configured.' };
+  }
+
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}/api/academy/rag`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      authorization: `Bearer ${adminSecret}`,
+    },
+    body: JSON.stringify({ symbol, question }),
+  });
+
+  const payload = (await res.json().catch(() => null)) as AcademyRagResponse | null;
+  if (!payload) {
+    return { ok: false, error: 'RAG request failed.' };
+  }
+  return payload;
+}
+
+type AdminActionResult<T> = { success: true; data: T } | { success: false; error: string };
+
+function extractBackendError(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as Record<string, unknown>;
+
+  if ('success' in p && p.success === false) {
+    const err = (p.error ?? p.message) as unknown;
+    return typeof err === 'string' && err.trim() ? err : 'Request failed.';
+  }
+
+  if ('ok' in p && p.ok === false) {
+    const err = (p.error ?? p.message) as unknown;
+    return typeof err === 'string' && err.trim() ? err : 'Request failed.';
+  }
+
+  const err = (p.error ?? p.message) as unknown;
+  return typeof err === 'string' && err.trim() ? err : null;
+}
+
+async function adminApiRequest<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { treatPayloadFailureFlagsAsFailure?: boolean; retries?: number }
+): Promise<AdminActionResult<T>> {
+  const adminSecret = getAdminSecret();
+  if (!adminSecret) {
+    return { success: false, error: 'ADMIN_SECRET is not configured.' };
+  }
+
+  const baseUrl = getBaseUrl();
+  const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+  const maxAttempts = Math.max(1, Math.min(5, options?.retries ?? 1));
+
+  const runOnce = async (): Promise<AdminActionResult<T>> => {
+    const headers = new Headers(init?.headers);
+    headers.set('authorization', `Bearer ${adminSecret}`);
+
+    const jar = await cookies();
+    const cookieHeader = jar.toString();
+    if (cookieHeader) headers.set('cookie', cookieHeader);
+
+    const res = await fetch(url, {
+      ...init,
+      cache: 'no-store',
+      headers,
+    });
+
+    const rawText = await res.text().catch(() => '');
+    let payload: unknown = null;
+    if (rawText) {
+      try {
+        payload = JSON.parse(rawText) as unknown;
+      } catch {
+        payload = rawText;
+      }
+    }
+
+    if (!res.ok) {
+      if (res.status === 401) return { success: false, error: 'UNAUTHORIZED' };
+      const derived = extractBackendError(payload);
+      if (derived) return { success: false, error: derived };
+      return { success: false, error: `Request failed (${res.status}).` };
+    }
+
+    const derived = extractBackendError(payload);
+    if (options?.treatPayloadFailureFlagsAsFailure === false) {
+      return { success: true, data: payload as T };
+    }
+    if (derived) {
+      if (payload && typeof payload === 'object') {
+        const p = payload as Record<string, unknown>;
+        const successFlag = 'success' in p ? p.success : undefined;
+        const okFlag = 'ok' in p ? p.ok : undefined;
+        if (successFlag === false || okFlag === false || ('error' in p && typeof p.error === 'string' && (p.error as string).trim().length > 0)) {
+          return { success: false, error: derived };
+        }
+      }
+    }
+
+    return { success: true, data: payload as T };
+  };
+
+  let lastErr = 'Request failed.';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const out = await runOnce();
+    if (out.success) return out;
+    lastErr = out.error;
+    if (attempt < maxAttempts) {
+      const base = 200 * attempt;
+      const jitter = deterministicJitter(`${path}-${attempt}-${Date.now()}`, 250);
+      await new Promise((r) => setTimeout(r, base + jitter));
+    }
+  }
+  return { success: false, error: lastErr };
+}
+
+export async function getTradingExecutionStatusAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/trading/execution/status', { method: 'GET' });
+}
+
+/** Server-only CEO terminal feed (no Bearer header in browser); requires admin session when sessions are enabled. */
+export async function getAdminTerminalFeedAction(): Promise<AdminActionResult<unknown>> {
+  if (isSessionEnabled() && !isDevelopmentAuthBypass()) {
+    const token = (await cookies()).get('app_auth_token')?.value ?? '';
+    const session = verifySessionToken(token);
+    if (!session || !hasRequiredRole(session.role, 'admin')) {
+      return { success: false, error: 'UNAUTHORIZED' };
+    }
+  }
+  try {
+    const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
+    const { getAppSettings } = await import('@/lib/db/app-settings');
+    const { probeGeminiTextEmbedding004 } = await import('@/lib/vector-db');
+    const { computeSovereignReadiness, resolveTypecheckStatus } = await import('@/lib/sovereign-readiness');
+    const { evaluateGoLiveSafety } = await import('@/lib/go-live-safety');
+
+    const [snapshot, settings, embedProbe] = await Promise.all([
+      getExecutionDashboardSnapshot(),
+      getAppSettings(),
+      probeGeminiTextEmbedding004(),
+    ]);
+
+    const readiness = await computeSovereignReadiness({
+      settingsLoadOk: true,
+      embeddingProbeOk: embedProbe.ok,
+      embeddingDetail: embedProbe.ok
+        ? `text-embedding-004 dim=${embedProbe.dimension}`
+        : embedProbe.error,
+      tsClean: resolveTypecheckStatus(),
+    });
+
+    const goLiveSafety = evaluateGoLiveSafety(settings);
+
+    return {
+      success: true,
+      data: {
+        snapshot,
+        neural: settings.neural,
+        execution: settings.execution,
+        readiness,
+        goLiveSafety,
+        fetchedAt: new Date().toISOString(),
+      },
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Terminal feed failed' };
+  }
+}
+
+export async function updateTradingExecutionStatusAction(
+  payload: Partial<{
+    masterSwitchEnabled: boolean;
+    mode: 'PAPER' | 'LIVE';
+    minConfidenceToExecute: number;
+    goLiveSafetyAcknowledged: boolean;
+  }>
+): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/trading/execution/status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getPortfolioVirtualAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/portfolio/virtual', { method: 'GET' });
+}
+
+export async function createVirtualPortfolioTradeAction(input: {
+  symbol: string;
+  entry_price?: number;
+  amount_usd: number;
+  target_profit_pct?: number;
+  stop_loss_pct?: number;
+}): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/portfolio/virtual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function closeVirtualPortfolioTradeAction(input: { symbol: string }): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/portfolio/virtual/close', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getTelegramStatusAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/telegram/status', { method: 'GET' });
+}
+
+export async function testTelegramAction(input: {
+  variant: 'connection' | 'system' | 'trade' | 'integration';
+  token?: string;
+  chatId?: string;
+}): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/telegram/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      ...(input.token?.trim() && input.chatId?.trim() ? { token: input.token.trim(), chatId: input.chatId.trim() } : {}),
+      variant: input.variant,
+    }),
+  });
+}
+
+export async function triggerRetrospectiveAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/trigger-retrospective', { method: 'POST' });
+}
+
+export async function runOpsSimulationAction(input: { symbol: string }): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/simulate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getOpsMetricsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/metrics', { method: 'GET' });
+}
+
+export async function calibrateOpsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/calibrate', { method: 'GET' });
+}
+
+export async function getOverseerLogsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/overseer-logs', { method: 'GET' });
+}
+
+export async function getOverseerHealthAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/health', { method: 'GET' });
+}
+
+export async function getExpertWeightsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/expert-weights', { method: 'GET' });
+}
+
+export async function getRiskPulseAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/risk-pulse', { method: 'GET' });
+}
+
+export async function getCeoBriefingAction(input: {
+  from_date: string;
+  to_date: string;
+  total_pnl_pct: string;
+  win_rate_pct: string;
+}): Promise<AdminActionResult<unknown>> {
+  const qs = new URLSearchParams({
+    from_date: input.from_date,
+    to_date: input.to_date,
+    total_pnl_pct: input.total_pnl_pct,
+    win_rate_pct: input.win_rate_pct,
+  });
+  return adminApiRequest<unknown>(`/api/ops/analytics/ceo-briefing?${qs.toString()}`, { method: 'GET' });
+}
+
+export async function getOpsMetricsHistoricalAction(input: { from_date: string; to_date: string }): Promise<AdminActionResult<unknown>> {
+  const qs = new URLSearchParams({ from_date: input.from_date, to_date: input.to_date });
+  return adminApiRequest<unknown>(`/api/ops/metrics/historical?${qs.toString()}`, { method: 'GET' });
+}
+
+export async function getLearningAccuracyAction(input: { from_date: string; to_date: string }): Promise<AdminActionResult<unknown>> {
+  const qs = new URLSearchParams({ from_date: input.from_date, to_date: input.to_date });
+  return adminApiRequest<unknown>(`/api/ops/metrics/learning-accuracy?${qs.toString()}`, { method: 'GET' });
+}
+
+export async function getSimulationSummaryAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/simulation/summary', { method: 'GET' });
+}
+
+export async function getTradingMetricsAction(input: { days: number }): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>(`/api/trading/metrics?days=${encodeURIComponent(String(input.days))}`, { method: 'GET' });
+}
+
+export async function getTradingSignalsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/trading/signals', { method: 'GET' }, { retries: 3 });
+}
+
+export async function executeTradingSignalAction(input: { symbol: string; side: 'BUY' | 'SELL' | null; confidence: number }): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>(
+    '/api/trading/execute-signal',
+    {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+    },
+    { treatPayloadFailureFlagsAsFailure: false, retries: 3 }
+  );
+}
+
+export async function runOpsSandboxAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/sandbox/run', { method: 'POST' });
+}
+
+export async function getOpsDiagnosticsAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>('/api/ops/diagnostics', { method: 'GET' });
+}
+
+export async function runOpsAuditCheckAction(): Promise<AdminActionResult<unknown>> {
+  return adminApiRequest<unknown>(
+    '/api/ops/audit-check',
+    { method: 'POST' },
+    { treatPayloadFailureFlagsAsFailure: false }
+  );
 }

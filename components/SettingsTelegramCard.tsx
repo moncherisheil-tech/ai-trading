@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Send, Loader2, CheckCircle2, XCircle, Info } from 'lucide-react';
+import { getTelegramStatusAction, testTelegramAction } from '@/app/actions';
 
 const TOOLTIP_TOKEN =
   'מתקבל מ־@BotFather בטלגרם: /newbot → העתק את ה־API Token.';
@@ -16,10 +17,14 @@ export default function SettingsTelegramCard() {
   const [chatId, setChatId] = useState('');
 
   useEffect(() => {
-    fetch('/api/ops/telegram/status', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((data) => setConnected(Boolean(data?.connected)))
-      .catch(() => setConnected(false));
+    void (async () => {
+      const out = await getTelegramStatusAction();
+      if (!out.success) {
+        setConnected(false);
+        return;
+      }
+      setConnected(Boolean((out.data as any)?.connected));
+    })();
   }, []);
 
   const handleTest = async (
@@ -28,16 +33,9 @@ export default function SettingsTelegramCard() {
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await fetch('/api/ops/telegram/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(token.trim() && chatId.trim() ? { token: token.trim(), chatId: chatId.trim() } : {}),
-          variant,
-        }),
-      });
-      const data = await res.json();
-      setTestResult(data);
+      const out = await testTelegramAction({ variant, token, chatId });
+      if (out.success) setTestResult(out.data as any);
+      else setTestResult({ ok: false, error: out.error });
     } catch {
       setTestResult({ ok: false, error: 'שגיאת רשת' });
     } finally {

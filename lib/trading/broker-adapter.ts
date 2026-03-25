@@ -39,17 +39,14 @@ export class SimulatedExchangeAdapter implements IBrokerAdapter {
   async fetchTicker(symbol: string): Promise<unknown> {
     return {
       symbol: normalizeCcxtSymbol(symbol),
-      last: 0,
-      simulated: true,
+      status: 'AWAITING_LIVE_DATA',
       timestamp: Date.now(),
     };
   }
 
   async fetchBalance(): Promise<unknown> {
     return {
-      simulated: true,
-      free: { USDT: 100000 },
-      total: { USDT: 100000 },
+      status: 'AWAITING_LIVE_DATA',
       timestamp: Date.now(),
     };
   }
@@ -57,22 +54,22 @@ export class SimulatedExchangeAdapter implements IBrokerAdapter {
   async createMarketOrder(symbol: string, side: BrokerOrderSide, amount: number): Promise<BrokerOrderResult> {
     const normalizedSymbol = normalizeCcxtSymbol(symbol);
     const safeAmount = toSafePositive(amount);
-    const id = `sim-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
-    console.log(`[SimulatedExchange] MARKET ${side.toUpperCase()} ${safeAmount} ${normalizedSymbol} (${id})`);
+    const id = `awaiting-live-${Date.now()}`;
+    console.warn(`[BrokerAdapter] Live execution unavailable for ${side.toUpperCase()} ${safeAmount} ${normalizedSymbol}.`);
     return {
       id,
       symbol: normalizedSymbol,
       side,
       amount: safeAmount,
-      status: 'closed',
-      info: { simulated: true },
+      status: 'AWAITING_LIVE_DATA',
+      info: { status: 'AWAITING_LIVE_DATA' },
     };
   }
 }
 
 export class CcxtBrokerAdapter implements IBrokerAdapter {
   readonly isSimulated = false;
-  private readonly exchange: ccxt.Exchange;
+  private readonly exchange: InstanceType<typeof ccxt.binance>;
 
   constructor(params?: { exchangeId?: 'binance'; testnet?: boolean }) {
     const exchangeId = params?.exchangeId ?? 'binance';

@@ -5,6 +5,10 @@
  */
 
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getGeminiApiKey } from '@/lib/env';
+import { resolveGeminiModel } from '@/lib/gemini-model';
+import { TRUTH_MATRIX_RULES } from '@/lib/agents/psych-agent';
 
 const CRYPTOCOMPARE_NEWS_URL = 'https://min-api.cryptocompare.com/data/v2/news/';
 const DEFAULT_HEADLINES_LIMIT = 12;
@@ -138,6 +142,46 @@ function getClaudeApiKey(): string {
   return key;
 }
 
+function extractJsonFromText(text: string): string {
+  const trimmed = (text || '').trim();
+  let str = trimmed;
+  if (str.startsWith('```')) {
+    str = str.replace(/^```(?:json)?\s*\n?/i, '').replace(/(?:\r?\n)?\s*```\s*$/, '').trim();
+  }
+  const start = str.indexOf('{');
+  const end = str.lastIndexOf('}') + 1;
+  if (start >= 0 && end > start) return str.slice(start, end);
+  return str;
+}
+
+async function runSentimentViaGemini(prompt: string): Promise<SentimentResult | null> {
+  try {
+    const apiKey = getGeminiApiKey();
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const selected = resolveGeminiModel('gemini-2.5-flash');
+    const model = genAI.getGenerativeModel(
+      {
+        model: selected.model,
+        systemInstruction: 'You output only valid JSON. No explanation, no code block wrapper.',
+      },
+      selected.requestOptions
+    );
+    const response = await model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256, responseMimeType: 'application/json' },
+    });
+    const text = response.response.text()?.trim();
+    if (!text) return null;
+    const parsed = JSON.parse(extractJsonFromText(text)) as { score?: number; narrative?: string };
+    const score = typeof parsed.score === 'number' ? Math.max(-1, Math.min(1, parsed.score)) : 0;
+    const narrative =
+      typeof parsed.narrative === 'string' ? parsed.narrative : 'Gemini fallback sentiment generated.';
+    return { score, narrative };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Get market sentiment from headlines using Claude 3.5 Sonnet.
  * Returns a score in [-1, 1] and a short narrative.
@@ -148,10 +192,13 @@ export async function getMarketSentiment(symbol: string): Promise<SentimentResul
 
   if (!headlines.length) return fallback;
 
-  const apiKey = getClaudeApiKey();
   const prompt = `You are a crypto market sentiment analyst. Given the following recent headlines for ${symbol}, output ONLY a JSON object with two keys:
 - "score": a number between -1 and 1, where -1 = strong fear/panic/bearish, 0 = neutral, 1 = strong greed/FOMO/bullish.
 - "narrative": a single short sentence (in English) summarizing the dominant market mood and why.
+
+Scope: use ONLY the headline text and the Truth Matrix below. Do not invent RSI, order-book depth, funding, or price levels not implied by the headlines.
+
+Apply source hygiene (Truth Matrix): ${TRUTH_MATRIX_RULES.replace(/\n/g, ' ')}
 
 Headlines:
 ${headlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}
@@ -159,6 +206,7 @@ ${headlines.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 Respond with ONLY valid JSON, no markdown or extra text. Example: {"score": 0.3, "narrative": "Mixed sentiment with slight bullish bias on institutional news."}`;
 
   try {
+    const apiKey = getClaudeApiKey();
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -175,18 +223,25 @@ Respond with ONLY valid JSON, no markdown or extra text. Example: {"score": 0.3,
       }),
     });
 
-    if (!res.ok) return fallback;
+    if (!res.ok) {
+      const geminiFallback = await runSentimentViaGemini(prompt);
+      return geminiFallback ?? fallback;
+    }
     const json = (await res.json()) as { content?: { type: string; text?: string }[] };
     const text = json?.content?.[0]?.text?.trim();
-    if (!text) return fallback;
+    if (!text) {
+      const geminiFallback = await runSentimentViaGemini(prompt);
+      return geminiFallback ?? fallback;
+    }
 
-    const parsed = JSON.parse(text) as { score?: number; narrative?: string };
+    const parsed = JSON.parse(extractJsonFromText(text)) as { score?: number; narrative?: string };
     const score = typeof parsed.score === 'number'
       ? Math.max(-1, Math.min(1, parsed.score))
       : 0;
     const narrative = typeof parsed.narrative === 'string' ? parsed.narrative : fallback.narrative;
     return { score, narrative };
   } catch {
-    return fallback;
+    const geminiFallback = await runSentimentViaGemini(prompt);
+    return geminiFallback ?? fallback;
   }
 }

@@ -164,7 +164,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
 
       const timestamp = Date.now();
       const trade: SimulationTrade = {
-        id: `sim-${timestamp}-${Math.random().toString(36).slice(2, 9)}`,
+        id: `sim-${crypto.randomUUID()}`,
         symbol: normalizedSymbol,
         side,
         price,

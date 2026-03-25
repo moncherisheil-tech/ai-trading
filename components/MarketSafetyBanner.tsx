@@ -43,7 +43,9 @@ export default function MarketSafetyBanner() {
         dir="rtl"
         aria-label="טוען סטטוס בטיחות שוק"
       >
-        טוען סטטוס שוק…
+        <span className="cyber-decrypt text-[11px] font-semibold tracking-[0.2em]" data-scramble="RISK-CHECK-72">
+          MARKET RISK SCAN
+        </span>
       </div>
     );
   }

@@ -45,7 +45,11 @@ export default function SystemAuditTable() {
   }, [fetchLogs]);
 
   return (
-    <section className="mb-6 sm:mb-8 p-4 rounded-xl bg-slate-800/80 border border-slate-700" aria-label="מעקב ביקורת מערכת">
+    <section
+      className="mb-6 sm:mb-8 p-4 rounded-xl bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian shadow-[0_24px_60px_rgba(0,0,0,0.45)]"
+      style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+      aria-label="מעקב ביקורת מערכת"
+    >
       <h2 className="text-lg font-semibold text-slate-200 mb-3 flex items-center gap-2">
         <Shield className="w-5 h-5 text-emerald-400" />
         מעקב ביקורת מערכת (System Audit)
@@ -59,20 +63,20 @@ export default function SystemAuditTable() {
           type="date"
           value={fromDate}
           onChange={(e) => setFromDate(e.target.value)}
-          className="rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+          className="rounded-lg bg-slate-900/40 border border-white/10 px-3 py-2 text-sm text-slate-200"
           aria-label="מתאריך"
         />
         <input
           type="date"
           value={toDate}
           onChange={(e) => setToDate(e.target.value)}
-          className="rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+          className="rounded-lg bg-slate-900/40 border border-white/10 px-3 py-2 text-sm text-slate-200"
           aria-label="עד תאריך"
         />
         <select
           value={actionType}
           onChange={(e) => setActionType(e.target.value)}
-          className="rounded-lg bg-slate-900/60 border border-slate-700 px-3 py-2 text-sm text-slate-200"
+          className="rounded-lg bg-slate-900/40 border border-white/10 px-3 py-2 text-sm text-slate-200"
           aria-label="סוג פעולה"
         >
           <option value="">כל הסוגים</option>
@@ -91,7 +95,7 @@ export default function SystemAuditTable() {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-slate-700">
+      <div className="overflow-x-auto rounded-lg frosted-obsidian">
         {loading && logs.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-12 text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin" />

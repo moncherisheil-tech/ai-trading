@@ -144,7 +144,7 @@ function SubscribersPanel() {
 
         <form
           onSubmit={handleAddSubscriber}
-          className="mb-6 rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-950/40 via-[#07192d]/70 to-emerald-950/30 p-4 sm:p-5 shadow-[0_0_40px_-12px_rgba(34,211,238,0.25)] backdrop-blur-xl"
+          className="mb-6 rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-950/40 via-[#07192d]/70 to-emerald-950/30 p-4 sm:p-5 shadow-[0_0_40px_-12px_rgba(34,211,238,0.25)] frosted-obsidian"
         >
           <div className="flex items-center gap-2 mb-4 text-cyan-100/95">
             <UserPlus className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden />

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
+import { getTelegramStatusAction } from '@/app/actions';
 
 export default function TelegramStatus() {
   const [connected, setConnected] = useState<boolean | null>(null);
@@ -11,12 +12,16 @@ export default function TelegramStatus() {
     let mounted = true;
     const fetchStatus = async () => {
       try {
-        const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}` : '';
-        const res = await fetch(`${baseUrl}/api/ops/telegram/status`, { cache: 'no-store' });
-        const data = (await res.json()) as { connected?: boolean; subscribersCount?: number };
+        const out = await getTelegramStatusAction();
+        const data = out.success ? (out.data as { connected?: boolean; subscribersCount?: number }) : null;
         if (!mounted) return;
-        setConnected(Boolean(data?.connected));
-        setSubscribersCount(Number.isFinite(Number(data?.subscribersCount)) ? Number(data.subscribersCount) : 0);
+        if (!data) {
+          setConnected(false);
+          setSubscribersCount(0);
+          return;
+        }
+        setConnected(Boolean(data.connected));
+        setSubscribersCount(Number.isFinite(Number(data.subscribersCount)) ? Number(data.subscribersCount) : 0);
       } catch {
         if (!mounted) return;
         setConnected(false);
@@ -32,7 +37,13 @@ export default function TelegramStatus() {
     };
   }, []);
 
-  if (connected === null) return null;
+  if (connected === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-700/70 text-slate-300 ring-1 ring-slate-600/40">
+        AWAITING_LIVE_DATA
+      </span>
+    );
+  }
   return (
     <span
       className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${

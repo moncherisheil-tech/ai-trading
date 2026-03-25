@@ -1,7 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Lock, RefreshCw, Zap, Wallet, Crosshair } from 'lucide-react';
+import { Lock, RefreshCw, Zap, Wallet, Crosshair, TrendingUp } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+} from 'recharts';
+import { getTradingExecutionStatusAction, updateTradingExecutionStatusAction } from '@/app/actions';
 
 type ExecutionStatusResponse = {
   mode: 'PAPER' | 'LIVE';
@@ -45,6 +56,7 @@ type ExecutionStatusResponse = {
     virtualTradeId: number | null;
     createdAt: string;
   }>;
+  alphaEvolution?: Array<{ closedAt: string; cumulativePnlUsd: number; rollingWinRatePct: number }>;
 };
 
 type AnalysisPayload = {
@@ -60,7 +72,7 @@ type AnalysisPayload = {
 };
 
 const LTR_TERM_SPAN_CLASS = 'inline-block mx-1 font-mono text-cyan-400';
-const GLASS_TILE = 'bg-zinc-900/50 backdrop-blur-md border border-white/5 rounded-2xl shadow-lg';
+const GLASS_TILE = 'frosted-obsidian sovereign-tilt bg-zinc-900/50 rounded-2xl shadow-lg';
 
 const EN_TOKEN_RE = /(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)/g;
 const EN_TOKEN_TEST_RE = /^(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)$/;
@@ -98,14 +110,10 @@ function TradeDirectionBadge({ direction }: { direction: AnalysisPayload['direct
   );
 }
 
-async function loadStatus(): Promise<ExecutionStatusResponse | null> {
-  try {
-    const res = await fetch('/api/trading/execution/status', { cache: 'no-store' });
-    if (!res.ok) return null;
-    return (await res.json()) as ExecutionStatusResponse;
-  } catch {
-    return null;
-  }
+async function loadStatus(): Promise<{ data: ExecutionStatusResponse | null; error: string | null }> {
+  const out = await getTradingExecutionStatusAction();
+  if (!out.success) return { data: null, error: out.error };
+  return { data: out.data as ExecutionStatusResponse, error: null };
 }
 
 function ReasoningTrigger({
@@ -136,10 +144,12 @@ export default function PaperTradingPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const data = await loadStatus();
+    const { data, error: err } = await loadStatus();
     setStatus(data);
+    setError(err);
     setLoading(false);
   }, []);
 
@@ -154,14 +164,13 @@ export default function PaperTradingPanel() {
       if (saving) return;
       setSaving(true);
       try {
-        const res = await fetch('/api/trading/execution/status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          const data = await res.json();
+        setError(null);
+        const out = await updateTradingExecutionStatusAction(payload);
+        if (out.success) {
+          const data = out.data as { snapshot?: ExecutionStatusResponse | null };
           setStatus((data.snapshot as ExecutionStatusResponse) ?? null);
+        } else {
+          setError(out.error);
         }
       } finally {
         setSaving(false);
@@ -174,7 +183,7 @@ export default function PaperTradingPanel() {
 
   return (
     <section
-      className="min-w-0 bg-zinc-900/60 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl overflow-hidden"
+      className="frosted-obsidian sovereign-tilt z-depth-3 min-w-0 border border-white/5 rounded-3xl shadow-2xl overflow-hidden"
       dir="rtl"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/5 bg-black/20">
@@ -192,7 +201,7 @@ export default function PaperTradingPanel() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl border border-white/10 text-zinc-300 hover:text-cyan-200 hover:border-cyan-400/35 hover:bg-cyan-500/10 hover:shadow-[0_0_16px_rgba(34,211,238,0.15)] transition-all"
+          className="btn-neon-ghost inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
         >
           <RefreshCw className="w-4 h-4" />
           רענן
@@ -200,10 +209,93 @@ export default function PaperTradingPanel() {
       </div>
 
       <div className="p-5 sm:p-6 space-y-6">
-        {loading || !status ? (
+        {loading ? (
           <div className="text-sm text-zinc-500 animate-pulse py-12 text-center font-mono">טוען נתוני מנוע ביצוע…</div>
+        ) : error ? (
+          <div className="rounded-xl border border-rose-500/30 bg-rose-950/20 p-4 text-sm text-rose-200" role="alert">
+            {error}
+          </div>
+        ) : !status ? (
+          <div className="text-sm text-zinc-500 py-12 text-center font-mono">אין נתונים זמינים כרגע.</div>
         ) : (
           <>
+            {status.alphaEvolution && status.alphaEvolution.length >= 2 && (
+              <div
+                className={`${GLASS_TILE} p-4 sm:p-5 border border-cyan-500/15`}
+                dir="ltr"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="h-4 w-4 text-cyan-400" aria-hidden />
+                  <h4 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400 font-sans">
+                    Alpha Evolution Curve
+                  </h4>
+                  <span className="text-[10px] text-zinc-600 font-mono">Cumulative PnL $ · Rolling win %</span>
+                </div>
+                <div className="h-[220px] w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={status.alphaEvolution} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                      <XAxis
+                        dataKey="closedAt"
+                        tick={{ fill: '#71717a', fontSize: 10 }}
+                        tickFormatter={(v) => {
+                          try {
+                            return new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                          } catch {
+                            return String(v);
+                          }
+                        }}
+                      />
+                      <YAxis
+                        yAxisId="pnl"
+                        tick={{ fill: '#22d3ee', fontSize: 10 }}
+                        tickFormatter={(v) => `$${v}`}
+                        width={56}
+                      />
+                      <YAxis
+                        yAxisId="wr"
+                        orientation="right"
+                        domain={[0, 100]}
+                        tick={{ fill: '#a3e635', fontSize: 10 }}
+                        tickFormatter={(v) => `${v}%`}
+                        width={40}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: 'rgba(9,9,11,0.92)',
+                          border: '1px solid rgba(34,211,238,0.25)',
+                          borderRadius: 12,
+                          fontSize: 12,
+                        }}
+                        labelFormatter={(v) => new Date(String(v)).toLocaleString()}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Line
+                        yAxisId="pnl"
+                        type="monotone"
+                        dataKey="cumulativePnlUsd"
+                        name="Cumulative PnL ($)"
+                        stroke="#22d3ee"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                      <Line
+                        yAxisId="wr"
+                        type="monotone"
+                        dataKey="rollingWinRatePct"
+                        name="Rolling win rate %"
+                        stroke="#a3e635"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 4 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <button
                 type="button"
@@ -227,17 +319,17 @@ export default function PaperTradingPanel() {
                   <Wallet className="h-3 w-3 text-cyan-400/80" />
                   Virtual Balance
                 </div>
-                <div className="text-xl font-bold font-mono text-cyan-300 mt-1 tabular-nums shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+                <div className="text-xl font-bold font-mono live-data-number text-cyan-300 mt-1 tabular-nums shadow-[0_0_20px_rgba(34,211,238,0.15)]">
                   ${status.virtualBalanceUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </div>
               </div>
               <div className={`${GLASS_TILE} px-4 py-4`}>
                 <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Active</div>
-                <div className="text-xl font-bold font-mono text-amber-200 mt-1 tabular-nums">{status.activeTradesCount}</div>
+                <div className="text-xl font-bold font-mono live-data-number text-amber-200 mt-1 tabular-nums">{status.activeTradesCount}</div>
               </div>
               <div className={`${GLASS_TILE} px-4 py-4`}>
                 <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Win Rate</div>
-                <div className="text-xl font-bold font-mono text-emerald-400/90 mt-1 tabular-nums">
+                <div className="text-xl font-bold font-mono live-data-number text-emerald-400/90 mt-1 tabular-nums">
                   {status.winRatePct.toFixed(1)}%
                 </div>
               </div>
@@ -248,10 +340,10 @@ export default function PaperTradingPanel() {
                 type="button"
                 disabled={saving}
                 onClick={() => void updateConfig({ mode: 'PAPER' })}
-                className={`px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all ${
+                className={`btn-neon-ghost px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all ${
                   status.mode === 'PAPER'
                     ? 'border border-cyan-400/45 text-cyan-200 bg-cyan-500/15 shadow-[0_0_20px_rgba(34,211,238,0.25)]'
-                    : 'border border-white/8 text-zinc-500 hover:border-white/15'
+                    : 'text-zinc-500'
                 }`}
               >
                 Paper
@@ -259,7 +351,7 @@ export default function PaperTradingPanel() {
               <button
                 type="button"
                 disabled
-                className="px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider border border-white/8 text-zinc-600 inline-flex items-center gap-2 cursor-not-allowed"
+                className="btn-neon-ghost px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider text-zinc-600 inline-flex items-center gap-2 cursor-not-allowed"
                 title="ייפתח לאחר הזנת ואימות מפתח לבורסה"
               >
                 <span dir="ltr" className="text-rose-400/60">
@@ -309,11 +401,11 @@ export default function PaperTradingPanel() {
                             {trade.symbol.replace('USDT', '')}
                             <span className="text-zinc-600 font-normal">/USDT</span>
                           </span>
-                          <span className="text-end text-zinc-500 tabular-nums text-[10px] sm:text-xs">
+                          <span className="text-end text-zinc-500 tabular-nums live-data-number text-[10px] sm:text-xs">
                             {trade.entryPrice.toFixed(2)} → {trade.currentPrice.toFixed(2)}
                           </span>
                           <span
-                            className={`text-end font-bold tabular-nums ${up ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.35)]' : 'text-rose-400 drop-shadow-[0_0_10px_rgba(251,113,133,0.3)]'}`}
+                            className={`text-end font-bold tabular-nums live-data-number ${up ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.35)]' : 'text-rose-400 drop-shadow-[0_0_10px_rgba(251,113,133,0.3)]'}`}
                           >
                             {up ? '+' : ''}
                             {trade.unrealizedPnlUsd.toFixed(2)}
@@ -365,7 +457,7 @@ export default function PaperTradingPanel() {
                         >
                           {ev.signal}
                         </span>
-                        <span className="text-zinc-500 font-mono text-xs">{ev.confidence.toFixed(1)}%</span>
+                        <span className="text-zinc-500 font-mono live-data-number text-xs">{ev.confidence.toFixed(1)}%</span>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <span
@@ -420,7 +512,7 @@ export default function PaperTradingPanel() {
                       <TradeDirectionBadge direction={analysis.direction} />
                       <div className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-zinc-200 whitespace-nowrap">
                         <span className="text-zinc-500 font-medium">AI Confidence</span>
-                        <span dir="ltr" className="inline-block mx-1 font-mono text-cyan-400">
+                        <span dir="ltr" className="inline-block mx-1 font-mono live-data-number text-cyan-400">
                           {analysis.confidence != null ? `${analysis.confidence.toFixed(1)}%` : '—'}
                         </span>
                       </div>
@@ -436,7 +528,7 @@ export default function PaperTradingPanel() {
                 <button
                   type="button"
                   onClick={() => setAnalysis(null)}
-                  className="rounded-xl border border-white/10 px-4 py-2 text-sm font-medium text-zinc-400 hover:text-cyan-200 hover:bg-cyan-500/10 transition-colors"
+                  className="btn-neon-ghost rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 transition-colors"
                 >
                   סגור
                 </button>

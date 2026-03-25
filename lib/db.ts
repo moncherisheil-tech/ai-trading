@@ -74,6 +74,8 @@ export interface PredictionRecord {
   master_insight_he?: string;
   /** MoE + Debate Room: Reasoning path from Judge. */
   reasoning_path?: string;
+  /** Polarized board: Overseer resolution narrative (Hebrew). */
+  debate_resolution?: string;
   /** MoE: Final Gem Score (0–100) = 1/6 per expert (6-Agent Board); used for consensus_approved. */
   final_confidence?: number;
 }

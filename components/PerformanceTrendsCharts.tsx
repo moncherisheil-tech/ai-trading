@@ -42,17 +42,26 @@ export default function PerformanceTrendsCharts({
       <h2 className="text-lg font-semibold text-slate-200">מגמות ביצוע</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+        <div
+          className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+          style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+        >
           <div className="text-xs text-slate-400 uppercase tracking-wide">סה&quot;כ בדיקות</div>
           <div className="text-2xl font-semibold text-slate-100">{totalBacktests}</div>
         </div>
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+        <div
+          className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+          style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+        >
           <div className="text-xs text-slate-400 uppercase tracking-wide">דיוק נוכחי</div>
           <div className="text-2xl font-semibold text-emerald-400">
             {totalBacktests > 0 ? `${currentAccuracyPct}%` : '—'}
           </div>
         </div>
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+        <div
+          className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+          style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+        >
           <div className="text-xs text-slate-400 uppercase tracking-wide">מחזור למידה אחרון</div>
           <div className="text-sm font-medium text-slate-300">
             {lastLearningCycleDate
@@ -69,12 +78,18 @@ export default function PerformanceTrendsCharts({
       </div>
 
       {!hasData ? (
-        <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 text-center text-slate-400 text-sm">
+        <div
+          className="rounded-xl border border-white/10 p-6 text-center text-slate-400 text-sm bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+          style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+        >
           אין עדיין נתוני בדיקה. הערך תחזיות כדי לראות מגמות דיוק.
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div
+            className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+            style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+          >
             <h3 className="text-sm font-medium text-slate-300 mb-3">
               שיעור שגיאה ממוצע לאורך זמן
             </h3>
@@ -125,7 +140,10 @@ export default function PerformanceTrendsCharts({
             </div>
           </div>
 
-          <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+          <div
+            className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
+            style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
+          >
             <h3 className="text-sm font-medium text-slate-300 mb-3">
               {t.accuracyChartTitle}
             </h3>

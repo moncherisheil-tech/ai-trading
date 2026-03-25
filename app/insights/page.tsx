@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'motion/react';
 import { Brain, BarChart2, ChevronLeft, AlertTriangle, Rocket, Loader2 } from 'lucide-react';
-import { getHistory } from '@/app/actions';
+import { createVirtualPortfolioTradeAction, getHistory } from '@/app/actions';
 import type { PredictionRecord } from '@/lib/db';
 import DashboardCard from '@/components/DashboardCard';
 
@@ -42,20 +42,15 @@ export default function InsightsPage() {
       return;
     }
     try {
-      const res = await fetch('/api/portfolio/virtual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol,
-          entry_price: entryPrice,
-          amount_usd: DEFAULT_VIRTUAL_AMOUNT_USD,
-        }),
+      const out = await createVirtualPortfolioTradeAction({
+        symbol,
+        entry_price: entryPrice,
+        amount_usd: DEFAULT_VIRTUAL_AMOUNT_USD,
       });
-      const data = (await res.json()) as { success?: boolean; error?: string };
-      if (data.success) {
+      if (out.success) {
         setSimulateMessage({ id, text: 'סימולציה נרשמה בתיק הוירטואלי.', ok: true });
       } else {
-        setSimulateMessage({ id, text: data.error ?? 'שגיאה ברישום.', ok: false });
+        setSimulateMessage({ id, text: out.error ?? 'שגיאה ברישום.', ok: false });
       }
     } catch {
       setSimulateMessage({ id, text: 'שגיאת רשת.', ok: false });

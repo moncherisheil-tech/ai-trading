@@ -5,6 +5,7 @@ import { Loader2, RefreshCw, Sparkles, X, Zap } from 'lucide-react';
 import type { AdvisorySignal, AssetForecast } from '@/lib/trading/forecast-engine';
 import { useToastOptional } from '@/context/ToastContext';
 import { useLocale } from '@/hooks/use-locale';
+import { executeTradingSignalAction, getTradingSignalsAction } from '@/app/actions';
 
 type ApiResponse = {
   success: boolean;
@@ -80,6 +81,7 @@ function ProbabilityRing({ probability, signal }: { probability: number; signal:
 
 export default function AlphaSignalsDashboard() {
   const toast = useToastOptional();
+  const criticalCyber = toast?.criticalCyber;
   const { t, locale } = useLocale();
   const [items, setItems] = useState<AssetForecast[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,10 +98,13 @@ export default function AlphaSignalsDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/trading/signals', { cache: 'no-store' });
-      const payload = (await response.json()) as ApiResponse;
-      if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error ?? 'Failed to load alpha signals.');
+      const out = await getTradingSignalsAction();
+      if (!out.success) {
+        throw new Error(out.error);
+      }
+      const payload = out.data as ApiResponse;
+      if (!payload?.success || !payload.data) {
+        throw new Error(payload?.error ?? 'Failed to load alpha signals.');
       }
       setItems(payload.data);
     } catch (err) {
@@ -146,18 +151,26 @@ export default function AlphaSignalsDashboard() {
     setSubmittingExecution(true);
     setExecutionStateByAsset((prev) => ({ ...prev, [targetAsset]: { status: 'processing' } }));
     try {
-      const response = await fetch('/api/trading/execute-signal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol: pendingExecution.asset,
-          side: pendingExecution.side,
-          confidence: pendingExecution.confidence,
-        }),
+      const out = await executeTradingSignalAction({
+        symbol: pendingExecution.asset,
+        side: pendingExecution.side,
+        confidence: pendingExecution.confidence,
       });
-      const payload = (await response.json()) as ExecuteSignalResponse;
-      const failedReason = payload.error ?? payload.data?.reason ?? payload.message ?? (t.executionRequestFailed ?? 'Execution request failed.');
-      if (!response.ok || !payload.success) {
+
+      if (!out.success) {
+        setExecutionStateByAsset((prev) => ({ ...prev, [targetAsset]: { status: 'idle' } }));
+        const msg = out.error || (t.executionRequestFailed ?? 'Execution request failed.');
+        toast?.error(msg);
+        criticalCyber?.(`[CRITICAL_CYBER_TOAST] Robot execution transport failure: ${msg}`);
+        return;
+      }
+
+      const payload = out.data as ExecuteSignalResponse;
+
+      const failedReason =
+        payload.error ?? payload.data?.reason ?? payload.message ?? (t.executionRequestFailed ?? 'Execution request failed.');
+
+      if (!payload.success) {
         if (payload.data?.status === 'blocked') {
           setExecutionStateByAsset((prev) => ({
             ...prev,
@@ -167,6 +180,9 @@ export default function AlphaSignalsDashboard() {
           setExecutionStateByAsset((prev) => ({ ...prev, [targetAsset]: { status: 'idle' } }));
         }
         toast?.error(failedReason);
+        if (payload.data?.status === 'failed') {
+          criticalCyber?.(`[CRITICAL_CYBER_TOAST] Execution engine failed: ${failedReason}`);
+        }
       } else {
         setExecutionStateByAsset((prev) => ({
           ...prev,
@@ -181,7 +197,7 @@ export default function AlphaSignalsDashboard() {
       setSubmittingExecution(false);
       setPendingExecution(null);
     }
-  }, [pendingExecution, toast]);
+  }, [pendingExecution, toast, criticalCyber, t]);
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-6 md:px-8">
@@ -200,7 +216,7 @@ export default function AlphaSignalsDashboard() {
             type="button"
             onClick={() => void loadSignals()}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 backdrop-blur-xl transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
+            className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 backdrop-blur-[60px] transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             {t.refreshRunLiveAnalysis ?? 'Refresh / Run Live Analysis'}
@@ -209,7 +225,7 @@ export default function AlphaSignalsDashboard() {
       </div>
 
       {topPick && (
-        <div className="relative mb-6 overflow-hidden rounded-3xl border border-cyan-300/35 bg-gradient-to-r from-cyan-500/15 via-violet-500/10 to-emerald-500/15 p-5 backdrop-blur-xl shadow-[0_0_40px_rgba(34,211,238,0.25)]">
+        <div className="relative mb-6 overflow-hidden rounded-3xl border border-cyan-300/35 bg-gradient-to-r from-cyan-500/15 via-violet-500/10 to-emerald-500/15 p-5 frosted-obsidian shadow-[0_0_40px_rgba(34,211,238,0.25)]">
           <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
           <div className="absolute -bottom-10 left-12 h-36 w-36 rounded-full bg-emerald-400/15 blur-3xl" />
           <div className="relative flex flex-wrap items-center justify-between gap-4">
@@ -230,7 +246,7 @@ export default function AlphaSignalsDashboard() {
       )}
 
       {error && (
-        <div className="mb-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 backdrop-blur-xl">
+        <div className="mb-4 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200 frosted-obsidian">
           {error}
         </div>
       )}
@@ -245,7 +261,7 @@ export default function AlphaSignalsDashboard() {
             return (
           <article
             key={item.asset}
-            className="rounded-2xl border border-white/15 bg-white/[0.04] p-4 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.25)]"
+            className="rounded-2xl border border-white/15 bg-white/[0.04] p-4 frosted-obsidian shadow-[0_8px_30px_rgba(0,0,0,0.25)]"
           >
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
@@ -297,7 +313,7 @@ export default function AlphaSignalsDashboard() {
                     )
                   }
                   disabled={item.shortTermOutlook.signal === 'HOLD' || isProcessing}
-                  className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/35 bg-violet-500/15 px-3 py-2 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.25)] backdrop-blur-xl transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:border-zinc-700/60 disabled:bg-zinc-900/40 disabled:text-zinc-500 disabled:shadow-none"
+                  className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/35 bg-violet-500/15 px-3 py-2 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.25)] backdrop-blur-[60px] transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:border-zinc-700/60 disabled:bg-zinc-900/40 disabled:text-zinc-500 disabled:shadow-none"
                 >
                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
                   {isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}
@@ -327,7 +343,7 @@ export default function AlphaSignalsDashboard() {
             role="dialog"
             aria-modal="true"
             aria-label="Confirm manual override"
-            className="relative z-[91] w-full max-w-xl rounded-3xl border border-white/20 bg-white/[0.07] p-5 backdrop-blur-2xl shadow-[0_20px_70px_rgba(0,0,0,0.45)]"
+            className="relative z-[91] w-full max-w-xl rounded-3xl border border-white/20 bg-white/[0.07] p-5 frosted-obsidian shadow-[0_20px_70px_rgba(0,0,0,0.45)]"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>

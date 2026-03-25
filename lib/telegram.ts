@@ -288,6 +288,9 @@ export async function sendEliteAlert(params: {
   onchainLogicHe?: string;
   /** Deep Memory (Vector) expert verdict in Hebrew — 6th agent (optional). */
   deepMemoryLogicHe?: string;
+  /** Optional TP/SL % for monospace ladder (Protocol Omega alerts). */
+  takeProfitPct?: number;
+  stopLossPct?: number;
 }): Promise<TelegramSendResult> {
   const token = getToken();
   if (!token) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
@@ -295,6 +298,20 @@ export async function sendEliteAlert(params: {
   if (chatIds.length === 0) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
   const base = params.symbol.replace('USDT', '');
   const safetyHe = params.marketSafetyStatus === 'Safe' ? 'בטוח' : params.marketSafetyStatus === 'Caution' ? 'זהירות' : 'מסוכן';
+  const riskColor =
+    params.marketSafetyStatus === 'Safe' ? '#4ade80' : params.marketSafetyStatus === 'Caution' ? '#fbbf24' : '#fb7185';
+  const tp =
+    params.takeProfitPct != null && Number.isFinite(params.takeProfitPct)
+      ? `TP: +${params.takeProfitPct.toFixed(2)}%`
+      : 'TP: —';
+  const sl =
+    params.stopLossPct != null && Number.isFinite(params.stopLossPct)
+      ? `SL: ${params.stopLossPct.toFixed(2)}%`
+      : 'SL: —';
+  const ladder = `<pre>Entry: $${params.entryPrice.toLocaleString()}
+${tp}
+${sl}
+Conf: ${params.confidence}/100</pre>`;
   const gemScoreLine =
     params.gemScore != null && Number.isFinite(params.gemScore)
       ? '\n<b>ציון Gem (MoE):</b> ' + Math.round(params.gemScore * 10) / 10 + '/100'
@@ -320,13 +337,15 @@ export async function sendEliteAlert(params: {
     [
       '🚀 <b>איתות אליט עוצמתי</b> (ביטחון: <code>' + params.confidence + '/100</code>)' + gemScoreLine,
       '',
+      ladder,
+      '',
       'מטבע: <b>' + escapeHtml(base) + '</b>',
       'מחיר כניסה: <code>$' + params.entryPrice.toLocaleString() + '</code>',
       '',
       '<b>נימוק טכני:</b>',
       escapeHtml((params.reasoning || 'אין נימוק זמין.').slice(0, 500)) + masterInsightLine + macroLogicLine + onchainLogicLine + deepMemoryLogicLine,
       '',
-      '<b>מדד בטיחות שוק:</b> ' + safetyHe,
+      `<b>מדד בטיחות שוק:</b> <span style="color:${riskColor}"><b>${safetyHe}</b></span>`,
       params.simulationLink ? '\n🔗 <a href="' + params.simulationLink + '">מסחר סימולציה</a>' : '',
       '',
       'בחר פעולה:',

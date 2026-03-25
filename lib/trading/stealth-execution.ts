@@ -32,9 +32,16 @@ function roundAmount(value: number, precision = 8): number {
   return Math.round(value * factor) / factor;
 }
 
-function randomJitterMs(maxAbsJitterMs: number): number {
+function deterministicJitterMs(maxAbsJitterMs: number, seed: string): number {
   if (maxAbsJitterMs <= 0) return 0;
-  return Math.floor(Math.random() * (maxAbsJitterMs * 2 + 1)) - maxAbsJitterMs;
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+  const range = maxAbsJitterMs * 2 + 1;
+  const offset = Math.abs(hash >>> 0) % range;
+  return offset - maxAbsJitterMs;
 }
 
 export class StealthExecutionEngine {
@@ -70,7 +77,7 @@ export class StealthExecutionEngine {
       const plannedTimeFromStartMs = Math.floor(intervalMs * i);
       const elapsedMs = Date.now() - startedAtDate.getTime();
       const waitUntilPlannedMs = Math.max(0, plannedTimeFromStartMs - elapsedMs);
-      const jitterMs = i === 0 ? 0 : randomJitterMs(maxAbsJitterMs);
+      const jitterMs = i === 0 ? 0 : deterministicJitterMs(maxAbsJitterMs, `${startedAt}-${i}-${symbol}-${side}`);
       const plannedDelayMs = Math.max(0, waitUntilPlannedMs + jitterMs);
 
       if (plannedDelayMs > 0) {

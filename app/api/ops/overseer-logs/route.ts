@@ -34,6 +34,14 @@ export async function GET(): Promise<NextResponse> {
         final_confidence: r.final_confidence ?? null,
         prediction_date: r.prediction_date,
         consensus_approved: r.final_confidence != null && r.final_confidence >= 75,
+        debate_resolution: r.debate_resolution?.trim() ? r.debate_resolution.trim() : null,
+        tech_score: r.tech_score ?? null,
+        risk_score: r.risk_score ?? null,
+        psych_score: r.psych_score ?? null,
+        macro_score: r.macro_score ?? null,
+        onchain_score: r.onchain_score ?? null,
+        deep_memory_score: r.deep_memory_score ?? null,
+        predicted_direction: r.predicted_direction ?? null,
       }));
     return NextResponse.json({ logs });
   } catch (e) {
