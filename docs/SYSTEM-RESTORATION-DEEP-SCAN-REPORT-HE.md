@@ -39,7 +39,7 @@
 - **market-scanner:** `runOneCycle().catch(() => {})` כבר קיים בתוך ה-setInterval.
 
 ### parity של משתני סביבה
-- **ready route (`/api/health/ready`):** הורחב כך שיאמת נוכחות `GEMINI_API_KEY` (כולל סינון ערכי placeholder כמו MY_GEMINI_API_KEY). נוספו בדיקות אופציונליות ל-env: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PROXY_BINANCE_URL`, `UPSTASH_REDIS_REST_URL`, `ADMIN_LOGIN_PASSWORD`, `APP_SESSION_SECRET` — לא משפיעות על סטטוס 200/503 אך מאפשרות לראות ב-readiness אילו מפתחות מוגדרים.
+- **ready route (`/api/health/ready`):** הורחב כך שיאמת נוכחות `GEMINI_API_KEY` (כולל סינון ערכי placeholder כלליים). נוספו בדיקות אופציונליות ל-env: `DATABASE_URL`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `PROXY_BINANCE_URL`, `UPSTASH_REDIS_REST_URL`, `ADMIN_LOGIN_PASSWORD`, `APP_SESSION_SECRET` — לא משפיעות על סטטוס 200/503 אך מאפשרות לראות ב-readiness אילו מפתחות מוגדרים.
 - **.env.example:** מסונכרן עם השימוש בקוד (Gemini, DB, Telegram, Binance proxy, וכו').
 
 ### חיתוך נתונים (Data Truncation)

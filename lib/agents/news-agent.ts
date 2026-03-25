@@ -4,6 +4,8 @@
  * Set NEWS_API_KEY or CRYPTOCOMPARE_API_KEY in .env for CryptoCompare API access.
  */
 
+import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
+
 const CRYPTOCOMPARE_NEWS_URL = 'https://min-api.cryptocompare.com/data/v2/news/';
 const DEFAULT_HEADLINES_LIMIT = 12;
 
@@ -165,7 +167,7 @@ Respond with ONLY valid JSON, no markdown or extra text. Example: {"score": 0.3,
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: ANTHROPIC_HAIKU_MODEL,
         max_tokens: 256,
         temperature: 0.1,
         system: 'You output only valid JSON. No explanation, no code block wrapper.',

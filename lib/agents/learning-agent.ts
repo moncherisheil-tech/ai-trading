@@ -3,6 +3,7 @@ import path from 'path';
 import { StrategyInsight } from '@/lib/schemas/strategy-insight';
 import { appendStrategyInsights } from '@/lib/db/strategy-repository';
 import type { BacktestLogEntry } from '@/lib/db/backtest-repository';
+import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 
 const BACKTEST_LOG_PATH = path.join(process.cwd(), 'backtests.jsonl');
 
@@ -80,7 +81,7 @@ ${JSON.stringify(compactCases, null, 2)}
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
+      model: ANTHROPIC_HAIKU_MODEL,
       max_tokens: 1024,
       temperature: 0.1,
       system:

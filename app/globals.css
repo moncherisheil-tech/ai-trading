@@ -225,6 +225,32 @@ a[href]:active,
   -webkit-backdrop-filter: blur(24px);
 }
 
+.council-vignette {
+  background:
+    radial-gradient(900px 420px at 10% 0%, rgba(34, 211, 238, 0.11), transparent 55%),
+    radial-gradient(800px 420px at 90% 0%, rgba(147, 51, 234, 0.09), transparent 58%),
+    radial-gradient(800px 420px at 50% 100%, rgba(244, 63, 94, 0.07), transparent 64%);
+}
+
+.council-card {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 16px 28px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes council-sync-pulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02), 0 16px 28px rgba(0, 0, 0, 0.45), 0 0 0 rgba(34, 211, 238, 0);
+    border-color: rgba(56, 189, 248, 0.3);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), 0 22px 34px rgba(0, 0, 0, 0.6), 0 0 36px rgba(34, 211, 238, 0.38);
+    border-color: rgba(103, 232, 249, 0.95);
+  }
+}
+
+.council-card-pulse {
+  animation: council-sync-pulse 1.4s ease-in-out infinite;
+}
+
 /* WCAG AA: visible focus ring for keyboard navigation */
 button:focus-visible,
 a:focus-visible,

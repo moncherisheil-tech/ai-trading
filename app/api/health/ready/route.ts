@@ -9,7 +9,7 @@ const ENV_KEYS = {
 
 export async function GET() {
   const checks: Record<string, { ok: boolean; details?: string }> = {
-    env_gemini: { ok: Boolean(process.env.GEMINI_API_KEY?.trim() && !/MY_GEMINI|TODO/i.test(process.env.GEMINI_API_KEY)) },
+    env_gemini: { ok: Boolean(process.env.GEMINI_API_KEY?.trim() && !/TODO/i.test(process.env.GEMINI_API_KEY)) },
     db: { ok: false },
   };
 

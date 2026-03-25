@@ -1,24 +1,17 @@
 type GeminiRequestOptions = {
-  apiVersion?: 'v1' | 'v1beta';
+  apiVersion: 'v1';
 };
 
 export function resolveGeminiModel(modelName: string): {
   model: string;
-  requestOptions?: GeminiRequestOptions;
+  requestOptions: GeminiRequestOptions;
 } {
   const raw = (modelName || '').trim();
-  if (!raw) {
-    return { model: 'gemini-2.5-flash' };
-  }
-
   const normalized = raw.replace(/^models\//, '');
-  if (normalized.startsWith('gemini-1.5-flash')) {
-    // Gemini 1.5 Flash is served on production v1 endpoints.
-    return {
-      model: `models/${normalized}`,
-      requestOptions: { apiVersion: 'v1' },
-    };
-  }
+  const model = normalized ? `models/${normalized}` : 'models/gemini-2.5-flash';
 
-  return { model: raw };
+  return {
+    model,
+    requestOptions: { apiVersion: 'v1' },
+  };
 }

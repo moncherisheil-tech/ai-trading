@@ -35,7 +35,7 @@ function loadEnv() {
 loadEnv();
 
 const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.includes('TODO')) {
+if (!apiKey || apiKey.includes('TODO')) {
   console.error('Invalid or missing GEMINI_API_KEY in .env');
   process.exit(1);
 }

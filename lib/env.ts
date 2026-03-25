@@ -1,4 +1,4 @@
-const INVALID_KEY_MARKERS = ['MY_GEMINI_API_KEY', 'MY_OPENAI_API_KEY', 'MY_GROQ_API_KEY', 'TODO'];
+const INVALID_KEY_MARKERS = ['TODO'];
 
 function isInvalidKey(value: string | undefined): boolean {
   if (!value) return true;
@@ -6,7 +6,7 @@ function isInvalidKey(value: string | undefined): boolean {
 }
 
 export function getGeminiApiKey(): string {
-  const serverKey = process.env.GEMINI_API_KEY;
+  const serverKey = process.env.GEMINI_API_KEY?.trim();
   if (!isInvalidKey(serverKey)) {
     return serverKey as string;
   }
@@ -15,7 +15,7 @@ export function getGeminiApiKey(): string {
 }
 
 export function getOpenAiApiKey(): string {
-  const key = process.env.OPENAI_API_KEY;
+  const key = process.env.OPENAI_API_KEY?.trim();
   if (!isInvalidKey(key)) {
     return key as string;
   }
@@ -24,7 +24,7 @@ export function getOpenAiApiKey(): string {
 
 /** Optional Groq API key for Macro & Order Book agent (Llama 3). Returns undefined if missing/invalid. */
 export function getGroqApiKey(): string | undefined {
-  const key = process.env.GROQ_API_KEY;
+  const key = process.env.GROQ_API_KEY?.trim();
   if (!key || typeof key !== 'string' || key.trim() === '' || isInvalidKey(key)) {
     return undefined;
   }

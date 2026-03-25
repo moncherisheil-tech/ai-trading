@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
-import { getGroqApiKey } from '@/lib/env';
+import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +18,7 @@ async function callAnthropic(): Promise<{ ok: boolean; rawText: string }> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest',
+      model: ANTHROPIC_HAIKU_MODEL,
       max_tokens: 80,
       messages: [{ role: 'user', content: 'Reply with exactly one short line: ANTHROPIC_OK' }],
     }),
@@ -33,8 +33,10 @@ async function callAnthropic(): Promise<{ ok: boolean; rawText: string }> {
 }
 
 async function callGroq(): Promise<{ ok: boolean; rawText: string }> {
-  const apiKey = getGroqApiKey();
+  const envVarName = 'GROQ_API_KEY';
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
+    console.error(`[debug/test-llms] Missing Groq API key; attempted env var: ${envVarName}`);
     return { ok: false, rawText: 'GROQ_API_KEY missing' };
   }
 
@@ -56,20 +58,52 @@ async function callGroq(): Promise<{ ok: boolean; rawText: string }> {
   }
 }
 
+async function callGemini(): Promise<{ ok: boolean; rawText: string }> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    return { ok: false, rawText: 'GEMINI_API_KEY missing' };
+  }
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: 'Reply with GEMINI_OK' }] }],
+      }),
+      cache: 'no-store',
+    }
+  );
+  const raw = await res.text();
+  if (!res.ok) {
+    return { ok: false, rawText: `HTTP ${res.status}: ${raw.slice(0, 500)}` };
+  }
+  return { ok: true, rawText: raw.slice(0, 1200) };
+}
+
 export async function GET(): Promise<NextResponse> {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ ok: false, error: 'Debug endpoint disabled in production.' }, { status: 403 });
   }
 
-  const [anthropic, groq] = await Promise.all([callAnthropic(), callGroq()]);
+  const [anthropic, groq, gemini] = await Promise.all([callAnthropic(), callGroq(), callGemini()]);
 
   if (anthropic.ok) console.log('[debug/test-llms] Anthropic raw success:', anthropic.rawText);
   if (groq.ok) console.log('[debug/test-llms] Groq raw success:', groq.rawText);
+  if (gemini.ok) console.log('[debug/test-llms] Gemini raw success:', gemini.rawText);
 
-  return NextResponse.json({
-    ok: anthropic.ok && groq.ok,
-    timestamp: new Date().toISOString(),
-    anthropic,
-    groq,
-  });
+  if (anthropic.ok && groq.ok && gemini.ok) {
+    return NextResponse.json({ ok: true, status: 'SYSTEM STATUS: OPERATIONAL' });
+  }
+
+  return NextResponse.json(
+    {
+      ok: false,
+      anthropic,
+      groq,
+      gemini,
+    },
+    { status: 503 }
+  );
 }

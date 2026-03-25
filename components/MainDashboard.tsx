@@ -2,7 +2,17 @@
 
 import dynamic from 'next/dynamic';
 import { useEffect, useState } from 'react';
-import { Activity, BarChart2, Cpu, Shield } from 'lucide-react';
+import {
+  Activity,
+  BarChart2,
+  BrainCircuit,
+  CandlestickChart,
+  Cpu,
+  Globe2,
+  MessagesSquare,
+  Shield,
+  Waves,
+} from 'lucide-react';
 import GemsStrip from '@/components/GemsStrip';
 import MarketSafetyBanner from '@/components/MarketSafetyBanner';
 import PaperTradingPanel from '@/components/PaperTradingPanel';
@@ -13,6 +23,16 @@ import { useLocale } from '@/hooks/use-locale';
 
 const GLASS =
   'bg-zinc-900/60 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl';
+
+const COUNCIL = [
+  { name: 'Technical Analyst', alias: 'The Engineer', icon: CandlestickChart, color: 'text-cyan-300' },
+  { name: 'Fundamental Analyst', alias: 'The Professor', icon: Globe2, color: 'text-violet-300' },
+  { name: 'Sentiment Analyst', alias: 'The Social Lead', icon: MessagesSquare, color: 'text-fuchsia-300' },
+  { name: 'On-Chain/Whale Analyst', alias: 'The Leviathan', icon: Waves, color: 'text-sky-300' },
+  { name: 'Risk Manager', alias: 'The Shield', icon: Shield, color: 'text-emerald-300' },
+  { name: 'Macro Analyst', alias: 'The Strategist', icon: BarChart2, color: 'text-amber-300' },
+  { name: 'AI Overseer', alias: 'The Architect', icon: BrainCircuit, color: 'text-rose-300' },
+] as const;
 
 const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
   loading: () => (
@@ -59,9 +79,34 @@ function TerminalClock() {
  */
 export default function MainDashboard() {
   const { locale, isRtl } = useLocale();
+  const [consensusPulse, setConsensusPulse] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const syncConsensus = async () => {
+      try {
+        const res = await fetch('/api/ops/metrics/accuracy', { cache: 'no-store' });
+        if (!mounted || !res.ok) return;
+        const payload = (await res.json()) as { currentAccuracyPct?: number; success?: boolean };
+        const reached = Boolean(payload.success && (payload.currentAccuracyPct ?? 0) >= 75);
+        setConsensusPulse(reached);
+      } catch {
+        if (mounted) setConsensusPulse(false);
+      }
+    };
+
+    void syncConsensus();
+    const timer = setInterval(syncConsensus, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
+
   return (
     <section
-      className="relative min-h-screen bg-[#030306] text-zinc-100 overflow-x-hidden"
+      className="relative min-h-screen bg-black text-zinc-100 overflow-x-hidden"
       dir={isRtl ? 'rtl' : 'ltr'}
     >
       {/* Terminal ambience */}
@@ -76,24 +121,17 @@ export default function MainDashboard() {
           backgroundSize: '48px 48px',
         }}
       />
-      <div
-        className="pointer-events-none absolute inset-0"
-        aria-hidden
-        style={{
-          background:
-            'radial-gradient(900px 400px at 15% 0%, rgba(245,158,11,0.07), transparent 55%), radial-gradient(700px 380px at 95% 10%, rgba(34,211,238,0.06), transparent 50%), radial-gradient(600px 300px at 50% 100%, rgba(139,92,246,0.05), transparent 45%)',
-        }}
-      />
+      <div className="pointer-events-none absolute inset-0 council-vignette" aria-hidden />
 
       <div className="relative max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10 w-full min-w-0">
         {/* Command strip */}
         <header className={`${GLASS} mb-6 px-5 py-4 sm:px-6 flex flex-wrap items-center justify-between gap-4`}>
           <div className="flex items-center gap-4 min-w-0">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/15 border border-amber-500/20 shadow-[0_0_24px_rgba(245,158,11,0.15)]">
-              <Activity className="h-5 w-5 text-amber-400" aria-hidden />
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/15 border border-cyan-500/30 shadow-[0_0_24px_rgba(6,182,212,0.2)]">
+              <Activity className="h-5 w-5 text-cyan-300" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-amber-500/80">Quantum Terminal</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300/85">AI Council Terminal</p>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">{locale === 'he' ? 'לוח בקרה ראשי' : 'Main Dashboard'}</h1>
               <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">{locale === 'he' ? 'סימולציה ולימוד בלבד · לא ייעוץ השקעות' : 'Simulation and learning only · not investment advice'}</p>
             </div>
@@ -106,6 +144,35 @@ export default function MainDashboard() {
             <TerminalClock />
           </div>
         </header>
+
+        <div className="mb-6">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">The 7 Experts</p>
+            <p className={`text-xs ${consensusPulse ? 'text-emerald-300' : 'text-zinc-500'}`}>
+              {consensusPulse ? 'Consensus Reached' : 'Awaiting Consensus'}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
+            {COUNCIL.map((expert) => {
+              const Icon = expert.icon;
+              return (
+                <article
+                  key={expert.name}
+                  className={`rounded-2xl border border-cyan-500/20 bg-zinc-950/70 p-4 backdrop-blur council-card ${consensusPulse ? 'council-card-pulse' : ''}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className={`h-10 w-10 rounded-xl border border-white/10 bg-black/60 flex items-center justify-center ${expert.color}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <span className="h-2.5 w-2.5 rounded-full bg-cyan-300/70 shadow-[0_0_10px_rgba(34,211,238,0.8)]" />
+                  </div>
+                  <p className="mt-3 text-sm text-zinc-100 font-semibold leading-tight">{expert.name}</p>
+                  <p className="text-[11px] uppercase tracking-wider text-zinc-400 mt-1">{expert.alias}</p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {/* Deep Memory — prominent */}
