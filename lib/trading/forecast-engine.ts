@@ -45,96 +45,6 @@ function normalizeAsset(symbol: string): string {
   return symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
 }
 
-function getMockForecasts(): AssetForecast[] {
-  return [
-    {
-      asset: 'BTC',
-      shortTermOutlook: {
-        signal: 'BUY',
-        probability: 88,
-        timeframe: '1-4 Hours',
-        rationale:
-          'Order-flow shows persistent bid absorption near support, while momentum remains constructive for a continuation push.',
-      },
-      swingOutlook: {
-        signal: 'BUY',
-        probability: 82,
-        timeframe: '1-3 Days',
-        rationale:
-          'Macro risk is stable and the multi-day structure is still making higher lows, favoring controlled upside follow-through.',
-      },
-    },
-    {
-      asset: 'ETH',
-      shortTermOutlook: {
-        signal: 'HOLD',
-        probability: 67,
-        timeframe: '1-4 Hours',
-        rationale:
-          'Price is coiling inside a narrow range and mixed participation suggests waiting for a cleaner directional break.',
-      },
-      swingOutlook: {
-        signal: 'BUY',
-        probability: 74,
-        timeframe: '1-3 Days',
-        rationale:
-          'Trend bias is still constructive, with supportive positioning metrics indicating upside potential if resistance clears.',
-      },
-    },
-    {
-      asset: 'SOL',
-      shortTermOutlook: {
-        signal: 'SELL',
-        probability: 79,
-        timeframe: '1-4 Hours',
-        rationale:
-          'Recent rejection into overhead liquidity and fading short-term breadth increase downside retracement risk.',
-      },
-      swingOutlook: {
-        signal: 'HOLD',
-        probability: 64,
-        timeframe: '1-3 Days',
-        rationale:
-          'High volatility keeps direction less certain, so preserving optionality is preferred until trend confirmation returns.',
-      },
-    },
-    {
-      asset: 'XRP',
-      shortTermOutlook: {
-        signal: 'HOLD',
-        probability: 62,
-        timeframe: '1-4 Hours',
-        rationale:
-          'Flow is balanced between buyers and sellers, with no strong edge emerging from the immediate setup.',
-      },
-      swingOutlook: {
-        signal: 'BUY',
-        probability: 71,
-        timeframe: '1-3 Days',
-        rationale:
-          'Medium-term accumulation behavior and improving market breadth point to gradual upside skew.',
-      },
-    },
-    {
-      asset: 'ADA',
-      shortTermOutlook: {
-        signal: 'SELL',
-        probability: 76,
-        timeframe: '1-4 Hours',
-        rationale:
-          'Weak rebound quality and persistent offer pressure suggest sellers retain short-horizon control.',
-      },
-      swingOutlook: {
-        signal: 'HOLD',
-        probability: 63,
-        timeframe: '1-3 Days',
-        rationale:
-          'The broader structure is undecided, so risk-adjusted positioning favors patience over aggressive directional exposure.',
-      },
-    },
-  ];
-}
-
 async function fetchKlines(symbol: string, interval: '1h' | '4h', limit: number): Promise<KlineTuple[]> {
   const base = APP_CONFIG.proxyBinanceUrl || 'https://api.binance.com';
   const url = `${base.replace(/\/$/, '')}/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${limit}`;
@@ -216,9 +126,9 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
 }
 
 export async function getAlphaSignalForecasts(options: ForecastEngineOptions = {}): Promise<AssetForecast[]> {
-  if (!options.useLiveAnalysis) return getMockForecasts();
+  if (!options.useLiveAnalysis) return [];
 
   const liveResults = await Promise.all(TOP_ASSETS.map((symbol) => buildLiveForecastForAsset(symbol).catch(() => null)));
   const valid = liveResults.filter((item): item is AssetForecast => item != null);
-  return valid.length > 0 ? valid : getMockForecasts();
+  return valid;
 }

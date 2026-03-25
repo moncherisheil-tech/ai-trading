@@ -1,21 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { getAlphaSignalForecasts } from '@/lib/trading/forecast-engine';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-function parseLiveFlag(value: string | null): boolean {
-  if (!value) return false;
-  return ['1', 'true', 'yes', 'live'].includes(value.toLowerCase());
-}
-
-export async function GET(request: NextRequest): Promise<NextResponse> {
+export async function GET(): Promise<NextResponse> {
   try {
-    const live = parseLiveFlag(new URL(request.url).searchParams.get('live'));
-    const data = await getAlphaSignalForecasts({ useLiveAnalysis: live });
+    const data = await getAlphaSignalForecasts({ useLiveAnalysis: true });
     return NextResponse.json({
       success: true,
-      mode: live ? 'live' : 'mock',
+      mode: 'live',
       data,
     });
   } catch (err) {

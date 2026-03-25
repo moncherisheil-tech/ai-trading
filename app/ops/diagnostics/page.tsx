@@ -18,7 +18,13 @@ import {
 type Status = 'ok' | 'fail' | 'skip';
 
 interface DiagnosticsData {
-  connections: { gemini: Status; groq: Status; pinecone: Status; postgres: Status };
+  connections: { gemini: Status; groq: Status; anthropic: Status; pinecone: Status; postgres: Status };
+  agents: Array<{
+    name: string;
+    status: Exclude<Status, 'skip'>;
+    reason: string;
+    lastActiveAt: string | null;
+  }>;
   systemIntegrity: {
     latestConsensusSaved: boolean;
     latestConsensusPredictionDate: string | null;
@@ -71,16 +77,6 @@ interface AuditReport {
   };
   summary: { analysis: string; db: string; vectorStorage: string };
 }
-
-const AI_ROSTER = [
-  'Market Scanner',
-  'Risk Analyzer',
-  'Technical Analyst',
-  'Fundamental Expert',
-  'Execution Strategist',
-  'Sentiment Evaluator',
-  'System Overseer',
-] as const;
 
 export default function DiagnosticsPage() {
   const [data, setData] = useState<DiagnosticsData | null>(null);
@@ -225,6 +221,7 @@ export default function DiagnosticsPage() {
             {[
               { key: 'gemini', label: 'Gemini' },
               { key: 'groq', label: 'Groq' },
+              { key: 'anthropic', label: 'Anthropic' },
               { key: 'pinecone', label: 'Pinecone' },
               { key: 'postgres', label: 'Neon Database' },
             ].map(({ key, label }) => {
@@ -253,15 +250,23 @@ export default function DiagnosticsPage() {
             6 AI Agents + 1 Overseer
           </h2>
           <ul className="divide-y divide-zinc-700/80">
-            {AI_ROSTER.map((agentName) => (
-              <li key={agentName} className="px-4 py-3 flex items-center justify-between gap-4">
-                <span className="text-zinc-300">{agentName}</span>
-                <span className="inline-flex items-center gap-2 text-emerald-300 font-medium">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Online / Ready
-                </span>
-              </li>
-            ))}
+            {data!.agents.map((agent) => {
+              const cfg = STATUS_CONFIG[agent.status];
+              const Icon = cfg.icon;
+              return (
+                <li key={agent.name} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-zinc-300">{agent.name}</span>
+                    <span className={`inline-flex items-center gap-2 font-medium ${cfg.color}`}>
+                      <Icon className="w-4 h-4" />
+                      {agent.status === 'ok' ? 'Online / Ready' : 'Unavailable'}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-500">{agent.reason}</p>
+                  <p className="text-[11px] text-zinc-600">Last active: {formatDateTime(agent.lastActiveAt)}</p>
+                </li>
+              );
+            })}
           </ul>
         </section>
 

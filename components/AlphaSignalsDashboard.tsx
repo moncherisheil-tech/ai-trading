@@ -8,7 +8,7 @@ import { useLocale } from '@/hooks/use-locale';
 
 type ApiResponse = {
   success: boolean;
-  mode?: 'mock' | 'live';
+  mode?: 'live';
   data?: AssetForecast[];
   error?: string;
 };
@@ -82,7 +82,6 @@ export default function AlphaSignalsDashboard() {
   const toast = useToastOptional();
   const { t, locale } = useLocale();
   const [items, setItems] = useState<AssetForecast[]>([]);
-  const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingExecution, setPendingExecution] = useState<{
@@ -93,17 +92,16 @@ export default function AlphaSignalsDashboard() {
   const [submittingExecution, setSubmittingExecution] = useState(false);
   const [executionStateByAsset, setExecutionStateByAsset] = useState<Record<string, CardExecutionState>>({});
 
-  const loadSignals = useCallback(async (live: boolean) => {
+  const loadSignals = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/trading/signals${live ? '?live=1' : ''}`, { cache: 'no-store' });
+      const response = await fetch('/api/trading/signals', { cache: 'no-store' });
       const payload = (await response.json()) as ApiResponse;
       if (!response.ok || !payload.success || !payload.data) {
         throw new Error(payload.error ?? 'Failed to load alpha signals.');
       }
       setItems(payload.data);
-      setMode(payload.mode ?? (live ? 'live' : 'mock'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load alpha signals.');
     } finally {
@@ -112,7 +110,7 @@ export default function AlphaSignalsDashboard() {
   }, []);
 
   useEffect(() => {
-    void loadSignals(false);
+    void loadSignals();
   }, [loadSignals]);
 
   const topPick = useMemo(() => {
@@ -196,11 +194,11 @@ export default function AlphaSignalsDashboard() {
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-            {t.dataMode ?? 'Data Mode'}: {mode === 'live' ? (t.liveAnalysis ?? 'Live Analysis') : (t.mockAdvisoryFeed ?? 'Mock Advisory Feed')}
+            {t.dataMode ?? 'Data Mode'}: {t.liveAnalysis ?? 'Live Analysis'}
           </span>
           <button
             type="button"
-            onClick={() => void loadSignals(true)}
+            onClick={() => void loadSignals()}
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 backdrop-blur-xl transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
           >
@@ -311,6 +309,12 @@ export default function AlphaSignalsDashboard() {
           })()
         ))}
       </div>
+      {!loading && items.length === 0 && (
+        <div className="mt-6 rounded-2xl border border-zinc-700/70 bg-zinc-900/40 px-5 py-8 text-center text-zinc-300">
+          <p className="text-sm font-medium">{t.noActiveSignals ?? 'No active signals'}</p>
+          <p className="mt-1 text-xs text-zinc-500">{t.awaitingSignalData ?? 'Awaiting live data from analysis and market feeds...'}</p>
+        </div>
+      )}
 
       {pendingExecution && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">

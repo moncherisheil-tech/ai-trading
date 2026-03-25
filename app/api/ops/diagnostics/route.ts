@@ -13,6 +13,7 @@ import { getAppSettings } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { verifyPineconeConnectionStrict } from '@/lib/vector-db';
 import { fetchMacroContext } from '@/lib/api-utils';
+import { sql } from '@/lib/db/sql';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,11 +34,13 @@ export async function GET(): Promise<NextResponse> {
 
   const geminiKey = hasEnv('GEMINI_API_KEY');
   const groqKey = hasEnv('GROQ_API_KEY');
+  const anthropicKey = hasEnv('ANTHROPIC_API_KEY') || hasEnv('CLAUDE_API_KEY');
   const pineconeKey = hasEnv('PINECONE_API_KEY');
   const pineconeIndex = hasEnv('PINECONE_INDEX_NAME');
 
   let gemini: 'ok' | 'fail' | 'skip' = geminiKey ? 'ok' : 'skip';
   let groq: 'ok' | 'fail' | 'skip' = groqKey ? 'ok' : 'skip';
+  let anthropic: 'ok' | 'fail' | 'skip' = anthropicKey ? 'ok' : 'skip';
   let pinecone: 'ok' | 'fail' | 'skip' = pineconeKey && pineconeIndex ? 'ok' : 'skip';
   let postgres: 'ok' | 'fail' = 'fail';
 
@@ -79,6 +82,108 @@ export async function GET(): Promise<NextResponse> {
     latestConsensus = { saved: false, prediction_date: null };
   }
 
+  let latestBoardMeetingAt: string | null = null;
+  try {
+    const { rows } = await sql`SELECT timestamp::text FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1`;
+    const row = rows?.[0] as { timestamp?: string } | undefined;
+    latestBoardMeetingAt = row?.timestamp ?? null;
+  } catch {
+    latestBoardMeetingAt = null;
+  }
+
+  const nowMs = Date.now();
+  const lastPredictionMs = latestConsensus.prediction_date ? new Date(latestConsensus.prediction_date).getTime() : 0;
+  const lastBoardMeetingMs = latestBoardMeetingAt ? new Date(latestBoardMeetingAt).getTime() : 0;
+  const isRecentActivity = (tsMs: number): boolean => Number.isFinite(tsMs) && tsMs > 0 && nowMs - tsMs <= 24 * 60 * 60 * 1000;
+  const predictionRecent = isRecentActivity(lastPredictionMs);
+  const boardRecent = isRecentActivity(lastBoardMeetingMs);
+
+  const buildAgentStatus = (
+    name: string,
+    ready: boolean,
+    lastActiveAt: string | null,
+    reason: string
+  ): { name: string; status: 'ok' | 'fail'; reason: string; lastActiveAt: string | null } => ({
+    name,
+    status: ready ? 'ok' : 'fail',
+    reason,
+    lastActiveAt,
+  });
+
+  const latestActivityIso = latestConsensus.prediction_date ?? null;
+  const agentStatuses = [
+    buildAgentStatus(
+      'Market Scanner',
+      (geminiKey || groqKey) && predictionRecent,
+      latestActivityIso,
+      (geminiKey || groqKey)
+        ? predictionRecent
+          ? 'LLM key present and recent prediction activity detected.'
+          : 'LLM key present but no recent prediction activity.'
+        : 'Missing GEMINI_API_KEY/GROQ_API_KEY.'
+    ),
+    buildAgentStatus(
+      'Risk Analyzer',
+      postgres === 'ok' && predictionRecent,
+      latestActivityIso,
+      postgres === 'ok'
+        ? predictionRecent
+          ? 'Database connected with recent prediction activity.'
+          : 'Database connected but no recent prediction activity.'
+        : 'Database connection check failed.'
+    ),
+    buildAgentStatus(
+      'Technical Analyst',
+      geminiKey && predictionRecent,
+      latestActivityIso,
+      geminiKey
+        ? predictionRecent
+          ? 'GEMINI_API_KEY present with recent prediction activity.'
+          : 'GEMINI_API_KEY present but no recent prediction activity.'
+        : 'Missing GEMINI_API_KEY.'
+    ),
+    buildAgentStatus(
+      'Fundamental Expert',
+      anthropicKey && predictionRecent,
+      latestActivityIso,
+      anthropicKey
+        ? predictionRecent
+          ? 'ANTHROPIC_API_KEY present with recent prediction activity.'
+          : 'ANTHROPIC_API_KEY present but no recent prediction activity.'
+        : 'Missing ANTHROPIC_API_KEY/CLAUDE_API_KEY.'
+    ),
+    buildAgentStatus(
+      'Execution Strategist',
+      postgres === 'ok' && predictionRecent,
+      latestActivityIso,
+      postgres === 'ok'
+        ? predictionRecent
+          ? 'Database connected with recent prediction activity.'
+          : 'Database connected but no recent prediction activity.'
+        : 'Database connection check failed.'
+    ),
+    buildAgentStatus(
+      'Sentiment Evaluator',
+      anthropicKey && predictionRecent,
+      latestActivityIso,
+      anthropicKey
+        ? predictionRecent
+          ? 'ANTHROPIC_API_KEY present with recent prediction activity.'
+          : 'ANTHROPIC_API_KEY present but no recent prediction activity.'
+        : 'Missing ANTHROPIC_API_KEY/CLAUDE_API_KEY.'
+    ),
+    buildAgentStatus(
+      'System Overseer',
+      (geminiKey || groqKey || anthropicKey) && (boardRecent || predictionRecent),
+      latestBoardMeetingAt ?? latestActivityIso,
+      geminiKey || groqKey || anthropicKey
+        ? boardRecent || predictionRecent
+          ? 'Model key present with recent overseer/prediction activity.'
+          : 'Model key present but no recent overseer activity.'
+        : 'Missing model API keys.'
+    ),
+  ];
+
   let lastPineconeUpsert: string | null = null;
   try {
     lastPineconeUpsert = await getLastPineconeUpsertAt();
@@ -117,9 +222,11 @@ export async function GET(): Promise<NextResponse> {
     connections: {
       gemini,
       groq,
+      anthropic,
       pinecone,
       postgres,
     },
+    agents: agentStatuses,
     systemIntegrity: {
       latestConsensusSaved: latestConsensus.saved,
       latestConsensusPredictionDate: latestConsensus.prediction_date,
