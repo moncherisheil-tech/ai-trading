@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, RefreshCw, Sparkles, X, Zap } from 'lucide-react';
 import type { AdvisorySignal, AssetForecast } from '@/lib/trading/forecast-engine';
 import { useToastOptional } from '@/context/ToastContext';
+import { useLocale } from '@/hooks/use-locale';
 
 type ApiResponse = {
   success: boolean;
@@ -41,6 +42,13 @@ function ringColor(signal: AdvisorySignal): string {
   return '#facc15';
 }
 
+function getSignalLabel(signal: AdvisorySignal, locale: 'he' | 'en'): string {
+  if (locale !== 'he') return signal;
+  if (signal === 'BUY') return 'קנייה';
+  if (signal === 'SELL') return 'מכירה';
+  return 'המתן';
+}
+
 function ProbabilityRing({ probability, signal }: { probability: number; signal: AdvisorySignal }) {
   const p = Math.max(0, Math.min(100, probability));
   const radius = 34;
@@ -72,6 +80,7 @@ function ProbabilityRing({ probability, signal }: { probability: number; signal:
 
 export default function AlphaSignalsDashboard() {
   const toast = useToastOptional();
+  const { t, locale } = useLocale();
   const [items, setItems] = useState<AssetForecast[]>([]);
   const [mode, setMode] = useState<'mock' | 'live'>('mock');
   const [loading, setLoading] = useState(true);
@@ -113,17 +122,17 @@ export default function AlphaSignalsDashboard() {
 
   const openExecutionModal = useCallback((asset: string, side: AdvisorySignal, confidence: number) => {
     if (side === 'HOLD') {
-      toast?.error('HOLD signals require manual wait; execution is enabled only for BUY/SELL.');
+      toast?.error(t.holdRequiresManualWait ?? 'HOLD signals require manual wait; execution is enabled only for BUY/SELL.');
       return;
     }
     const status = executionStateByAsset[asset]?.status ?? 'idle';
     if (status === 'processing') return;
     if (status === 'executed') {
-      toast?.success(`${asset} already executed. TWAP is active.`);
+      toast?.success(`${asset} ${t.alreadyExecutedTwapActive ?? 'already executed. TWAP is active.'}`);
       return;
     }
     if (status === 'blocked') {
-      toast?.error(`${asset} is blocked by the Risk Manager.`);
+      toast?.error(`${asset} ${t.blockedByRiskManager ?? 'is blocked by the Risk Manager.'}`);
       return;
     }
     setPendingExecution({ asset, side, confidence });
@@ -149,7 +158,7 @@ export default function AlphaSignalsDashboard() {
         }),
       });
       const payload = (await response.json()) as ExecuteSignalResponse;
-      const failedReason = payload.error ?? payload.data?.reason ?? payload.message ?? 'Execution request failed.';
+      const failedReason = payload.error ?? payload.data?.reason ?? payload.message ?? (t.executionRequestFailed ?? 'Execution request failed.');
       if (!response.ok || !payload.success) {
         if (payload.data?.status === 'blocked') {
           setExecutionStateByAsset((prev) => ({
@@ -165,11 +174,11 @@ export default function AlphaSignalsDashboard() {
           ...prev,
           [targetAsset]: { status: 'executed', reason: payload.data?.reason ?? 'TWAP Active' },
         }));
-        toast?.success('Signal Deployed. Trade sent to Quantum Command Center for TWAP execution.');
+        toast?.success(t.signalDeployedSuccess ?? 'Signal Deployed. Trade sent to Quantum Command Center for TWAP execution.');
       }
     } catch (err) {
       setExecutionStateByAsset((prev) => ({ ...prev, [targetAsset]: { status: 'idle' } }));
-      toast?.error(err instanceof Error ? err.message : 'Execution request failed.');
+      toast?.error(err instanceof Error ? err.message : (t.executionRequestFailed ?? 'Execution request failed.'));
     } finally {
       setSubmittingExecution(false);
       setPendingExecution(null);
@@ -180,14 +189,14 @@ export default function AlphaSignalsDashboard() {
     <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-6 md:px-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 md:text-3xl">Alpha Signals Advisory</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 md:text-3xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Human-in-the-loop recommendations with short-horizon and swing forecasts.
+            {t.alphaSignalsSubtitle ?? 'Human-in-the-loop recommendations with short-horizon and swing forecasts.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-            Data Mode: {mode === 'live' ? 'Live Analysis' : 'Mock Advisory Feed'}
+            {t.dataMode ?? 'Data Mode'}: {mode === 'live' ? (t.liveAnalysis ?? 'Live Analysis') : (t.mockAdvisoryFeed ?? 'Mock Advisory Feed')}
           </span>
           <button
             type="button"
@@ -196,7 +205,7 @@ export default function AlphaSignalsDashboard() {
             className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 backdrop-blur-xl transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh / Run Live Analysis
+            {t.refreshRunLiveAnalysis ?? 'Refresh / Run Live Analysis'}
           </button>
         </div>
       </div>
@@ -209,11 +218,11 @@ export default function AlphaSignalsDashboard() {
             <div>
               <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-100">
                 <Sparkles className="h-3.5 w-3.5" />
-                Top Pick Right Now
+                {t.topPickRightNow ?? 'Top Pick Right Now'}
               </p>
               <h2 className="mt-3 text-2xl font-semibold text-white">{topPick.asset}</h2>
               <p className="mt-1 text-sm text-zinc-200">
-                {topPick.shortTermOutlook.signal} with {topPick.shortTermOutlook.probability}% short-term confidence.
+                {getSignalLabel(topPick.shortTermOutlook.signal, locale)} {t.withShortTermConfidence ?? 'with short-term confidence'} {topPick.shortTermOutlook.probability}%.
               </p>
               <p className="mt-2 max-w-2xl text-sm text-zinc-300">{topPick.shortTermOutlook.rationale}</p>
             </div>
@@ -251,9 +260,9 @@ export default function AlphaSignalsDashboard() {
             <div className="space-y-3">
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">Next Few Hours</p>
+                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">{t.nextFewHours ?? 'Next Few Hours'}</p>
                   <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${signalClass(item.shortTermOutlook.signal)}`}>
-                    {item.shortTermOutlook.signal}
+                    {getSignalLabel(item.shortTermOutlook.signal, locale)}
                   </span>
                 </div>
                 <p className="mb-1 text-xs text-zinc-500">{item.shortTermOutlook.timeframe}</p>
@@ -262,9 +271,9 @@ export default function AlphaSignalsDashboard() {
 
               <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">Upcoming Days</p>
+                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">{t.upcomingDays ?? 'Upcoming Days'}</p>
                   <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${signalClass(item.swingOutlook.signal)}`}>
-                    {item.swingOutlook.signal}
+                    {getSignalLabel(item.swingOutlook.signal, locale)}
                   </span>
                 </div>
                 <p className="mb-1 text-xs text-zinc-500">{item.swingOutlook.timeframe}</p>
@@ -273,11 +282,11 @@ export default function AlphaSignalsDashboard() {
 
               {isExecuted ? (
                 <div className="mt-1 inline-flex w-full items-center justify-center rounded-xl border border-emerald-400/45 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-200 shadow-[0_0_22px_rgba(16,185,129,0.35)]">
-                  ⚡ Executed (TWAP Active)
+                  ⚡ {t.executedTwapActive ?? 'Executed (TWAP Active)'}
                 </div>
               ) : isBlocked ? (
                 <div className="mt-1 inline-flex w-full items-center justify-center rounded-xl border border-rose-400/45 bg-rose-500/15 px-3 py-2 text-sm font-semibold text-rose-200 shadow-[0_0_22px_rgba(244,63,94,0.35)]">
-                  🛡️ Blocked: Risk Limit
+                  🛡️ {t.blockedRiskLimit ?? 'Blocked: Risk Limit'}
                 </div>
               ) : (
                 <button
@@ -293,7 +302,7 @@ export default function AlphaSignalsDashboard() {
                   className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/35 bg-violet-500/15 px-3 py-2 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.25)] backdrop-blur-xl transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:border-zinc-700/60 disabled:bg-zinc-900/40 disabled:text-zinc-500 disabled:shadow-none"
                 >
                   {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                  {isProcessing ? 'Processing...' : 'Approve & Execute'}
+                  {isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}
                 </button>
               )}
             </div>
@@ -314,8 +323,8 @@ export default function AlphaSignalsDashboard() {
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-violet-200/90">Manual Override</p>
-                <h3 className="mt-1 text-xl font-semibold text-zinc-100">Confirm & Deploy Signal</h3>
+                <p className="text-xs uppercase tracking-[0.18em] text-violet-200/90">{t.manualOverride ?? 'Manual Override'}</p>
+                <h3 className="mt-1 text-xl font-semibold text-zinc-100">{t.confirmDeploySignal ?? 'Confirm & Deploy Signal'}</h3>
               </div>
               <button
                 type="button"
@@ -328,9 +337,8 @@ export default function AlphaSignalsDashboard() {
             </div>
 
             <p className="text-sm leading-6 text-zinc-200">
-              Confirm Manual Override: Executing <span className="font-semibold">{pendingExecution.side}</span> for{' '}
-              <span className="font-semibold">{pendingExecution.asset}</span>. The Quantum Risk Manager will
-              automatically calculate safe position sizing and route via TWAP stealth execution.
+              {t.confirmManualOverrideText ?? 'Confirm Manual Override: Executing'} <span className="font-semibold">{pendingExecution.side}</span> {t.forAsset ?? 'for'}{' '}
+              <span className="font-semibold">{pendingExecution.asset}</span>. {t.riskManagerExecutionText ?? 'The Quantum Risk Manager will automatically calculate safe position sizing and route via TWAP stealth execution.'}
             </p>
 
             <div className="mt-5 flex items-center justify-end gap-2">
@@ -340,7 +348,7 @@ export default function AlphaSignalsDashboard() {
                 disabled={submittingExecution}
                 className="rounded-xl border border-white/15 bg-black/25 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 disabled:opacity-60"
               >
-                Cancel
+                {t.cancel ?? 'Cancel'}
               </button>
               <button
                 type="button"
@@ -349,7 +357,7 @@ export default function AlphaSignalsDashboard() {
                 className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.25)] transition hover:bg-cyan-400/25 disabled:opacity-60"
               >
                 {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                Confirm & Deploy
+                {t.confirmAndDeploy ?? 'Confirm & Deploy'}
               </button>
             </div>
           </div>

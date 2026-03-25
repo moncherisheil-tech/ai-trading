@@ -25,11 +25,18 @@ export async function generateLiveText(params: {
   systemInstruction?: string;
   maxOutputTokens?: number;
   temperature?: number;
+  locale?: 'he' | 'en';
 }): Promise<string> {
   assertLiveModeEnabled();
   const provider = resolveProvider();
   const maxOutputTokens = params.maxOutputTokens ?? 500;
   const temperature = params.temperature ?? 0.3;
+  const forceHebrew = params.locale === 'he';
+  const localeDirective = 'CRITICAL: You MUST answer in Hebrew. Do not use English.';
+  const systemInstruction = forceHebrew
+    ? [params.systemInstruction, localeDirective].filter(Boolean).join('\n\n')
+    : params.systemInstruction;
+  const prompt = forceHebrew ? `${params.prompt}\n\n${localeDirective}` : params.prompt;
 
   if (provider === 'openai') {
     const client = new OpenAI({ apiKey: getOpenAiApiKey() });
@@ -37,8 +44,8 @@ export async function generateLiveText(params: {
     const completion = await client.chat.completions.create({
       model,
       messages: [
-        ...(params.systemInstruction ? [{ role: 'system' as const, content: params.systemInstruction }] : []),
-        { role: 'user' as const, content: params.prompt },
+        ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
+        { role: 'user' as const, content: prompt },
       ],
       temperature,
       max_tokens: maxOutputTokens,
@@ -52,8 +59,8 @@ export async function generateLiveText(params: {
     const completion = await client.chat.completions.create({
       model,
       messages: [
-        ...(params.systemInstruction ? [{ role: 'system' as const, content: params.systemInstruction }] : []),
-        { role: 'user' as const, content: params.prompt },
+        ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
+        { role: 'user' as const, content: prompt },
       ],
       temperature,
       max_tokens: maxOutputTokens,
@@ -64,10 +71,10 @@ export async function generateLiveText(params: {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
     model: APP_CONFIG.primaryModel || 'gemini-2.5-flash',
-    ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
+    ...(systemInstruction ? { systemInstruction } : {}),
   });
   const response = await model.generateContent({
-    contents: [{ role: 'user', parts: [{ text: params.prompt }] }],
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
     generationConfig: { temperature, maxOutputTokens },
   });
   return (response.response.text() || '').trim();

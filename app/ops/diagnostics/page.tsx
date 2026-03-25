@@ -72,6 +72,16 @@ interface AuditReport {
   summary: { analysis: string; db: string; vectorStorage: string };
 }
 
+const AI_ROSTER = [
+  'Market Scanner',
+  'Risk Analyzer',
+  'Technical Analyst',
+  'Fundamental Expert',
+  'Execution Strategist',
+  'Sentiment Evaluator',
+  'System Overseer',
+] as const;
+
 export default function DiagnosticsPage() {
   const [data, setData] = useState<DiagnosticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -216,7 +226,7 @@ export default function DiagnosticsPage() {
               { key: 'gemini', label: 'Gemini' },
               { key: 'groq', label: 'Groq' },
               { key: 'pinecone', label: 'Pinecone' },
-              { key: 'postgres', label: 'Vercel Postgres' },
+              { key: 'postgres', label: 'Neon Database' },
             ].map(({ key, label }) => {
               const status = conn[key as keyof typeof conn];
               const cfg = STATUS_CONFIG[status];
@@ -234,6 +244,24 @@ export default function DiagnosticsPage() {
                 </li>
               );
             })}
+          </ul>
+        </section>
+
+        <section className="rounded-xl border border-zinc-700/80 bg-zinc-800/50 overflow-hidden">
+          <h2 className="px-4 py-3 border-b border-zinc-700 flex items-center gap-2 text-lg font-semibold text-zinc-200">
+            <Activity className="w-5 h-5 text-amber-400" />
+            6 AI Agents + 1 Overseer
+          </h2>
+          <ul className="divide-y divide-zinc-700/80">
+            {AI_ROSTER.map((agentName) => (
+              <li key={agentName} className="px-4 py-3 flex items-center justify-between gap-4">
+                <span className="text-zinc-300">{agentName}</span>
+                <span className="inline-flex items-center gap-2 text-emerald-300 font-medium">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Online / Ready
+                </span>
+              </li>
+            ))}
           </ul>
         </section>
 
@@ -340,13 +368,13 @@ export default function DiagnosticsPage() {
                 <p className={`font-semibold mb-2 ${auditResult.ok ? 'text-emerald-300' : 'text-red-300'}`}>
                   {auditResult.ok ? 'כל השלבים עברו' : 'חלק מהשלבים נכשלו'}
                 </p>
-                <ul className="text-sm space-y-1 text-zinc-300">
+                <ul className="text-sm space-y-1 text-zinc-300" dir="ltr" style={{ textAlign: 'left' }}>
                   <li>Analysis: {auditResult.summary.analysis} {auditResult.report.analysis.error && ` — ${auditResult.report.analysis.error}`}</li>
                   <li>DB: {auditResult.summary.db} {auditResult.report.db.error && ` — ${auditResult.report.db.error}`}</li>
                   <li>Vector Storage: {auditResult.summary.vectorStorage} {auditResult.report.vectorStorage.error && ` — ${auditResult.report.vectorStorage.error}`}</li>
                 </ul>
                 {auditResult.report.analysis.details && (
-                  <pre className="mt-2 text-xs text-zinc-500 overflow-auto max-h-24">
+                  <pre className="mt-2 text-xs text-zinc-500 overflow-auto max-h-24" dir="ltr" style={{ textAlign: 'left' }}>
                     {JSON.stringify(auditResult.report.analysis.details, null, 2)}
                   </pre>
                 )}

@@ -369,6 +369,8 @@ export async function doAnalysisCore(
   const textLanguage = outputLocale === 'he' ? 'Hebrew' : 'English';
   const localizedLanguageRule =
     outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
+  const hardLocaleDirective =
+    outputLocale === 'he' ? '\nCRITICAL: You MUST answer in Hebrew. Do not use English.' : '';
   let activeModel = APP_CONFIG.primaryModel || 'gemini-2.5-flash';
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
@@ -708,7 +710,7 @@ RULES:
 5. risk_level: High = extreme volatility or sentiment, Medium = elevated uncertainty, Low = stable regime.
 6. Be conservative: when historical_prediction_outcomes show repeated misses or high absolute_error_pct, or when pattern_warnings exist, reduce probability or shift toward Neutral. Elite Gem requires trend confirmed on at least 2 timeframes.
 7. Provide tactical_opinion_he: one short sentence in ${textLanguage} relating the ATR-based suggested_sl_long/suggested_tp_long (or short) and hvn_levels to your direction — e.g. where to place SL/TP relative to HVN.
-8. BOTTOM LINE (beginner-friendly): Your logic and strategic_advice must allow the system to derive a single 1–2 sentence extremely simple summary in ${textLanguage} so a user with zero experience understands the final recommendation at a glance.`;
+8. BOTTOM LINE (beginner-friendly): Your logic and strategic_advice must allow the system to derive a single 1–2 sentence extremely simple summary in ${textLanguage} so a user with zero experience understands the final recommendation at a glance.${hardLocaleDirective}`;
 
   const promptData = {
     asset: cleanSymbol,

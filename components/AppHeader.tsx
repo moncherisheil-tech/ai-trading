@@ -10,13 +10,6 @@ import {
   X,
   BookOpen,
   UserCircle2,
-  LayoutDashboard,
-  BarChart3,
-  LineChart,
-  TrendingUp,
-  Settings,
-  Cpu,
-  Sparkles,
 } from 'lucide-react';
 import TelegramStatus from '@/components/TelegramStatus';
 import LogoutButton from '@/components/LogoutButton';
@@ -60,9 +53,6 @@ export default function AppHeader() {
   const isOpsArea = pathname.startsWith('/ops');
 
   const isGuideActive = pathname === '/guide';
-  const isDiagnosticsActive = pathname === '/ops/diagnostics';
-  const diagnosticsHref = '/ops/diagnostics';
-
   return (
     <>
       {/* Desktop premium sidebar */}
@@ -128,73 +118,6 @@ export default function AppHeader() {
                 </Link>
               );
             })}
-
-            {/* Diagnostics (אבחון) */}
-            <Link
-              href={diagnosticsHref}
-              prefetch={true}
-              title={sidebarCollapsed ? (locale === 'he' ? 'אבחון' : 'Diagnostics') : undefined}
-              className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                isDiagnosticsActive
-                  ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                  : 'text-zinc-300 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/15'
-              } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
-                isDiagnosticsActive
-                  ? 'before:bg-amber-500/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
-                  : 'before:bg-transparent'
-              } ${sidebarCollapsed ? 'justify-center gap-0 px-3' : ''}`}
-              aria-current={isDiagnosticsActive ? 'page' : undefined}
-            >
-              <Activity className="w-5 h-5 shrink-0" aria-hidden />
-              {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'אבחון' : 'Diagnostics'}</span>}
-            </Link>
-
-            {isOpsArea && (
-              <>
-                {!sidebarCollapsed && (
-                  <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500/80">
-                    {locale === 'he' ? 'ניהול Ops' : 'Ops Management'}
-                  </div>
-                )}
-                {[
-                  { href: '/ops', label: locale === 'he' ? 'לוח בקרה' : 'Dashboard', icon: LayoutDashboard },
-                  { href: '/ops/diagnostics', label: locale === 'he' ? 'אבחון' : 'Diagnostics', icon: Activity },
-                  { href: '/ops/strategies', label: t.strategyInsights ?? 'אסטרטגיות', icon: BarChart3 },
-                  { href: '/ops/pnl', label: t.pnlTerminal ?? 'PnL', icon: LineChart },
-                  { href: '/admin/quantum', label: t.quantumAi ?? 'Quantum AI', icon: Cpu },
-                  { href: '/admin/signals', label: t.alphaSignals ?? 'Alpha Signals', icon: Sparkles },
-                  { href: '/performance', label: locale === 'he' ? 'ביצועים' : 'Performance', icon: TrendingUp },
-                  { href: '/settings', label: t.settings ?? 'הגדרות', icon: Settings },
-                ].map(({ href, label, icon: Icon }) => {
-                  const norm = pathname.replace(/\/$/, '') || '/';
-                  const active =
-                    href === '/ops'
-                      ? norm === '/ops'
-                      : norm === href || norm.startsWith(href + '/');
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      prefetch={true}
-                      title={sidebarCollapsed ? label : undefined}
-                      className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                        active
-                          ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                          : 'text-zinc-300 hover:text-amber-400 hover:bg-amber-500/5 border border-transparent hover:border-amber-500/15'
-                      } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
-                        active
-                          ? 'before:bg-amber-500/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
-                          : 'before:bg-transparent'
-                      } ${sidebarCollapsed ? 'justify-center gap-0 px-3' : ''}`}
-                      aria-current={active ? 'page' : undefined}
-                    >
-                      <Icon className="w-5 h-5 shrink-0" aria-hidden />
-                      {!sidebarCollapsed && <span className="truncate">{label}</span>}
-                    </Link>
-                  );
-                })}
-              </>
-            )}
 
             {/* Guide link */}
             <Link
@@ -386,67 +309,6 @@ export default function AppHeader() {
                   );
                 })}
 
-            {!isOpsArea && (
-            <Link
-              href={diagnosticsHref}
-              prefetch={true}
-              onClick={() => setMenuOpen(false)}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold min-h-[48px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                isDiagnosticsActive
-                  ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                  : 'text-zinc-300 hover:bg-white/5 hover:text-amber-400 border border-transparent'
-              }`}
-              aria-current={isDiagnosticsActive ? 'page' : undefined}
-            >
-              <Activity className="w-5 h-5 shrink-0" aria-hidden />
-              {locale === 'he' ? 'אבחון' : 'Diagnostics'}
-            </Link>
-            )}
-
-                {isOpsArea && (
-                  <>
-                    <div className="px-4 py-2 mt-2 text-[10px] font-bold uppercase tracking-widest text-amber-500/70 border-t border-white/10 pt-4">
-                      {locale === 'he' ? 'ניהול Ops' : 'Ops Management'}
-                    </div>
-                    {[
-                      { href: '/ops', label: locale === 'he' ? 'לוח בקרה' : 'Dashboard', icon: LayoutDashboard },
-                      { href: '/ops/diagnostics', label: locale === 'he' ? 'אבחון' : 'Diagnostics', icon: Activity },
-                      { href: '/ops/strategies', label: t.strategyInsights ?? 'אסטרטגיות', icon: BarChart3 },
-                      { href: '/ops/pnl', label: t.pnlTerminal ?? 'PnL', icon: LineChart },
-                      { href: '/admin/quantum', label: t.quantumAi ?? 'Quantum AI', icon: Cpu },
-                      { href: '/admin/signals', label: t.alphaSignals ?? 'Alpha Signals', icon: Sparkles },
-                      { href: '/performance', label: locale === 'he' ? 'ביצועים' : 'Performance', icon: TrendingUp },
-                      { href: '/settings', label: t.settings ?? 'הגדרות', icon: Settings },
-                    ].map(({ href, label, icon: Icon }) => {
-                      const norm = pathname.replace(/\/$/, '') || '/';
-                      const active =
-                        href === '/ops'
-                          ? norm === '/ops'
-                          : norm === href || norm.startsWith(href + '/');
-                      return (
-                        <Link
-                          key={href}
-                          href={href}
-                          prefetch={true}
-                          onClick={() => setMenuOpen(false)}
-                          className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold min-h-[48px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                            active
-                              ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                              : 'text-zinc-300 hover:bg-white/5 hover:text-amber-400 border border-transparent'
-                          }`}
-                        >
-                          <Icon className="w-5 h-5 shrink-0" aria-hidden />
-                          {label}
-                        </Link>
-                      );
-                    })}
-                    <div className="flex flex-col gap-3 px-4 py-4 mt-2 border-t border-white/10">
-                      <TelegramStatus />
-                      <LogoutButton />
-                    </div>
-                  </>
-                )}
-
                 <Link
                   href="/guide"
                   prefetch={true}
@@ -482,6 +344,12 @@ export default function AppHeader() {
                   <span className="text-xs text-zinc-500">{locale === 'he' ? 'גרסה v1.3' : 'Version v1.3'}</span>
                   <LanguageToggle />
                 </div>
+                {isOpsArea && (
+                  <div className="flex flex-col gap-3 px-4 py-4 mt-2 border-t border-white/10">
+                    <TelegramStatus />
+                    <LogoutButton />
+                  </div>
+                )}
               </div>
             </div>
           </>

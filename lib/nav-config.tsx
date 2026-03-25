@@ -4,7 +4,7 @@
  */
 
 import type { ComponentType } from 'react';
-import { Home, GraduationCap, LineChart, BarChart3, Settings, Cpu, Sparkles } from 'lucide-react';
+import { Home, GraduationCap, LineChart, BarChart3, Settings, Cpu, Sparkles, Activity } from 'lucide-react';
 
 export type NavLabelKey =
   | 'dashboard'
@@ -13,6 +13,7 @@ export type NavLabelKey =
   | 'performanceTrends'
   | 'quantumAi'
   | 'alphaSignals'
+  | 'diagnostics'
   | 'settings';
 
 export type NavItemConfig = {
@@ -28,6 +29,7 @@ export const NAV_ITEMS: NavItemConfig[] = [
   { href: '/performance', labelKey: 'performanceTrends', icon: BarChart3 },
   { href: '/admin/quantum', labelKey: 'quantumAi', icon: Cpu },
   { href: '/admin/signals', labelKey: 'alphaSignals', icon: Sparkles },
+  { href: '/ops/diagnostics', labelKey: 'diagnostics', icon: Activity },
   { href: '/settings', labelKey: 'settings', icon: Settings },
 ];
 

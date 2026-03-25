@@ -123,6 +123,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         prompt: livePrompt,
         maxOutputTokens: 350,
         temperature: 0.2,
+        locale: 'he',
       });
 
       if (!analysis_he) {
