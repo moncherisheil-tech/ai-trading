@@ -1,0 +1,67 @@
+/** Production base URL for absolute links and redirects. Set APP_URL in .env. */
+export const BASE_URL = process.env.APP_URL || '';
+
+/**
+ * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
+ * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → http://localhost:3000
+ */
+export function getBaseUrl(): string {
+  const u =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    process.env.PUBLIC_URL ||
+    'http://localhost:3000';
+  return u.replace(/\/$/, '');
+}
+
+export const APP_CONFIG = {
+  isLiveMode: String(process.env.IS_LIVE_MODE || 'false').toLowerCase() === 'true',
+  aiProvider: String(process.env.AI_PROVIDER || 'gemini').toLowerCase(),
+  fetchTimeoutMs: 12_000,
+  analysisRateLimitWindowMs: Number(process.env.ANALYSIS_RATE_LIMIT_WINDOW_MS || 60_000),
+  analysisRateLimitMax: Number(process.env.ANALYSIS_RATE_LIMIT_MAX || 12),
+  analysisDedupWindowMs: Number(process.env.ANALYSIS_DEDUP_WINDOW_MS || 30_000),
+  maxFetchRetries: Number(process.env.MAX_FETCH_RETRIES || 3),
+  minHumanDelayMs: Number(process.env.MIN_HUMAN_DELAY_MS || 1200),
+  trustedApiOrigins: ['https://api.binance.com', 'https://api.alternative.me'] as string[],
+  /** Optional proxy for Binance when API returns 451 (e.g. region block). Example: https://your-proxy.com/binance */
+  proxyBinanceUrl: (process.env.PROXY_BINANCE_URL || '').replace(/\/$/, ''),
+  tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
+  tickerReconnectBaseMs: 1_500,
+  tickerReconnectMaxMs: 15_000,
+  /** Primary Gemini model. Use env or default to 2.5-flash (supports responseMimeType/systemInstruction). */
+  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.5-flash',
+  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash',
+  /** Model used when primary returns 429 (quota exhausted). Must support structured JSON (no 1.5). */
+  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-2.5-flash',
+  authToken: process.env.APP_AUTH_TOKEN || '',
+  turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
+  dbDriver: process.env.DB_DRIVER || 'file',
+  sqlitePath: process.env.SQLITE_DB_PATH || 'predictions.sqlite',
+  postgresUrl: process.env.DATABASE_URL || process.env.POSTGRES_URL || '',
+  backupKeep: Number(process.env.DB_BACKUP_KEEP || 7),
+  /** Timeout for Gemini API calls (ms); prevents server hang on slow responses. */
+  geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 60_000),
+  /** Delay in ms between each symbol in cron scanner to avoid Binance 1200 weight/min limit. */
+  scannerDelayBetweenSymbolsMs: Number(process.env.SCANNER_DELAY_BETWEEN_SYMBOLS_MS || 350),
+  /** Paper trading: slippage in basis points (1 bps = 0.01%). Buy executes higher, sell lower. Default 5 bps = 0.05%. */
+  paperSlippageBps: Number(process.env.PAPER_SLIPPAGE_BPS || 5),
+  /** Paper trading: auto-close (simulated liquidation) when unrealized PnL % <= this. Default -75%. */
+  paperLiquidationPct: Number(process.env.PAPER_LIQUIDATION_PCT || -75),
+};
+
+if (APP_CONFIG.proxyBinanceUrl) {
+  try {
+    const origin = new URL(APP_CONFIG.proxyBinanceUrl).origin;
+    if (!APP_CONFIG.trustedApiOrigins.includes(origin)) {
+      APP_CONFIG.trustedApiOrigins = [...APP_CONFIG.trustedApiOrigins, origin];
+    }
+  } catch {
+    // invalid PROXY_BINANCE_URL ignored
+  }
+}
+
+import { CRYPTO_SYMBOLS } from './symbols';
+
+/** סימבולי Binance (עם USDT) לניתוח ולבדיקות. */
+export const TARGET_SYMBOLS = CRYPTO_SYMBOLS.map((b) => `${b}USDT`) as readonly string[];

@@ -1,0 +1,14 @@
+{
+  "name": "Mon Cheri Quant AI",
+  "short_name": "Quant AI",
+  "description": "ניתוח כמותי ותובנות אסטרטגיה לשוק הקריפטו — Mon Chéri Group",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "lang": "he",
+  "dir": "rtl",
+  "icons": []
+}

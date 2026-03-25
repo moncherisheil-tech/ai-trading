@@ -1,0 +1,75 @@
+import OpenAI from 'openai';
+import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { APP_CONFIG } from '@/lib/config';
+import { getGeminiApiKey, getOpenAiApiKey, getRequiredGroqApiKey } from '@/lib/env';
+
+type Provider = 'gemini' | 'openai' | 'groq';
+
+function resolveProvider(): Provider {
+  const provider = APP_CONFIG.aiProvider;
+  if (provider === 'gemini' || provider === 'openai' || provider === 'groq') {
+    return provider;
+  }
+  return 'gemini';
+}
+
+function assertLiveModeEnabled(): void {
+  if (!APP_CONFIG.isLiveMode) {
+    throw new Error('AI live mode is disabled. Set IS_LIVE_MODE=true to call external AI providers.');
+  }
+}
+
+export async function generateLiveText(params: {
+  prompt: string;
+  systemInstruction?: string;
+  maxOutputTokens?: number;
+  temperature?: number;
+}): Promise<string> {
+  assertLiveModeEnabled();
+  const provider = resolveProvider();
+  const maxOutputTokens = params.maxOutputTokens ?? 500;
+  const temperature = params.temperature ?? 0.3;
+
+  if (provider === 'openai') {
+    const client = new OpenAI({ apiKey: getOpenAiApiKey() });
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        ...(params.systemInstruction ? [{ role: 'system' as const, content: params.systemInstruction }] : []),
+        { role: 'user' as const, content: params.prompt },
+      ],
+      temperature,
+      max_tokens: maxOutputTokens,
+    });
+    return (completion.choices?.[0]?.message?.content || '').trim();
+  }
+
+  if (provider === 'groq') {
+    const client = new Groq({ apiKey: getRequiredGroqApiKey() });
+    const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        ...(params.systemInstruction ? [{ role: 'system' as const, content: params.systemInstruction }] : []),
+        { role: 'user' as const, content: params.prompt },
+      ],
+      temperature,
+      max_tokens: maxOutputTokens,
+    });
+    return (completion.choices?.[0]?.message?.content || '').trim();
+  }
+
+  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+  const model = genAI.getGenerativeModel({
+    model: APP_CONFIG.primaryModel || 'gemini-2.5-flash',
+    ...(params.systemInstruction ? { systemInstruction: params.systemInstruction } : {}),
+  });
+  const response = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: params.prompt }] }],
+    generationConfig: { temperature, maxOutputTokens },
+  });
+  return (response.response.text() || '').trim();
+}
+

@@ -1,0 +1,44 @@
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { getBaseUrl } from '@/lib/config';
+import PnlTerminal from '@/components/PnlTerminal';
+import ManualTradeForm from '@/components/ManualTradeForm';
+
+async function fetchPnl() {
+  const baseUrl = getBaseUrl();
+  const response = await fetch(`${baseUrl}/api/ops/metrics/pnl`, {
+    cache: 'no-store',
+    headers: {
+      cookie: (await cookies()).toString(),
+    },
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
+const PNL_TIMEOUT_MS = 6000;
+
+export default async function PnlOpsPage() {
+  if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
+    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const session = verifySessionToken(token);
+    if (!session || !hasRequiredRole(session.role, 'admin')) {
+      redirect('/login');
+    }
+  }
+
+  const data = await Promise.race([
+    fetchPnl(),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), PNL_TIMEOUT_MS)),
+  ]);
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-6 overflow-x-hidden max-w-full pb-20 sm:pb-6" dir="rtl">
+      <div className="max-w-7xl mx-auto min-w-0 w-full space-y-6">
+        <ManualTradeForm />
+        <PnlTerminal data={data} />
+      </div>
+    </main>
+  );
+}

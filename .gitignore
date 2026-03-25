@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Next.js
+.next/
+out/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs & OS
+*.log
+.DS_Store
+
+# Test & coverage
+coverage/
+
+# Tooling / deploy artifacts
+.vercel/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+
+# Generated / local artifacts
+lint-report.json
+logs/
+reports/
+
+# Local business materials (not application source)
+קואנטום מון שרי/

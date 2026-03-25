@@ -1,0 +1,411 @@
+@import "tailwindcss";
+
+/* Z-index scale: overlay layers above charts and sticky elements */
+:root {
+  --app-sidebar-width: 280px;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-header: 50;
+  --z-drawer-backdrop: 60;
+  --z-drawer: 70;
+  --z-modal-backdrop: 80;
+  --z-modal: 90;
+  --z-tooltip: 95;
+  --z-toast: 100;
+  --ui-radius-lg: 0.75rem;
+  --ui-radius-xl: 1rem;
+  --ui-card-padding: 1.25rem;
+  --ui-motion-instant: 150ms;
+  --ui-motion-fast: 180ms;
+  --ui-motion-medium: 200ms;
+  --ui-ease-snappy: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ui-focus-ring: rgba(245, 158, 11, 0.55);
+}
+
+/* Mobile-first: prevent horizontal scroll from fixed-width children */
+html, body {
+  overflow-x: hidden;
+}
+
+/* RTL: global direction for Hebrew UI; cards/dialogs align correctly */
+[dir='rtl'] {
+  text-align: right;
+}
+
+/* Glassmorphism: reduce compositing cost on mobile (Final Red-Team v1.4) */
+@media (max-width: 768px) {
+  [class*='backdrop-blur'] {
+    contain: layout style;
+  }
+}
+[dir='rtl'] .rounded-xl {
+  text-align: right;
+}
+
+/* Institutional Luxury — Mon Chéri Quant AI */
+:root,
+[data-theme='dark'] {
+  --background: #050505;
+  --anthracite-bg: 10, 10, 10;
+  --anthracite-surface: 24, 24, 27;
+  --anthracite-border: 39, 39, 42;
+  --anthracite-muted: 113, 113, 122;
+  --anthracite-text: 244, 244, 245;
+  --gold: 245, 158, 11;
+  --gold-dim: 251, 191, 36;
+  --gold-muted: 161, 98, 7;
+  --terminal-bg: var(--anthracite-bg);
+  --terminal-surface: var(--anthracite-surface);
+  --terminal-border: var(--anthracite-border);
+  --terminal-text: var(--anthracite-text);
+  --terminal-muted: var(--anthracite-muted);
+  --terminal-accent: 34, 197, 94;
+  --terminal-accent-dim: 74, 222, 128;
+  --terminal-danger: 239, 68, 68;
+  --terminal-warn: 245, 158, 11;
+  --app-bg: #050505;
+  --app-surface: #111111;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-text: rgb(244, 244, 245);
+  --app-muted: rgb(113, 113, 122);
+  --app-accent: rgb(34, 197, 94);
+  --app-accent-dim: rgb(74, 222, 128);
+  --app-danger: rgb(239, 68, 68);
+  --app-warn: rgb(245, 158, 11);
+}
+
+[data-theme='light'] {
+  --background: #fafafa;
+  --anthracite-bg: 250, 250, 250;
+  --anthracite-surface: 255, 255, 255;
+  --anthracite-border: 228, 228, 231;
+  --anthracite-muted: 82, 82, 91;
+  --anthracite-text: 24, 24, 27;
+  --gold: 180, 83, 9;
+  --gold-dim: 217, 119, 6;
+  --gold-muted: 120, 53, 15;
+  --terminal-bg: 250, 250, 250;
+  --terminal-surface: 255, 255, 255;
+  --terminal-border: 228, 228, 231;
+  --terminal-text: 24, 24, 27;
+  --terminal-muted: 82, 82, 91;
+  --app-bg: #fafafa;
+  --app-surface: #ffffff;
+  --app-border: rgba(0, 0, 0, 0.1);
+  --app-text: rgb(24, 24, 27);
+  --app-muted: rgb(82, 82, 91);
+  --app-accent: rgb(22, 163, 74);
+  --app-accent-dim: rgb(34, 197, 94);
+  --app-danger: rgb(220, 38, 38);
+  --app-warn: rgb(217, 119, 6);
+}
+
+/* Deep Sea (ים עמוק) — deep navies, teals, cyan highlights */
+[data-theme='deep-sea'] {
+  --background: #030f1c;
+  --anthracite-bg: 3, 15, 28;
+  --anthracite-surface: 7, 25, 45;
+  --anthracite-border: 15, 45, 75;
+  --anthracite-muted: 94, 156, 180;
+  --anthracite-text: 207, 230, 240;
+  --gold: 34, 211, 238;
+  --gold-dim: 103, 232, 249;
+  --gold-muted: 22, 163, 184;
+  --terminal-bg: 3, 15, 28;
+  --terminal-surface: 7, 25, 45;
+  --terminal-border: 15, 45, 75;
+  --terminal-text: 207, 230, 240;
+  --terminal-muted: 94, 156, 180;
+  --terminal-accent: 34, 211, 238;
+  --terminal-accent-dim: 103, 232, 249;
+  --terminal-danger: 248, 113, 113;
+  --terminal-warn: 253, 186, 116;
+  --app-bg: #030f1c;
+  --app-surface: #07192d;
+  --app-border: rgba(34, 211, 238, 0.15);
+  --app-text: rgb(207, 230, 240);
+  --app-muted: rgb(94, 156, 180);
+  --app-accent: rgb(34, 211, 238);
+  --app-accent-dim: rgb(103, 232, 249);
+  --app-danger: rgb(248, 113, 113);
+  --app-warn: rgb(253, 186, 116);
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.ticker-track,
+.market-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+}
+
+.ticker-loop,
+.market-marquee-loop {
+  display: flex;
+  width: max-content;
+  animation: ticker-scroll 36s linear infinite;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+}
+
+.market-marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  contain: layout style paint;
+}
+
+.ticker-loop:hover,
+.market-marquee-loop:hover {
+  animation-play-state: paused;
+}
+
+.ticker-marquee,
+.market-marquee {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+}
+
+@keyframes ticker-scroll {
+  0% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(-50%, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track,
+  .market-marquee-loop {
+    animation: none;
+  }
+}
+
+/* Bloomberg Terminal — snappy, precise interaction timing */
+button:not([disabled]),
+a[href],
+[role="button"]:not([aria-disabled="true"]) {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: var(--ui-motion-fast);
+  transition-timing-function: var(--ui-ease-snappy);
+}
+button:not([disabled]):hover,
+a[href]:hover,
+[role="button"]:not([aria-disabled="true"]):hover {
+  transform: translate3d(0, -1px, 0);
+}
+button:not([disabled]):active,
+a[href]:active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: translate3d(0, 0, 0);
+}
+
+/* Glassmorphism: high contrast terminal panels */
+.glass-panel {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+/* WCAG AA: visible focus ring for keyboard navigation */
+button:focus-visible,
+a:focus-visible,
+[href]:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(10 10 10), 0 0 0 4px var(--ui-focus-ring);
+}
+
+.ui-card {
+  transition-property: background-color, border-color, box-shadow, transform;
+  transition-duration: var(--ui-motion-medium);
+  transition-timing-function: var(--ui-ease-snappy);
+}
+
+.ui-card:hover {
+  border-color: rgba(245, 158, 11, 0.24);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+
+.ui-card:focus-within {
+  box-shadow: 0 0 0 2px rgb(10 10 10), 0 0 0 4px rgba(245, 158, 11, 0.38), 0 10px 28px rgba(0, 0, 0, 0.34);
+}
+
+/* CryptoAnalyzer control calibration: tighter rhythm, explicit hierarchy */
+.ui-panel-dense {
+  border: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  border-radius: var(--ui-radius-xl);
+  padding: 1.125rem;
+  transition-property: border-color, box-shadow, background-color, transform;
+  transition-duration: var(--ui-motion-medium);
+  transition-timing-function: var(--ui-ease-snappy);
+}
+
+@media (min-width: 640px) {
+  .ui-panel-dense {
+    padding: 1.25rem;
+  }
+}
+
+.ui-panel-dense:hover {
+  border-color: rgba(245, 158, 11, 0.18);
+}
+
+.btn-terminal-primary,
+.btn-terminal-secondary,
+.btn-terminal-danger,
+.btn-terminal-accent {
+  transition-property: color, background-color, border-color, box-shadow, transform, opacity;
+  transition-duration: var(--ui-motion-fast);
+  transition-timing-function: var(--ui-ease-snappy);
+}
+
+.btn-terminal-primary {
+  background: rgba(245, 158, 11, 0.95);
+  border: 1px solid rgba(251, 191, 36, 0.95);
+  color: rgb(24, 24, 27);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+}
+
+.btn-terminal-primary:hover {
+  background: rgba(251, 191, 36, 1);
+  border-color: rgba(252, 211, 77, 1);
+  box-shadow: 0 12px 28px rgba(245, 158, 11, 0.22);
+}
+
+.btn-terminal-secondary {
+  background: rgba(24, 24, 27, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgb(228, 228, 231);
+}
+
+.btn-terminal-secondary:hover {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.28);
+  color: rgb(251, 191, 36);
+}
+
+.btn-terminal-accent {
+  background: rgba(34, 211, 238, 0.14);
+  border: 1px solid rgba(34, 211, 238, 0.34);
+  color: rgb(103, 232, 249);
+}
+
+.btn-terminal-accent:hover {
+  background: rgba(34, 211, 238, 0.22);
+  border-color: rgba(34, 211, 238, 0.5);
+}
+
+.btn-terminal-danger {
+  background: rgba(244, 63, 94, 0.14);
+  border: 1px solid rgba(244, 63, 94, 0.35);
+  color: rgb(251, 113, 133);
+}
+
+.btn-terminal-danger:hover {
+  background: rgba(244, 63, 94, 0.22);
+  border-color: rgba(244, 63, 94, 0.52);
+}
+
+/* Print Mode: Native window.print() — no popups. Hide chrome, show only report content. */
+@media print {
+  /* Hide navigation, sidebars, headers, and all interactive UI */
+  header,
+  nav,
+  [role="navigation"],
+  aside,
+  .sidebar,
+  [class*="sidebar"],
+  [class*="Sidebar"],
+  [class*="navbar"],
+  [class*="Navbar"],
+  [class*="header"],
+  button:not(.print-show),
+  [role="button"]:not(.print-show),
+  a[href]:not(.print-show),
+  .no-print,
+  [data-no-print],
+  footer {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Show only content marked for print (report area) */
+  body * { visibility: hidden; }
+  .print-mode,
+  .print-mode * { visibility: visible !important; }
+  .print-mode {
+    display: block !important;
+    visibility: visible !important;
+  }
+
+  /* Force RTL and Hebrew-friendly typography */
+  html, body, .print-mode {
+    direction: rtl !important;
+    font-family: system-ui, Arial, "Rubik", sans-serif !important;
+    text-align: right !important;
+  }
+
+  /* Clean PDF export: white background, black text */
+  html, body {
+    background: white !important;
+    color: black !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-mode,
+  .print-mode * {
+    color: black !important;
+    background: white !important;
+    border-color: rgba(0, 0, 0, 0.15) !important;
+  }
+  .print-mode [class*="text-"] {
+    color: black !important;
+  }
+  .print-mode [class*="text-emerald"],
+  .print-mode [class*="text-green"] { color: #0d5c0d !important; }
+  .print-mode [class*="text-rose"],
+  .print-mode [class*="text-red"] { color: #8b0000 !important; }
+
+  /* A4 layout: report fits one page, no breaks inside charts/tables */
+  .print-mode {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    max-width: 210mm;
+    padding: 15mm;
+    margin: 0;
+    font-size: 11pt;
+    box-sizing: border-box;
+  }
+  .print-mode table,
+  .print-mode [class*="chart"],
+  .print-mode [class*="Chart"],
+  .print-mode section,
+  .print-mode .rounded-2xl {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
