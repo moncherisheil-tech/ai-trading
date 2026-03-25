@@ -15,6 +15,7 @@ import {
   LineChart,
   TrendingUp,
   Settings,
+  Cpu,
   Sparkles,
 } from 'lucide-react';
 import TelegramStatus from '@/components/TelegramStatus';
