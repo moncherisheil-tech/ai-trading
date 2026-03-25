@@ -4,7 +4,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDbAsync, saveDbAsync, PredictionRecord, SourceCitation } from '@/lib/db';
 import { getGeminiApiKey } from '@/lib/env';
-import { APP_CONFIG } from '@/lib/config';
+import { APP_CONFIG, shouldUseSecureCookies } from '@/lib/config';
 import { allowRequest } from '@/lib/rate-limit';
 import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
 import { aiPredictionSchema, aiPredictionPartialSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
@@ -441,13 +441,13 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
   try {
     const token = createSessionToken('admin');
     const jar = await cookies();
-    const isProduction = process.env.NODE_ENV === 'production';
+    const secureCookies = shouldUseSecureCookies();
     const host = (await headers()).get('host') || '';
     const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
 
     jar.set('app_auth_token', token, {
       domain,
-      secure: isProduction,
+      secure: secureCookies,
       httpOnly: true,
       sameSite: 'lax',
       path: '/',
@@ -468,12 +468,12 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
 export async function logout(): Promise<{ success: true }> {
   try {
     const jar = await cookies();
-    const isProduction = process.env.NODE_ENV === 'production';
+    const secureCookies = shouldUseSecureCookies();
     const host = (await headers()).get('host') || '';
     const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
     jar.set('app_auth_token', '', {
       domain,
-      secure: isProduction,
+      secure: secureCookies,
       httpOnly: true,
       sameSite: 'lax',
       path: '/',

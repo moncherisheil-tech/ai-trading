@@ -1,5 +1,5 @@
 /** Production base URL for absolute links and redirects. Set APP_URL in .env. */
-export const BASE_URL = process.env.APP_URL || '';
+export const BASE_URL = normalizeAppUrl(process.env.APP_URL);
 
 function normalizeEnvValue(raw: string | undefined): string {
   const value = (raw || '').trim();
@@ -13,17 +13,34 @@ function normalizeEnvValue(raw: string | undefined): string {
   return value;
 }
 
+function normalizeAppUrl(raw: string | undefined): string {
+  const value = normalizeEnvValue(raw);
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) {
+    return value.replace(/\/$/, '');
+  }
+  // Keep local/non-SSL environments functional by defaulting to http.
+  return `http://${value}`.replace(/\/$/, '');
+}
+
 /**
  * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
  * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → http://localhost:3000
  */
 export function getBaseUrl(): string {
-  const u =
+  const u = normalizeAppUrl(
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     process.env.PUBLIC_URL ||
-    'http://localhost:3000';
-  return u.replace(/\/$/, '');
+    'http://localhost:3000'
+  );
+  return u || 'http://localhost:3000';
+}
+
+/** Secure cookies only when APP_URL is explicitly https. */
+export function shouldUseSecureCookies(): boolean {
+  const baseUrl = getBaseUrl();
+  return /^https:\/\//i.test(baseUrl);
 }
 
 export const APP_CONFIG = {

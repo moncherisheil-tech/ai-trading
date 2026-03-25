@@ -31,7 +31,7 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion', 'lightweight-charts'],
-  // CISO: Strict HTTP security headers for production
+  // Security headers tuned to support non-SSL environments when needed.
   async headers() {
     return [
       {
@@ -40,17 +40,13 @@ const nextConfig: NextConfig = {
           {
             key: 'Content-Security-Policy',
             value:
-              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com https://*.neon.tech; upgrade-insecure-requests;",
+              "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com https://*.neon.tech;",
           },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-XSS-Protection', value: '1; mode=block' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=31536000; includeSubDomains; preload',
-          },
         ],
       },
     ];

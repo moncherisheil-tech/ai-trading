@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSessionToken, isSessionEnabled, type SessionRole } from '@/lib/session';
 import { isAllowedIp, verifyCsrf } from '@/lib/security';
+import { shouldUseSecureCookies } from '@/lib/config';
 
 export async function POST(request: NextRequest) {
   if (!isAllowedIp(request)) {
@@ -29,11 +30,12 @@ export async function POST(request: NextRequest) {
   }
 
   const token = createSessionToken(matched.role);
+  const secureCookies = shouldUseSecureCookies();
 
   const res = NextResponse.json({ success: true, role: matched.role });
   res.cookies.set('app_auth_token', token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: secureCookies,
     sameSite: 'lax',
     path: '/',
     maxAge: 60 * 60 * 12,
