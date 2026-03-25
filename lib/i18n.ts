@@ -105,6 +105,8 @@ export const messages = {
     optimalBalancePoint: 'Optimal Balance Point',
     systemCalibration: 'Autonomous System Calibration',
     applyCalibration: 'Apply Calibration Scheme',
+    alphaSignalsEmptyStateHe: 'אין איתותים פעילים כרגע. המערכת ממתינה לסיום הניתוח המלא של מועצת הבינה המלאכותית.',
+    alphaSignalsEmptyStateEn: 'No active signals. Awaiting full analysis from the AI council.',
   },
   he: {
     title: 'Quantum Crypto | Mon Chéri',
@@ -210,6 +212,8 @@ export const messages = {
     optimalBalancePoint: 'נקודת איזון אופטימלית',
     systemCalibration: 'כיול מערכת אוטונומי',
     applyCalibration: 'החל סכימת כיול',
+    alphaSignalsEmptyStateHe: 'אין איתותים פעילים כרגע. המערכת ממתינה לסיום הניתוח המלא של מועצת הבינה המלאכותית.',
+    alphaSignalsEmptyStateEn: 'No active signals. Awaiting full analysis from the AI council.',
   },
 } as const;
 

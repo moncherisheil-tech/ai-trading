@@ -311,8 +311,12 @@ export default function AlphaSignalsDashboard() {
       </div>
       {!loading && items.length === 0 && (
         <div className="mt-6 rounded-2xl border border-zinc-700/70 bg-zinc-900/40 px-5 py-8 text-center text-zinc-300">
-          <p className="text-sm font-medium">{t.noActiveSignals ?? 'No active signals'}</p>
-          <p className="mt-1 text-xs text-zinc-500">{t.awaitingSignalData ?? 'Awaiting live data from analysis and market feeds...'}</p>
+          <p className="text-sm font-medium">
+            {t.alphaSignalsEmptyStateHe ?? 'אין איתותים פעילים כרגע. המערכת ממתינה לסיום הניתוח המלא של מועצת הבינה המלאכותית.'}
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {t.alphaSignalsEmptyStateEn ?? 'No active signals. Awaiting full analysis from the AI council.'}
+          </p>
         </div>
       )}
 

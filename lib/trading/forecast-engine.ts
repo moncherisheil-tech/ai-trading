@@ -2,6 +2,7 @@ import { APP_CONFIG } from '@/lib/config';
 import { fetchWithBackoff, fetchMacroContext } from '@/lib/api-utils';
 import { atr, rsi } from '@/lib/indicators';
 import { runConsensusEngine } from '@/lib/consensus-engine';
+import type { ConsensusResult } from '@/lib/consensus-engine';
 
 export type AdvisorySignal = 'BUY' | 'SELL' | 'HOLD';
 export type ForecastTimeframe = '1-4 Hours' | '1-3 Days';
@@ -43,6 +44,29 @@ function buildRationale(parts: string[]): string {
 
 function normalizeAsset(symbol: string): string {
   return symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
+}
+
+function hasFallbackConsensus(consensus: ConsensusResult): boolean {
+  if (consensus.macro_fallback_used || consensus.onchain_fallback_used || consensus.deep_memory_fallback_used) {
+    return true;
+  }
+  const rationaleText = [
+    consensus.tech_logic,
+    consensus.risk_logic,
+    consensus.psych_logic,
+    consensus.macro_logic,
+    consensus.onchain_logic,
+    consensus.deep_memory_logic,
+    consensus.master_insight_he,
+  ]
+    .join(' ')
+    .toLowerCase();
+  return (
+    rationaleText.includes('timeout') ||
+    rationaleText.includes('שגיאה') ||
+    rationaleText.includes('לא זמין') ||
+    rationaleText.includes('אין מספיק נתוני deep memory')
+  );
 }
 
 async function fetchKlines(symbol: string, interval: '1h' | '4h', limit: number): Promise<KlineTuple[]> {
@@ -100,6 +124,10 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
     },
     { timeoutMs: 55_000 }
   );
+
+  if (!consensus.consensus_approved || hasFallbackConsensus(consensus)) {
+    return null;
+  }
 
   const shortBias = consensus.tech_score * 0.45 + consensus.psych_score * 0.25 + consensus.onchain_score * 0.3 - 50;
   const swingBias = consensus.macro_score * 0.35 + consensus.risk_score * 0.25 + consensus.deep_memory_score * 0.4 - 50;
