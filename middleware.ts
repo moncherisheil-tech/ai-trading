@@ -95,6 +95,7 @@ function isWhitelisted(pathname: string, request: NextRequest): boolean {
 function isStrictOperationalApi(pathname: string): boolean {
   return (
     pathname.startsWith('/api/ops/') ||
+    pathname === '/api/admin/terminal' ||
     pathname === '/api/portfolio/virtual' ||
     pathname === '/api/simulation/reset' ||
     pathname === '/api/trading/execute-signal' ||
@@ -142,6 +143,7 @@ export const config = {
     '/ops/:path*',
     '/admin/:path*',
     '/api/ops/:path*',
+    '/api/admin/terminal',
     '/api/portfolio/virtual',
     '/api/simulation/reset',
     '/api/trading/execute-signal',

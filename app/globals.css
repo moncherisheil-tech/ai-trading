@@ -4,6 +4,8 @@
 /* Z-index scale: overlay layers above charts and sticky elements */
 :root {
   --app-sidebar-width: 280px;
+  /** Sidebar is `fixed` at `inset-inline-start/end: 0.75rem`; reserve gutter after rail so main never sits under the glass. */
+  --app-main-inline-offset: calc(0.75rem + var(--app-sidebar-width, 280px) + 0.75rem);
   --z-sticky: 10;
   --z-dropdown: 100;
   --z-header: 50;
@@ -332,6 +334,27 @@ a[href]:active,
   opacity: 0.03;
   background-image: radial-gradient(circle at 16% 22%, rgba(255, 255, 255, 0.9) 0.6px, transparent 1.4px);
   background-size: 6px 6px;
+}
+
+/* Sidebar: 1px diamond-gradient rim on inline edge (pairs with .frosted-obsidian mask). */
+.aside-sovereign-diamond.frosted-obsidian::before {
+  background: linear-gradient(
+    118deg,
+    rgba(var(--market-border-rgb), 0.75),
+    rgba(255, 255, 255, 0.22),
+    rgba(var(--market-gold-rgb), 0.58)
+  );
+}
+
+/* Dashboard / bento panels: same 1px diamond-gradient rim + frosted-obsidian 60px blur (V5). */
+.panel-sovereign-diamond.frosted-obsidian::before {
+  background: linear-gradient(
+    120deg,
+    rgba(var(--market-border-rgb), 0.7),
+    rgba(255, 255, 255, 0.24),
+    rgba(var(--market-gold-rgb), 0.54)
+  );
+  opacity: 0.78;
 }
 
 .sovereign-tilt {

@@ -103,7 +103,7 @@ export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) 
 
   return (
     <div
-      className={`frosted-obsidian sovereign-tilt z-depth-2 flex flex-col min-h-[280px] border border-white/5 rounded-3xl shadow-2xl overflow-hidden ${className}`}
+      className={`frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-2 flex flex-col min-h-[280px] rounded-3xl shadow-2xl overflow-hidden ${className}`}
       dir="ltr"
     >
       <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-white/5 bg-black/20">

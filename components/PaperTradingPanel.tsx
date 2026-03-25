@@ -72,7 +72,7 @@ type AnalysisPayload = {
 };
 
 const LTR_TERM_SPAN_CLASS = 'inline-block mx-1 font-mono text-cyan-400';
-const GLASS_TILE = 'frosted-obsidian sovereign-tilt bg-zinc-900/50 rounded-2xl shadow-lg';
+const GLASS_TILE = 'frosted-obsidian panel-sovereign-diamond sovereign-tilt bg-zinc-900/50 rounded-2xl shadow-lg';
 
 const EN_TOKEN_RE = /(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)/g;
 const EN_TOKEN_TEST_RE = /^(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)$/;
@@ -183,7 +183,7 @@ export default function PaperTradingPanel() {
 
   return (
     <section
-      className="frosted-obsidian sovereign-tilt z-depth-3 min-w-0 border border-white/5 rounded-3xl shadow-2xl overflow-hidden"
+      className="frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-3 min-w-0 w-full max-w-full rounded-3xl shadow-2xl overflow-x-hidden overflow-y-visible"
       dir="rtl"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/5 bg-black/20">
@@ -208,7 +208,7 @@ export default function PaperTradingPanel() {
         </button>
       </div>
 
-      <div className="p-5 sm:p-6 space-y-6">
+      <div className="p-5 sm:p-6 space-y-6 min-w-0 max-w-full overflow-x-hidden">
         {loading ? (
           <div className="text-sm text-zinc-500 animate-pulse py-12 text-center font-mono">טוען נתוני מנוע ביצוע…</div>
         ) : error ? (
@@ -231,7 +231,7 @@ export default function PaperTradingPanel() {
                   </h4>
                   <span className="text-[10px] text-zinc-600 font-mono">Cumulative PnL $ · Rolling win %</span>
                 </div>
-                <div className="h-[220px] w-full min-w-0">
+                <div className="h-[220px] w-full min-w-0 max-w-full overflow-x-hidden">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={status.alphaEvolution} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
@@ -380,7 +380,7 @@ export default function PaperTradingPanel() {
                   <span className="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent max-w-[80px]" aria-hidden />
                 </h4>
                 <div
-                  className="rounded-2xl border border-white/5 bg-black/30 overflow-hidden font-mono text-[11px] sm:text-xs"
+                  className="rounded-2xl border border-white/5 bg-black/30 overflow-x-hidden max-w-full font-mono text-[11px] sm:text-xs"
                   dir="ltr"
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-3 py-2.5 bg-zinc-900/80 border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">

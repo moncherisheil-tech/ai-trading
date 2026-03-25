@@ -803,40 +803,9 @@ export async function getAdminTerminalFeedAction(): Promise<AdminActionResult<un
     }
   }
   try {
-    const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
-    const { getAppSettings } = await import('@/lib/db/app-settings');
-    const { probeGeminiTextEmbedding004 } = await import('@/lib/vector-db');
-    const { computeSovereignReadiness, resolveTypecheckStatus } = await import('@/lib/sovereign-readiness');
-    const { evaluateGoLiveSafety } = await import('@/lib/go-live-safety');
-
-    const [snapshot, settings, embedProbe] = await Promise.all([
-      getExecutionDashboardSnapshot(),
-      getAppSettings(),
-      probeGeminiTextEmbedding004(),
-    ]);
-
-    const readiness = await computeSovereignReadiness({
-      settingsLoadOk: true,
-      embeddingProbeOk: embedProbe.ok,
-      embeddingDetail: embedProbe.ok
-        ? `text-embedding-004 dim=${embedProbe.dimension}`
-        : embedProbe.error,
-      tsClean: resolveTypecheckStatus(),
-    });
-
-    const goLiveSafety = evaluateGoLiveSafety(settings);
-
-    return {
-      success: true,
-      data: {
-        snapshot,
-        neural: settings.neural,
-        execution: settings.execution,
-        readiness,
-        goLiveSafety,
-        fetchedAt: new Date().toISOString(),
-      },
-    };
+    const { buildAdminTerminalFeedPayload } = await import('@/lib/admin-terminal-feed');
+    const data = await buildAdminTerminalFeedPayload();
+    return { success: true, data };
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : 'Terminal feed failed' };
   }

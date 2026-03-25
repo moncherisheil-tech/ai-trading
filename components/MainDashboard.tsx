@@ -22,7 +22,7 @@ import { useMarketState } from '@/context/MarketStateContext';
 import { useCyberDecryptNumber } from '@/hooks/use-cyber-decrypt-value';
 
 const GLASS =
-  'frosted-obsidian sovereign-tilt rounded-3xl';
+  'frosted-obsidian panel-sovereign-diamond sovereign-tilt rounded-3xl';
 
 const staggerContainer = {
   hidden: {},
@@ -157,7 +157,7 @@ function ExpertTiltCard({
           ['--spotlight-y' as string]: spotlight.y,
           ['--spotlight-opacity' as string]: spotlight.opacity,
         }}
-        className="spotlight-card frosted-obsidian sovereign-tilt z-depth-2 relative rounded-2xl p-4 overflow-hidden transition-transform duration-200"
+        className="spotlight-card frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-2 relative rounded-2xl p-4 overflow-hidden transition-transform duration-200"
       >
         {isLeviathan ? <div className="leviathan-wave" aria-hidden /> : null}
         <div

@@ -129,13 +129,8 @@ export default function AdminTerminalPageClient() {
   const canArmLive = Boolean(goLiveSafety?.allGreen) && !goBusy && !loading;
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] p-4 sm:p-8 bg-gradient-to-b from-zinc-950 via-black to-zinc-950">
-      <div
-        className="mx-auto max-w-6xl space-y-6"
-        style={{
-          clipPath: 'polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%)',
-        }}
-      >
+    <div className="w-full min-w-0 max-w-full min-h-[calc(100dvh-5rem)] overflow-x-hidden p-4 sm:p-8 bg-gradient-to-b from-zinc-950 via-black to-zinc-950">
+      <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
         <header className={`${FROST_PANEL} p-6 sm:p-8`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
