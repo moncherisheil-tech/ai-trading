@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers';
 import type { Locale } from '@/lib/i18n';
 
 export const LOCALE_STORAGE_KEY = 'app-locale';
@@ -14,9 +13,4 @@ export function normalizeLocale(value: string | null | undefined, fallback: Loca
 
 export function localeToDir(locale: Locale): 'rtl' | 'ltr' {
   return locale === 'he' ? 'rtl' : 'ltr';
-}
-
-export async function getRequestLocale(): Promise<Locale> {
-  const jar = await cookies();
-  return normalizeLocale(jar.get(LOCALE_COOKIE_KEY)?.value, 'he');
 }

@@ -29,7 +29,7 @@ import { isSupportedBase } from '@/lib/symbols';
 import { doAnalysisCore } from '@/lib/analysis-core';
 import { DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
 import type { SimulationResult, LoginResult, BinanceKline } from '@/lib/actions-types';
-import { getRequestLocale } from '@/lib/locale';
+import { getRequestLocale } from '@/lib/locale.server';
 import type { Locale } from '@/lib/i18n';
 
 interface BinanceTickerPrice {

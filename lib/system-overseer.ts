@@ -12,7 +12,7 @@ import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { APP_CONFIG } from '@/lib/config';
 import { toDecimal, round2 } from '@/lib/decimal';
 import type { Locale } from '@/lib/i18n';
-import { getRequestLocale } from '@/lib/locale';
+import { getRequestLocale } from '@/lib/locale.server';
 
 const REF_LIQUID_USD = 10_000;
 
