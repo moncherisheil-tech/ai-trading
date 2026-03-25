@@ -289,6 +289,12 @@ function withTimeout<T>(p: Promise<T>, ms: number | null | undefined): Promise<T
   ]);
 }
 
+function settleNow<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
+  return promise
+    .then((value) => ({ status: 'fulfilled', value } as const))
+    .catch((reason) => ({ status: 'rejected', reason } as const));
+}
+
 function extractJson(text: string): string {
   const trimmed = text.trim();
   const start = trimmed.indexOf('{');
@@ -910,21 +916,21 @@ export async function runConsensusEngine(
 
   // Deep Execution: stagger expert calls to reduce concurrent load on providers.
   const expertsPromise = (async () => {
-    const techPromise = runExpertTechnician(fullInput, model, timeoutMs);
+    const techPromise = settleNow(runExpertTechnician(fullInput, model, timeoutMs));
     await sleep(300);
-    const riskPromise = runExpertRisk(fullInput, model, timeoutMs, riskToleranceLevel);
+    const riskPromise = settleNow(runExpertRisk(fullInput, model, timeoutMs, riskToleranceLevel));
     await sleep(300);
-    const psychPromise = runExpertPsych(fullInput, model, timeoutMs);
+    const psychPromise = settleNow(runExpertPsych(fullInput, model, timeoutMs));
     await sleep(300);
     const macroPromise = options?.precomputedMacro != null
-      ? Promise.resolve(options.precomputedMacro)
-      : runExpertMacro(input.symbol, fullInput, timeoutMs, model);
+      ? settleNow(Promise.resolve(options.precomputedMacro))
+      : settleNow(runExpertMacro(input.symbol, fullInput, timeoutMs, model));
     await sleep(300);
-    const onchainPromise = runExpertOnChain(fullInput, model, timeoutMs);
+    const onchainPromise = settleNow(runExpertOnChain(fullInput, model, timeoutMs));
     await sleep(300);
-    const deepMemoryPromise = runExpertDeepMemory(fullInput, model, timeoutMs);
+    const deepMemoryPromise = settleNow(runExpertDeepMemory(fullInput, model, timeoutMs));
 
-    return Promise.allSettled([
+    return Promise.all([
       techPromise,
       riskPromise,
       psychPromise,
