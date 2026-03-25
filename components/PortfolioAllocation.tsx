@@ -15,7 +15,7 @@ import {
   deriveRiskLevel,
   type PortfolioAllocationInput,
   type PortfolioAllocationResult,
-} from '@/lib/portfolio-logic';
+} from '@/lib/portfolio-math';
 import { round2 } from '@/lib/decimal';
 
 /** Simulation summary position shape (from /api/simulation/summary). */

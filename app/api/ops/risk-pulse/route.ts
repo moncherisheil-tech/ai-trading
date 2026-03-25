@@ -7,7 +7,7 @@
 import { NextResponse } from 'next/server';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { getAppSettings } from '@/lib/db/app-settings';
-import { computePortfolioAllocation } from '@/lib/portfolio-logic';
+import { computePortfolioAllocation } from '@/lib/portfolio-math';
 import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { APP_CONFIG } from '@/lib/config';
 import { toDecimal, round2 } from '@/lib/decimal';

@@ -6,7 +6,7 @@
 
 import { getAppSettings, DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
-import { computePortfolioAllocation } from '@/lib/portfolio-logic';
+import { computePortfolioAllocation } from '@/lib/portfolio-math';
 import { getVirtualPortfolioSummary } from '@/lib/simulation-service';
 import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { APP_CONFIG } from '@/lib/config';
