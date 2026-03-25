@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { messages, type Locale } from '@/lib/i18n';
+import { normalizeLocale } from '@/lib/locale';
 
 export function useLocale() {
   const [locale, setLocale] = useState<Locale>('he');
 
   useEffect(() => {
     const sync = () => {
-      const lang = document.documentElement.lang === 'he' ? 'he' : 'en';
-      setLocale(lang);
+      setLocale(normalizeLocale(document.documentElement.lang, 'he'));
     };
 
     sync();
@@ -18,5 +18,5 @@ export function useLocale() {
   }, []);
 
   const t = useMemo(() => messages[locale], [locale]);
-  return { locale, t };
+  return { locale, isRtl: locale === 'he', t };
 }

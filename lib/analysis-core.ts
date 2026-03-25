@@ -45,6 +45,7 @@ import {
   formatOISignal,
   type RawKlineRow,
 } from '@/lib/quant/open-interest';
+import type { Locale } from '@/lib/i18n';
 
 /** Technical indicators fed to the Quant model. Extend with macd_signal, etc. when available. */
 export interface TechnicalIndicatorsInput {
@@ -351,6 +352,8 @@ export type DoAnalysisCoreOptions = {
   skipGemAlert?: boolean;
   /** Pre-computed Macro Expert summary from scanner cycle; skips Groq Macro call and macro context fetch. */
   precomputedMacro?: ExpertMacroOutput;
+  /** Output language for AI textual fields. */
+  locale?: Locale;
 };
 
 /**
@@ -362,6 +365,10 @@ export async function doAnalysisCore(
   useCache: boolean,
   options?: DoAnalysisCoreOptions
 ): Promise<{ success: true; data: PredictionRecord; chartData: BinanceKline[] }> {
+  const outputLocale: Locale = options?.locale === 'en' ? 'en' : 'he';
+  const textLanguage = outputLocale === 'he' ? 'Hebrew' : 'English';
+  const localizedLanguageRule =
+    outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
   let activeModel = APP_CONFIG.primaryModel || 'gemini-2.5-flash';
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
@@ -691,17 +698,17 @@ export async function doAnalysisCore(
   const systemInstruction = `You are an Elite Quantitative Analyst and Principal AI Architect for crypto markets.
 Your role: produce institutional-grade, deterministic price-direction predictions.
 
-CRITICAL LOCALIZATION: ALL textual analysis, logic summaries, bottom lines, strategic advice, learning context, and evidence snippets MUST be generated in fluent, professional Hebrew. Do not output English text for these fields.
+CRITICAL LOCALIZATION: ALL textual analysis, logic summaries, bottom lines, strategic advice, learning context, and evidence snippets MUST be generated in ${localizedLanguageRule}. Do not mix languages.
 
 RULES:
-1. All text outputs (logic, strategic_advice, learning_context, evidence_snippet) MUST be in Hebrew.
+1. All text outputs (logic, strategic_advice, learning_context, evidence_snippet) MUST be in ${textLanguage}.
 2. Weigh explicitly: (a) Market Sentiment (sentiment_score, market_narrative), (b) Order Book / liquidity context if implied by volume and volatility, (c) Volatility (technical_indicators.volatility_pct), (d) Technicals (RSI, and any other provided indicators), (e) Historical Pattern Recognition using past_mistakes_to_learn_from and historical_prediction_outcomes to avoid repeating errors and to calibrate confidence, (f) multi_timeframe_trends (1h, 4h, 1d) — prefer alignment on at least 2 timeframes for high confidence, (g) hvn_levels (High Volume Nodes = dynamic support/resistance), (h) pattern_warnings — if present, reduce probability or add caveats, (i) whaleActivity with special emphasis that exchange inflows are bearish and exchange outflows can be bullish, (j) developerActivity with strong recent commits/releases interpreted as bullish while warning/severe inactivity is bearish.
 3. Reply with ONLY a single valid JSON object in the response body. No markdown code fences, no explanation before or after. The field "symbol" must exactly match the request "asset".
-4. Required fields: symbol (same as asset), probability (0-100 integer), target_percentage (number), direction (Bullish | Bearish | Neutral), risk_level (High | Medium | Low), logic (one concise analytical sentence in Hebrew summarizing your reasoning), strategic_advice (Hebrew), learning_context (Hebrew), sources (array of { source_name, source_type, timestamp, evidence_snippet, relevance_score }).
+4. Required fields: symbol (same as asset), probability (0-100 integer), target_percentage (number), direction (Bullish | Bearish | Neutral), risk_level (High | Medium | Low), logic (one concise analytical sentence summarizing your reasoning), strategic_advice, learning_context, sources (array of { source_name, source_type, timestamp, evidence_snippet, relevance_score }).
 5. risk_level: High = extreme volatility or sentiment, Medium = elevated uncertainty, Low = stable regime.
 6. Be conservative: when historical_prediction_outcomes show repeated misses or high absolute_error_pct, or when pattern_warnings exist, reduce probability or shift toward Neutral. Elite Gem requires trend confirmed on at least 2 timeframes.
-7. Provide tactical_opinion_he: one short sentence in Hebrew relating the ATR-based suggested_sl_long/suggested_tp_long (or short) and hvn_levels to your direction — e.g. where to place SL/TP relative to HVN.
-8. BOTTOM LINE (beginner-friendly): Your logic and strategic_advice must allow the system to derive a single 1–2 sentence extremely simple summary in Hebrew (e.g. "המערכת מזהה הזדמנות קנייה ברמת סיכון בינונית, מומלץ להמתין לירידה קלה לפני כניסה") so a user with zero experience understands the final recommendation at a glance.`;
+7. Provide tactical_opinion_he: one short sentence in ${textLanguage} relating the ATR-based suggested_sl_long/suggested_tp_long (or short) and hvn_levels to your direction — e.g. where to place SL/TP relative to HVN.
+8. BOTTOM LINE (beginner-friendly): Your logic and strategic_advice must allow the system to derive a single 1–2 sentence extremely simple summary in ${textLanguage} so a user with zero experience understands the final recommendation at a glance.`;
 
   const promptData = {
     asset: cleanSymbol,
@@ -886,20 +893,32 @@ RULES:
   const riskStatus: PredictionRecord['risk_status'] =
     guardrailStatus === 'EXTREME_FEAR' ? 'extreme_fear' : guardrailStatus === 'EXTREME_GREED' ? 'extreme_greed' : 'normal';
   const risk_level_he =
-    result.risk_level === 'High'
-      ? 'סיכון גבוה'
-      : result.risk_level === 'Medium'
-        ? 'סיכון בינוני'
-        : result.risk_level === 'Low'
-          ? 'סיכון נמוך'
-          : getRiskLevelHe(riskFactor, riskStatus);
-  const { bottom_line_he, forecast_24h_he } = buildHebrewReport({
-    direction: result.direction,
-    probability: result.probability,
-    targetPercentage: result.target_percentage,
-    riskLevelHe: risk_level_he,
-    symbol: cleanSymbol,
-  });
+    outputLocale === 'he'
+      ? (result.risk_level === 'High'
+          ? 'סיכון גבוה'
+          : result.risk_level === 'Medium'
+            ? 'סיכון בינוני'
+            : result.risk_level === 'Low'
+              ? 'סיכון נמוך'
+              : getRiskLevelHe(riskFactor, riskStatus))
+      : (result.risk_level === 'High'
+          ? 'High risk'
+          : result.risk_level === 'Medium'
+            ? 'Medium risk'
+            : 'Low risk');
+  const { bottom_line_he, forecast_24h_he } =
+    outputLocale === 'he'
+      ? buildHebrewReport({
+          direction: result.direction,
+          probability: result.probability,
+          targetPercentage: result.target_percentage,
+          riskLevelHe: risk_level_he,
+          symbol: cleanSymbol,
+        })
+      : {
+          bottom_line_he: `${cleanSymbol}: ${result.direction} outlook with ${result.probability}% confidence (${risk_level_he}).`,
+          forecast_24h_he: `24h projection: ${result.target_percentage >= 0 ? '+' : ''}${result.target_percentage.toFixed(1)}% from current levels.`,
+        };
   const confidenceForRisk = consensusResult?.final_confidence ?? result.probability;
   const marketVolatilityPct = volatility * 100;
   const positionSizing = calculatePositionSize(

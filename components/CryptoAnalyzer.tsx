@@ -51,7 +51,7 @@ const DEEP_LOADING_MESSAGES: { afterMs: number; message: string }[] = [
 ];
 
 export default function CryptoAnalyzer() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const toast = useToast();
   const {
     selectedSymbol,
@@ -259,6 +259,7 @@ export default function CryptoAnalyzer() {
       honeypot,
       submittedAt: formRenderedAt,
       captchaToken: '',
+      locale,
     });
     if (res.success) {
       setAiEngineDown(false);
@@ -288,7 +289,7 @@ export default function CryptoAnalyzer() {
 
   const handleEvaluate = useCallback(async () => {
     setEvaluating(true);
-    const res = await evaluatePendingPredictions();
+    const res = await evaluatePendingPredictions({ locale });
     if (res.success) await loadHistory();
     setEvaluating(false);
   }, [loadHistory]);

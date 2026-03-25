@@ -11,6 +11,8 @@ import { getVirtualPortfolioSummary } from '@/lib/simulation-service';
 import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { APP_CONFIG } from '@/lib/config';
 import { toDecimal, round2 } from '@/lib/decimal';
+import type { Locale } from '@/lib/i18n';
+import { getRequestLocale } from '@/lib/locale';
 
 const REF_LIQUID_USD = 10_000;
 
@@ -205,7 +207,9 @@ export async function getSystemContextForChat(): Promise<SystemContextForChat> {
  * Build Overseer AI reply for CEO chat (Web + Telegram). Uses Gemini with system context.
  * Returns concise professional Hebrew response focused on risk and status.
  */
-export async function getOverseerChatReply(userMessage: string): Promise<string> {
+export async function getOverseerChatReply(userMessage: string, locale?: Locale): Promise<string> {
+  const outputLocale = locale ?? await getRequestLocale();
+  const isHebrew = outputLocale === 'he';
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const { getGeminiApiKey } = await import('@/lib/env');
   const { APP_CONFIG } = await import('@/lib/config');
@@ -228,7 +232,7 @@ export async function getOverseerChatReply(userMessage: string): Promise<string>
   const systemInstruction = `You are the System Overseer (Virtual COO) of Smart Money. Current system data:
 ${dataBlob}
 
-Answer the CEO's message concisely in professional Hebrew, focusing on risk and status. Be brief (2-4 sentences). No markdown, no code blocks.`;
+Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'English'}, focusing on risk and status. Be brief (2-4 sentences). No markdown, no code blocks.`;
 
   const apiKey = getGeminiApiKey();
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -251,14 +255,16 @@ Answer the CEO's message concisely in professional Hebrew, focusing on risk and 
   } catch {
     text = '';
   }
-  return text || 'לא התקבלה תשובה מהמערכת. נסה שוב.';
+  return text || (isHebrew ? 'לא התקבלה תשובה מהמערכת. נסה שוב.' : 'No response received from the system. Please try again.');
 }
 
 /**
  * CIO-style daily summary for Hedge Fund Pulse.
  * One concise English sentence for professional investors.
  */
-export async function getDailyCioSummary(): Promise<string> {
+export async function getDailyCioSummary(locale?: Locale): Promise<string> {
+  const outputLocale = locale ?? await getRequestLocale();
+  const isHebrew = outputLocale === 'he';
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const { getGeminiApiKey } = await import('@/lib/env');
   const { APP_CONFIG } = await import('@/lib/config');
@@ -281,7 +287,7 @@ export async function getDailyCioSummary(): Promise<string> {
   const systemInstruction = `You are the CIO of Mon Chéri Quant hedge fund. Current system data:
 ${dataBlob}
 
-Write a single English sentence (max 30 words) summarizing today's trading and risk posture for sophisticated hedge fund investors. Do not use markdown or quotes. Neutral, institutional tone.`;
+Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summarizing today's trading and risk posture for sophisticated hedge fund investors. Do not use markdown or quotes. Neutral, institutional tone.`;
 
   const apiKey = getGeminiApiKey();
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -306,6 +312,6 @@ Write a single English sentence (max 30 words) summarizing today's trading and r
   } catch {
     text = '';
   }
-  return text || 'No CIO summary available for today.';
+  return text || (isHebrew ? 'אין סיכום CIO זמין להיום.' : 'No CIO summary available for today.');
 }
 

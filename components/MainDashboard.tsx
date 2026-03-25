@@ -9,6 +9,7 @@ import PaperTradingPanel from '@/components/PaperTradingPanel';
 import AIAccuracyChart from '@/components/AIAccuracyChart';
 import DeepMemoryFeed from '@/components/DeepMemoryFeed';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { useLocale } from '@/hooks/use-locale';
 
 const GLASS =
   'bg-zinc-900/60 backdrop-blur-xl border border-white/5 rounded-3xl shadow-2xl';
@@ -28,11 +29,12 @@ const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
 });
 
 function TerminalClock() {
+  const { locale } = useLocale();
   const [now, setNow] = useState<string>('');
   useEffect(() => {
     const tick = () =>
       setNow(
-        new Date().toLocaleString('en-GB', {
+        new Date().toLocaleString(locale === 'he' ? 'he-IL' : 'en-GB', {
           weekday: 'short',
           hour: '2-digit',
           minute: '2-digit',
@@ -43,7 +45,7 @@ function TerminalClock() {
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [locale]);
   return (
     <div className="font-mono text-xs sm:text-sm text-cyan-400/90 tabular-nums tracking-tight text-end">
       <span className="text-zinc-500 text-[10px] uppercase tracking-widest block sm:inline sm:me-3">UTC+local</span>
@@ -56,10 +58,11 @@ function TerminalClock() {
  * Bloomberg-style terminal dashboard: bento grid + glass cards + Deep Memory stream.
  */
 export default function MainDashboard() {
+  const { locale, isRtl } = useLocale();
   return (
     <section
       className="relative min-h-screen bg-[#030306] text-zinc-100 overflow-x-hidden"
-      dir="rtl"
+      dir={isRtl ? 'rtl' : 'ltr'}
     >
       {/* Terminal ambience */}
       <div
@@ -91,8 +94,8 @@ export default function MainDashboard() {
             </div>
             <div className="min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-amber-500/80">Quantum Terminal</p>
-              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">לוח בקרה ראשי</h1>
-              <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">סימולציה ולימוד בלבד · לא ייעוץ השקעות</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">{locale === 'he' ? 'לוח בקרה ראשי' : 'Main Dashboard'}</h1>
+              <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">{locale === 'he' ? 'סימולציה ולימוד בלבד · לא ייעוץ השקעות' : 'Simulation and learning only · not investment advice'}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
@@ -112,7 +115,7 @@ export default function MainDashboard() {
           <div className={`${GLASS} overflow-hidden flex flex-col lg:col-span-1 xl:col-span-1`}>
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-black/15">
               <Shield className="h-4 w-4 text-emerald-400/90" aria-hidden />
-              <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">סטטוס שוק</span>
+              <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">{locale === 'he' ? 'סטטוס שוק' : 'Market Status'}</span>
             </div>
             <MarketSafetyBanner />
             <div className="border-t border-white/5 flex-1 min-h-0">
@@ -126,12 +129,12 @@ export default function MainDashboard() {
               <BarChart2 className="h-5 w-5 text-cyan-400/80 shrink-0 mt-0.5" aria-hidden />
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Analytics</p>
-                <p className="text-sm font-semibold text-zinc-200 leading-snug">דיוק AI ומגמות ביצועים בזמן אמת</p>
+                <p className="text-sm font-semibold text-zinc-200 leading-snug">{locale === 'he' ? 'דיוק AI ומגמות ביצועים בזמן אמת' : 'AI accuracy and real-time performance trends'}</p>
               </div>
             </div>
             <div className="h-px bg-white/5" />
             <p className="text-xs text-zinc-500 leading-relaxed">
-              הנתונים מסונכרנים עם מנוע הקונצנזוס והזיכרון העמוק. השתמש בלוח הביצועים לפרטים מלאים.
+              {locale === 'he' ? 'הנתונים מסונכרנים עם מנוע הקונצנזוס והזיכרון העמוק. השתמש בלוח הביצועים לפרטים מלאים.' : 'Data is synced with the consensus engine and deep memory layer. Use the performance board for full details.'}
             </p>
           </div>
 
@@ -149,7 +152,7 @@ export default function MainDashboard() {
           <div className={`${GLASS} overflow-hidden lg:col-span-3 xl:col-span-4`}>
             <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5 bg-black/20">
               <Cpu className="h-4 w-4 text-amber-400/90" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">ניתוח קריפטו · קונצנזוס</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">{locale === 'he' ? 'ניתוח קריפטו · קונצנזוס' : 'Crypto Analysis · Consensus'}</span>
             </div>
             <div className="p-4 sm:p-6 overflow-x-hidden">
               <CryptoAnalyzer />

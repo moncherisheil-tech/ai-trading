@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 // next/font/google disabled to avoid next-font-loader timeout in dev; using Tailwind system fonts
 // import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
+import Script from 'next/script';
 import PwaMeta from '@/components/PwaMeta';
 import RegisterServiceWorker from '@/components/RegisterServiceWorker';
 import { ThemeApplicator } from '@/context/AppSettingsContext';
@@ -37,6 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className="font-sans bg-[var(--background)] text-[var(--app-text)] antialiased min-h-screen min-h-[100dvh] overflow-x-hidden max-w-[100vw] flex flex-col"
         suppressHydrationWarning
       >
+        <Script id="locale-init" strategy="beforeInteractive">
+          {`(function(){try{var k='app-locale';var m=localStorage.getItem(k);var c=document.cookie.match(/(?:^|; )app-locale=([^;]+)/);var l=(m==='he'||m==='en')?m:(c&&decodeURIComponent(c[1]));if(l!=='he'&&l!=='en'){l='he';}document.documentElement.lang=l;document.documentElement.dir=(l==='he'?'rtl':'ltr');}catch(e){}})();`}
+        </Script>
         <PwaMeta />
         <RegisterServiceWorker />
         <ThemeApplicator>

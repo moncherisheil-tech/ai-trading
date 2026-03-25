@@ -29,6 +29,8 @@ import { isSupportedBase } from '@/lib/symbols';
 import { doAnalysisCore } from '@/lib/analysis-core';
 import { DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
 import type { SimulationResult, LoginResult, BinanceKline } from '@/lib/actions-types';
+import { getRequestLocale } from '@/lib/locale';
+import type { Locale } from '@/lib/i18n';
 
 interface BinanceTickerPrice {
   symbol?: string;
@@ -40,6 +42,7 @@ type AnalyzeInput = {
   honeypot?: string;
   submittedAt?: number;
   captchaToken?: string;
+  locale?: Locale;
 };
 
 async function requireAuth(requiredRole: SessionRole = 'viewer'): Promise<void> {
@@ -160,7 +163,7 @@ function logZodError(err: z.ZodError): void {
 
 export async function runCryptoAnalysisCore(
   rawSymbol: string,
-  options?: { skipCache?: boolean }
+  options?: { skipCache?: boolean; locale?: Locale }
 ): Promise<SimulationResult> {
   try {
     const cleanSymbol = normalizeSymbol((rawSymbol || '').trim());
@@ -168,7 +171,8 @@ export async function runCryptoAnalysisCore(
     if (!isSupportedBase(base)) {
       return { success: false, error: 'מטבע לא נתמך. בחר מתוך רשימת המטבעות הזמינים.' };
     }
-    return await doAnalysisCore(cleanSymbol, Date.now(), !options?.skipCache);
+    const requestLocale = options?.locale ?? await getRequestLocale();
+    return await doAnalysisCore(cleanSymbol, Date.now(), !options?.skipCache, { locale: requestLocale });
   } catch (error: unknown) {
     const requestId = crypto.randomUUID();
     const isZod = error instanceof z.ZodError;
@@ -222,7 +226,8 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
     }
 
     const cleanSymbol = normalizeSymbol(inputSymbol);
-    return await doAnalysisCore(cleanSymbol, startedAt, true);
+    const requestLocale = input.locale ?? await getRequestLocale();
+    return await doAnalysisCore(cleanSymbol, startedAt, true, { locale: requestLocale });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);
     if (process.env.NODE_ENV === 'development') {
@@ -271,7 +276,9 @@ export async function getHistory() {
   return rows.sort((a, b) => new Date(b.prediction_date).getTime() - new Date(a.prediction_date).getTime());
 }
 
-export async function evaluatePendingPredictions(options?: { internalWorker?: boolean }) {
+export async function evaluatePendingPredictions(options?: { internalWorker?: boolean; locale?: Locale }) {
+  const locale = options?.locale ?? await getRequestLocale();
+  const isHebrew = locale === 'he';
   if (!options?.internalWorker) {
     await requireAuth('operator');
   }
@@ -376,7 +383,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           Actual Current Price: $${currentPrice} (${priceDiffPct.toFixed(2)}% move)
           Your Logic was: ${record.logic}
 
-          Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in Hebrew) to avoid this mistake next time.
+          Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in ${isHebrew ? 'Hebrew' : 'English'}) to avoid this mistake next time.
           `;
 
           const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-2.5-flash' });
@@ -392,12 +399,12 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           ]);
 
           try {
-            record.error_report = response.response.text() || "Failed to generate learning note.";
+            record.error_report = response.response.text() || (isHebrew ? 'יצירת הערת למידה נכשלה.' : 'Failed to generate learning note.');
           } catch {
-            record.error_report = "Failed to generate learning note.";
+            record.error_report = isHebrew ? 'יצירת הערת למידה נכשלה.' : 'Failed to generate learning note.';
           }
         } else {
-          record.error_report = "התחזית הייתה נכונה. הדפוס אומת בהצלחה.";
+          record.error_report = isHebrew ? 'התחזית הייתה נכונה. הדפוס אומת בהצלחה.' : 'The prediction was correct. Pattern validated successfully.';
         }
 
         record.status = 'evaluated';
@@ -405,7 +412,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
       } catch (err) {
         const isTimeout = err instanceof Error && (err.message === 'Gemini request timeout' || err.message.includes('timeout'));
         if (isTimeout) {
-          record.error_report = "לא ניתן ליצור הערת למידה (תם הזמן).";
+          record.error_report = isHebrew ? 'לא ניתן ליצור הערת למידה (תם הזמן).' : 'Could not generate learning note (timed out).';
           record.status = 'evaluated';
           updatedCount++;
         }

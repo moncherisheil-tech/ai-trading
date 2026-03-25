@@ -27,7 +27,7 @@ import { NAV_ITEMS, getNavLabel } from '@/lib/nav-config';
 type RiskLevel = 'green' | 'amber' | 'red';
 
 export default function AppHeader() {
-  const { t } = useLocale();
+  const { t, locale, isRtl } = useLocale();
   const pathname = usePathname();
   const sim = useSimulationOptional();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -66,18 +66,18 @@ export default function AppHeader() {
     <>
       {/* Desktop premium sidebar */}
       <aside
-        className={`hidden md:flex fixed top-0 end-0 bottom-0 z-[var(--z-header)] backdrop-blur-2xl shadow-2xl overflow-hidden border-s border-[var(--app-border)] bg-[var(--app-surface)]/92 transition-[width] duration-200 ${
+        className={`hidden md:flex fixed top-0 ${isRtl ? 'end-0 border-s' : 'start-0 border-e'} bottom-0 z-[var(--z-header)] backdrop-blur-2xl shadow-2xl overflow-hidden border-[var(--app-border)] bg-[var(--app-surface)]/92 transition-[width] duration-200 ${
           sidebarCollapsed ? 'w-[92px]' : 'w-[280px]'
         }`}
-        dir="rtl"
-        aria-label="ניווט צדדי"
+        dir={isRtl ? 'rtl' : 'ltr'}
+        aria-label={locale === 'he' ? 'ניווט צדדי' : 'Sidebar navigation'}
       >
         <div className="flex flex-col h-full">
           <div className="h-16 px-4 flex items-center justify-between gap-3 border-b border-white/10 bg-[var(--app-surface)]/70">
             <Link
               href="/"
               className="flex items-center gap-3 min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 rounded-lg"
-              aria-label="דף הבית"
+              aria-label={locale === 'he' ? 'דף הבית' : 'Home'}
             >
               <div className="w-9 h-9 bg-emerald-500/20 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)] shrink-0">
                 <Activity className="w-5 h-5" aria-hidden />
@@ -93,13 +93,13 @@ export default function AppHeader() {
               type="button"
               onClick={() => setSidebarCollapsed((v) => !v)}
               className="flex items-center justify-center w-10 h-10 rounded-xl text-zinc-400 hover:bg-white/5 hover:text-amber-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-              aria-label={sidebarCollapsed ? 'הרחב סרגל ניווט' : 'כווץ סרגל ניווט'}
+              aria-label={sidebarCollapsed ? (locale === 'he' ? 'הרחב סרגל ניווט' : 'Expand sidebar') : (locale === 'he' ? 'כווץ סרגל ניווט' : 'Collapse sidebar')}
             >
               {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1" aria-label="ניווט ראשי">
+          <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-1" aria-label={locale === 'he' ? 'ניווט ראשי' : 'Primary navigation'}>
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const label = getNavLabel(item, t as Record<string, string>);
@@ -132,7 +132,7 @@ export default function AppHeader() {
             <Link
               href={diagnosticsHref}
               prefetch={true}
-              title={sidebarCollapsed ? 'אבחון' : undefined}
+              title={sidebarCollapsed ? (locale === 'he' ? 'אבחון' : 'Diagnostics') : undefined}
               className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                 isDiagnosticsActive
                   ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
@@ -145,24 +145,24 @@ export default function AppHeader() {
               aria-current={isDiagnosticsActive ? 'page' : undefined}
             >
               <Activity className="w-5 h-5 shrink-0" aria-hidden />
-              {!sidebarCollapsed && <span className="truncate">אבחון</span>}
+              {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'אבחון' : 'Diagnostics'}</span>}
             </Link>
 
             {isOpsArea && (
               <>
                 {!sidebarCollapsed && (
                   <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.2em] text-amber-500/80">
-                    ניהול Ops
+                    {locale === 'he' ? 'ניהול Ops' : 'Ops Management'}
                   </div>
                 )}
                 {[
-                  { href: '/ops', label: 'לוח בקרה', icon: LayoutDashboard },
-                  { href: '/ops/diagnostics', label: 'אבחון', icon: Activity },
+                  { href: '/ops', label: locale === 'he' ? 'לוח בקרה' : 'Dashboard', icon: LayoutDashboard },
+                  { href: '/ops/diagnostics', label: locale === 'he' ? 'אבחון' : 'Diagnostics', icon: Activity },
                   { href: '/ops/strategies', label: t.strategyInsights ?? 'אסטרטגיות', icon: BarChart3 },
                   { href: '/ops/pnl', label: t.pnlTerminal ?? 'PnL', icon: LineChart },
                   { href: '/admin/quantum', label: t.quantumAi ?? 'Quantum AI', icon: Cpu },
                   { href: '/admin/signals', label: t.alphaSignals ?? 'Alpha Signals', icon: Sparkles },
-                  { href: '/performance', label: 'ביצועים', icon: TrendingUp },
+                  { href: '/performance', label: locale === 'he' ? 'ביצועים' : 'Performance', icon: TrendingUp },
                   { href: '/settings', label: t.settings ?? 'הגדרות', icon: Settings },
                 ].map(({ href, label, icon: Icon }) => {
                   const norm = pathname.replace(/\/$/, '') || '/';
@@ -199,7 +199,7 @@ export default function AppHeader() {
             <Link
               href="/guide"
               prefetch={true}
-              title={sidebarCollapsed ? 'מדריך למשתמש' : undefined}
+              title={sidebarCollapsed ? (locale === 'he' ? 'מדריך למשתמש' : 'User Guide') : undefined}
               className={`relative group flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                 isGuideActive
                   ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
@@ -212,19 +212,19 @@ export default function AppHeader() {
               aria-current={isGuideActive ? 'page' : undefined}
             >
               <BookOpen className="w-5 h-5 shrink-0" aria-hidden />
-              {!sidebarCollapsed && <span className="truncate">מדריך למשתמש</span>}
+              {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'מדריך למשתמש' : 'User Guide'}</span>}
             </Link>
           </nav>
 
           <div className="p-3 border-t border-white/10 space-y-3">
             <div className={`flex items-center gap-3 ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
               {!sidebarCollapsed && (
-                <span className="text-xs text-zinc-500 font-medium">חשיפה</span>
+                <span className="text-xs text-zinc-500 font-medium">{locale === 'he' ? 'חשיפה' : 'Exposure'}</span>
               )}
               <span
                 className="w-3.5 h-3.5 rounded-full shrink-0"
-                title={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
-                aria-label={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
+                title={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
+                aria-label={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
                 style={{
                   backgroundColor: riskPulse === 'red' ? '#ef4444' : riskPulse === 'amber' ? '#f59e0b' : '#22c55e',
                   boxShadow:
@@ -254,10 +254,10 @@ export default function AppHeader() {
                     ? 'justify-center'
                     : 'text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50'
                 } ${sidebarCollapsed ? 'text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50' : ''}`}
-                aria-label="פרופיל"
+                aria-label={locale === 'he' ? 'פרופיל' : 'Profile'}
               >
                 <UserCircle2 className="w-5 h-5 shrink-0" aria-hidden />
-                {!sidebarCollapsed && <span className="truncate">פרופיל</span>}
+                {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'פרופיל' : 'Profile'}</span>}
               </Link>
               <div className={sidebarCollapsed ? 'px-1' : ''}>
                 <LanguageToggle />
@@ -289,7 +289,7 @@ export default function AppHeader() {
       {/* Mobile header */}
       <header
         className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] backdrop-blur-xl z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden"
-        dir="rtl"
+        dir={isRtl ? 'rtl' : 'ltr'}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 lg:gap-6 min-w-0">
           {/* Logo */}
@@ -297,7 +297,7 @@ export default function AppHeader() {
             <Link
               href="/"
               className="flex items-center gap-2 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-              aria-label="דף הבית"
+              aria-label={locale === 'he' ? 'דף הבית' : 'Home'}
             >
               <div className="w-8 h-8 bg-emerald-500/20 border border-emerald-500/30 rounded-lg flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)] shrink-0">
                 <Activity className="w-4 h-4" aria-hidden />
@@ -308,8 +308,8 @@ export default function AppHeader() {
           <div className="flex items-center gap-2 shrink-0">
             <span
               className="hidden sm:flex w-3 h-3 rounded-full shrink-0"
-              title={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
-              aria-label={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
+              title={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
+              aria-label={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
               style={{
                 backgroundColor: riskPulse === 'red' ? '#ef4444' : riskPulse === 'amber' ? '#f59e0b' : '#22c55e',
                 boxShadow:
@@ -330,7 +330,7 @@ export default function AppHeader() {
               onClick={() => setMenuOpen((o) => !o)}
               className="flex items-center justify-center w-10 h-10 rounded-lg text-zinc-400 hover:bg-zinc-800/80 hover:text-amber-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
               aria-expanded={menuOpen}
-              aria-label={menuOpen ? 'סגור תפריט' : 'פתח תפריט'}
+              aria-label={menuOpen ? (locale === 'he' ? 'סגור תפריט' : 'Close menu') : (locale === 'he' ? 'פתח תפריט' : 'Open menu')}
             >
               {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -346,18 +346,18 @@ export default function AppHeader() {
               onClick={() => setMenuOpen(false)}
             />
             <div
-              className="fixed top-0 start-0 bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-e border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col"
+              className={`fixed top-0 ${isRtl ? 'end-0 border-s' : 'start-0 border-e'} bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col`}
               role="dialog"
               aria-modal="true"
-              aria-label="תפריט ניווט"
+              aria-label={locale === 'he' ? 'תפריט ניווט' : 'Navigation menu'}
             >
               <div className="sticky top-0 flex items-center justify-between p-4 border-b border-white/10 bg-[#0f0f0f]/98 backdrop-blur shrink-0">
-                <span className="text-sm font-semibold text-zinc-300">תפריט</span>
+                <span className="text-sm font-semibold text-zinc-300">{locale === 'he' ? 'תפריט' : 'Menu'}</span>
                 <button
                   type="button"
                   onClick={() => setMenuOpen(false)}
                   className="p-2 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-                  aria-label="סגור תפריט"
+                  aria-label={locale === 'he' ? 'סגור תפריט' : 'Close menu'}
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -398,23 +398,23 @@ export default function AppHeader() {
               aria-current={isDiagnosticsActive ? 'page' : undefined}
             >
               <Activity className="w-5 h-5 shrink-0" aria-hidden />
-              אבחון
+              {locale === 'he' ? 'אבחון' : 'Diagnostics'}
             </Link>
             )}
 
                 {isOpsArea && (
                   <>
                     <div className="px-4 py-2 mt-2 text-[10px] font-bold uppercase tracking-widest text-amber-500/70 border-t border-white/10 pt-4">
-                      ניהול Ops
+                      {locale === 'he' ? 'ניהול Ops' : 'Ops Management'}
                     </div>
                     {[
-                      { href: '/ops', label: 'לוח בקרה', icon: LayoutDashboard },
-                      { href: '/ops/diagnostics', label: 'אבחון', icon: Activity },
+                      { href: '/ops', label: locale === 'he' ? 'לוח בקרה' : 'Dashboard', icon: LayoutDashboard },
+                      { href: '/ops/diagnostics', label: locale === 'he' ? 'אבחון' : 'Diagnostics', icon: Activity },
                       { href: '/ops/strategies', label: t.strategyInsights ?? 'אסטרטגיות', icon: BarChart3 },
                       { href: '/ops/pnl', label: t.pnlTerminal ?? 'PnL', icon: LineChart },
                       { href: '/admin/quantum', label: t.quantumAi ?? 'Quantum AI', icon: Cpu },
                       { href: '/admin/signals', label: t.alphaSignals ?? 'Alpha Signals', icon: Sparkles },
-                      { href: '/performance', label: 'ביצועים', icon: TrendingUp },
+                      { href: '/performance', label: locale === 'he' ? 'ביצועים' : 'Performance', icon: TrendingUp },
                       { href: '/settings', label: t.settings ?? 'הגדרות', icon: Settings },
                     ].map(({ href, label, icon: Icon }) => {
                       const norm = pathname.replace(/\/$/, '') || '/';
@@ -458,7 +458,7 @@ export default function AppHeader() {
                   aria-current={isGuideActive ? 'page' : undefined}
                 >
                   <BookOpen className="w-5 h-5 shrink-0" aria-hidden />
-                  מדריך למשתמש
+                  {locale === 'he' ? 'מדריך למשתמש' : 'User Guide'}
                 </Link>
                 {sim && (
                   <div className="flex items-center gap-2 px-4 py-3 mt-2 rounded-xl bg-zinc-800/80 border border-zinc-700/50 text-amber-300/90 text-sm font-medium">
@@ -472,13 +472,13 @@ export default function AppHeader() {
                   href="/profile"
                   onClick={() => setMenuOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 min-h-[48px] mt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
-                  aria-label="פרופיל"
+                  aria-label={locale === 'he' ? 'פרופיל' : 'Profile'}
                 >
                   <UserCircle2 className="w-5 h-5 shrink-0" aria-hidden />
-                  פרופיל
+                  {locale === 'he' ? 'פרופיל' : 'Profile'}
                 </Link>
                 <div className="flex items-center justify-between px-4 py-3 mt-4 pt-4 border-t border-white/5">
-                  <span className="text-xs text-zinc-500">גרסה v1.3</span>
+                  <span className="text-xs text-zinc-500">{locale === 'he' ? 'גרסה v1.3' : 'Version v1.3'}</span>
                   <LanguageToggle />
                 </div>
               </div>
