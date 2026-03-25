@@ -143,7 +143,7 @@ export type SetAppSettingsResult = { ok: true } | { ok: false; error: string };
 
 export async function setAppSettings(partial: Partial<AppSettings>): Promise<SetAppSettingsResult> {
   if (!usePostgres()) {
-    const msg = 'DATABASE_URL not configured. Set DATABASE_URL or POSTGRES_URL in environment.';
+    const msg = 'DATABASE_URL not configured. Set DATABASE_URL in environment.';
     console.error('[SAVE_ERROR] App settings:', msg);
     return { ok: false, error: msg };
   }

@@ -1,6 +1,18 @@
 /** Production base URL for absolute links and redirects. Set APP_URL in .env. */
 export const BASE_URL = process.env.APP_URL || '';
 
+function normalizeEnvValue(raw: string | undefined): string {
+  const value = (raw || '').trim();
+  if (!value) return '';
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 /**
  * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
  * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → http://localhost:3000
@@ -38,7 +50,7 @@ export const APP_CONFIG = {
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
   dbDriver: process.env.DB_DRIVER || 'file',
   sqlitePath: process.env.SQLITE_DB_PATH || 'predictions.sqlite',
-  postgresUrl: process.env.DATABASE_URL || process.env.POSTGRES_URL || '',
+  postgresUrl: normalizeEnvValue(process.env.DATABASE_URL),
   backupKeep: Number(process.env.DB_BACKUP_KEEP || 7),
   /** Timeout for Gemini API calls (ms); prevents server hang on slow responses. */
   geminiTimeoutMs: Number(process.env.GEMINI_TIMEOUT_MS || 60_000),

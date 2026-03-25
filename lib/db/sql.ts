@@ -2,10 +2,30 @@ import { Pool, type QueryResult } from 'pg';
 
 let pool: Pool | null = null;
 
+function normalizeEnvValue(raw: string | undefined): string {
+  const value = (raw || '').trim();
+  if (!value) return '';
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1).trim();
+  }
+  return value;
+}
+
 function connectionString(): string {
-  const url = (process.env.DATABASE_URL || process.env.POSTGRES_URL || '').trim();
+  const url = normalizeEnvValue(process.env.DATABASE_URL);
   if (!url) {
-    throw new Error('DATABASE_URL or POSTGRES_URL must be set for PostgreSQL access.');
+    throw new Error('DATABASE_URL must be set for PostgreSQL access.');
+  }
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname || parsed.hostname === 'base') {
+      throw new Error('invalid database host');
+    }
+  } catch {
+    throw new Error('DATABASE_URL is invalid. Use a full PostgreSQL URL (postgres://... or postgresql://...).');
   }
   return url;
 }

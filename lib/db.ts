@@ -84,7 +84,7 @@ function hasPostgres(): boolean {
 
 export async function getPredictionRepository() {
   if (!hasPostgres()) {
-    throw new Error('Postgres is not configured (DATABASE_URL or POSTGRES_URL).');
+    throw new Error('Postgres is not configured (DATABASE_URL).');
   }
   const { PostgresPredictionRepository } = await import('./db/postgres-repository');
   return new PostgresPredictionRepository();

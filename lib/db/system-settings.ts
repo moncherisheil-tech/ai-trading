@@ -64,7 +64,7 @@ export type SetScannerResult = { ok: true } | { ok: false; error: string };
 
 export async function setScannerActive(active: boolean): Promise<SetScannerResult> {
   if (!usePostgres()) {
-    const msg = 'DATABASE_URL not configured. Set DATABASE_URL or POSTGRES_URL in environment.';
+    const msg = 'DATABASE_URL not configured. Set DATABASE_URL in environment.';
     console.error('[SAVE_ERROR] Scanner settings:', msg);
     return { ok: false, error: msg };
   }
@@ -85,7 +85,7 @@ export async function setScannerActive(active: boolean): Promise<SetScannerResul
 
 export async function setLastScanTimestamp(ts: number): Promise<SetScannerResult> {
   if (!usePostgres()) {
-    const msg = 'DATABASE_URL not configured. Set DATABASE_URL or POSTGRES_URL in environment.';
+    const msg = 'DATABASE_URL not configured. Set DATABASE_URL in environment.';
     console.error('[SAVE_ERROR] Scanner settings (setLastScanTimestamp):', msg);
     return { ok: false, error: msg };
   }
