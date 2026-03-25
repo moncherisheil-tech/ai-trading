@@ -248,17 +248,14 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
     const requestId = crypto.randomUUID();
     const errorType = error instanceof Error ? error.constructor?.name : 'UnknownError';
     const isQuota = msg === 'QUOTA_EXHAUSTED_429' || /429|RESOURCE_EXHAUSTED|quota/i.test(msg);
-    const isAiEngineDown = msg === 'AI_ENGINE_ERROR';
-    const userMessage = isAiEngineDown
-      ? 'מנוע הניתוח בתחזוקה זמנית — נתוני השוק והמסחר ממשיכים לעבוד כרגיל.'
-      : isQuota
+    const userMessage = isQuota
         ? QUOTA_EXHAUSTED_MESSAGE_HE
         : msg || 'Analysis failed. Please try again.';
-    writeAudit({ event: 'analysis.failed', level: 'warn', meta: { requestId, errorType, quotaExhausted: isQuota, aiEngineError: isAiEngineDown, message: msg } });
+    writeAudit({ event: 'analysis.failed', level: 'warn', meta: { requestId, errorType, quotaExhausted: isQuota, message: msg } });
     if (typeof console !== 'undefined' && console.warn) {
       console.warn('[Analysis] Failed:', requestId, errorType, msg);
     }
-    return { success: false, error: userMessage, requestId, ...(isQuota && { quotaExhausted: true }), ...(isAiEngineDown && { aiEngineDown: true }) };
+    return { success: false, error: userMessage, requestId, ...(isQuota && { quotaExhausted: true }) };
   }
   });
 }

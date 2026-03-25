@@ -70,7 +70,6 @@ export default function CryptoAnalyzer() {
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [evaluating, setEvaluating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [aiEngineDown, setAiEngineDown] = useState(false);
   const [history, setHistory] = useState<PredictionRecord[]>([]);
   const [chartData, setChartData] = useState<{ date: string; close: number; open?: number; high?: number; low?: number }[]>([]);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(10);
@@ -262,7 +261,6 @@ export default function CryptoAnalyzer() {
       locale,
     });
     if (res.success) {
-      setAiEngineDown(false);
       const chartData = 'chartData' in res ? res.chartData : undefined;
       if (chartData?.length) {
         setChartData(
@@ -280,7 +278,6 @@ export default function CryptoAnalyzer() {
       const message = res.error === 'Unauthorized request.' ? t.unauthorizedRequest : (res.error || t.analysisErrorDefault);
       setError(message);
       setChartData([]);
-      setAiEngineDown(Boolean((res as { aiEngineDown?: boolean }).aiEngineDown));
     }
     setLoading(false);
     setLoadingStartedAt(null);
@@ -418,14 +415,6 @@ export default function CryptoAnalyzer() {
       className="w-full min-w-0 grid grid-cols-1 lg:grid-cols-12 gap-6 overflow-x-hidden"
       dir="rtl"
     >
-      {aiEngineDown && (
-        <div className="lg:col-span-12 mb-4 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 flex items-center gap-3" role="status" aria-live="polite">
-          <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400" aria-hidden />
-          <p className="text-sm font-medium" dir="rtl">
-            מנוע הניתוח בתחזוקה זמנית — נתוני השוק והמסחר ממשיכים לעבוד כרגיל.
-          </p>
-        </div>
-      )}
       {/* Currency switcher + Input */}
       <div className="lg:col-span-4 space-y-4 md:space-y-5">
         {/* Multi-currency switcher */}

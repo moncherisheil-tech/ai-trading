@@ -27,6 +27,7 @@ import {
   type ConsensusResult,
   type ExpertMacroOutput,
 } from '@/lib/consensus-engine';
+import { getLeviathanSnapshot } from '@/lib/leviathan';
 import { storeBoardMeetingMemory } from '@/lib/vector-db';
 import { getAppSettings } from '@/lib/db/app-settings';
 import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine';
@@ -467,7 +468,7 @@ export async function doAnalysisCore(
   const oiStartMs = nowMs - 7 * 24 * 60 * 60 * 1000;
   const assetTicker = getAssetTickerFromSymbol(cleanSymbol);
   const repoPath = ASSET_REPO_MAP[assetTicker] ?? `${assetTicker.toLowerCase()}/${assetTicker.toLowerCase()}`;
-  const [binanceData, fngData, sentimentResult, klines1h, klines4h, appSettings, klines4hContext, oiRows, whaleActivity, developerActivity] = await Promise.all([
+  const [binanceData, fngData, sentimentResult, klines1h, klines4h, appSettings, klines4hContext, oiRows, whaleActivity, developerActivity, leviathanSnapshot] = await Promise.all([
     fetchBinanceWithFallback(),
     fetchJson('https://api.alternative.me/fng/?limit=1', 'force-cache', fearGreedSchema).catch(() => ({ data: [] as { value?: string; value_classification?: string }[] })),
     getMarketSentiment(cleanSymbol).catch(() => ({ score: 0, narrative: 'No news-based sentiment available.' })),
@@ -493,6 +494,12 @@ export async function doAnalysisCore(
       latestReleases: [],
       severity: 'severe' as const,
       warning: 'Red Flag: Abandoned Project',
+    })),
+    getLeviathanSnapshot(cleanSymbol).catch(() => ({
+      symbol: cleanSymbol,
+      generatedAt: new Date().toISOString(),
+      signals: [],
+      institutionalWhaleContext: 'Leviathan providers unavailable for this cycle.',
     })),
   ]);
 
@@ -676,8 +683,10 @@ export async function doAnalysisCore(
               : 'מומנטום ניטרלי'),
         technical_context: technicalContextTextHe,
         open_interest_signal: openInterestSignal,
+        onchain_metric_shift: leviathanSnapshot.institutionalWhaleContext,
         macro_context: macroContextStr,
         order_book_summary: orderBookSummary,
+        institutional_whale_context: leviathanSnapshot.institutionalWhaleContext,
       },
       { moeConfidenceThreshold: moeThreshold, precomputedMacro: options?.precomputedMacro }
     );
@@ -735,6 +744,15 @@ RULES:
     suggested_tp_short: suggestedTpShort,
     whaleActivity,
     developerActivity,
+    leviathan: {
+      generatedAt: leviathanSnapshot.generatedAt,
+      institutionalWhaleContext: leviathanSnapshot.institutionalWhaleContext,
+      signals: leviathanSnapshot.signals.map((s) => ({
+        provider: s.provider,
+        ok: s.ok,
+        summary: s.summary,
+      })),
+    },
   };
 
   const geminiTimeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
@@ -766,7 +784,7 @@ RULES:
         payload_diff: { error: errMsg, model: activeModel || 'Unknown', symbol: cleanSymbol, source: 'doAnalysisCore' },
       }).catch(() => {});
       writeAudit({ event: 'analysis.ai_engine_error', level: 'warn', meta: { symbol: cleanSymbol, model: activeModel || 'Unknown', error: errMsg } });
-      throw new Error('AI_ENGINE_ERROR');
+      throw new Error(`AI_ENGINE_ERROR: ${errMsg}`);
     }
     if (isQuotaExhaustedError(primaryErr)) {
       fallbackUsed = true;
@@ -799,7 +817,7 @@ RULES:
             payload_diff: { error: fallbackMsg, model: activeModel || 'Unknown', symbol: cleanSymbol, source: 'doAnalysisCore_fallback' },
           }).catch(() => {});
           writeAudit({ event: 'analysis.ai_engine_error', level: 'warn', meta: { symbol: cleanSymbol, model: activeModel || 'Unknown', error: fallbackMsg } });
-          throw new Error('AI_ENGINE_ERROR');
+          throw new Error(`AI_ENGINE_ERROR: ${fallbackMsg}`);
         }
         throw fallbackErr;
       }

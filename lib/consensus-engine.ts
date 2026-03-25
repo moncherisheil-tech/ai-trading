@@ -150,6 +150,8 @@ export interface ConsensusEngineInput {
   onchain_metric_shift?: string | null;
   /** Optional: Social/sentiment dominance volume. */
   social_dominance_volume?: string | null;
+  /** Leviathan context from CryptoQuant + CoinMarketCap. */
+  institutional_whale_context?: string | null;
   /** Optional: Real-time Twitter/X tweets for Psych Agent (injected into prompt). */
   twitter_realtime_tweets?: string | null;
   /** Optional: USDT dominance, ETF flows, DXY (for Macro). */
@@ -434,11 +436,13 @@ async function runExpertRisk(
 ): Promise<ExpertRiskOutput> {
   const rrMin = riskToleranceLevel ? RISK_RR_BY_LEVEL[riskToleranceLevel] ?? '1:3' : '1:3';
   const atrPct = input.atr_pct_of_price?.toFixed(2) ?? '?';
+  const institutional = input.institutional_whale_context ?? 'לא צוין';
   const prompt = `אתה Institutional Crypto Quantitative Analyst — מנהל סיכונים ומרקט-מייקינג מוסדי (Risk/MM Expert). תפקידך: ניהול סיכונים, הקצאת גודל פוזיציה ושרידות התיק בלבד (לא צ'אט כללי). השתמש בשפה מקצועית קריפטו-נייטיבית בעברית.
 
 ${NO_MISSING_EMA_BB_RULE}
 
 נתונים: סמל ${input.symbol}, מחיר ${input.current_price}, ATR=${input.atr_value ?? 'לא זמין'}, ATR% מהמחיר=${atrPct}%, מרחק ל-S/R הקרוב (%)=${input.nearest_sr_distance_pct?.toFixed(2) ?? '?'}, תנודתיות реализד/משוערת (%)=${input.volatility_pct.toFixed(2)}.
+Leviathan (CryptoQuant + CoinMarketCap): ${institutional}
 ${input.deep_memory_context}
 
 כללים: (1) Volatility — נתח תנודתיות באמצעות ATR וסטיית תקן (סטיית תקן משתמעת/היסטורית אם עולה מן ההקשר): ATR% גבוה או סטיית תקן קיצונית → הקטן גודל פוזיציה וציון. (2) Position Sizing — חשב גודל פוזיציה נאות ביחס להון על בסיס Kelly Criterion משוער (Full/half Kelly): אם ה־Kelly fraction מרמז על הקצאה <1% מההון, ציין זאת במפורש והורד ציון. (3) יחס סיכון/תגמול (R:R) מינימלי חובה ${rrMin}; אם R:R נמוך — risk_score ≤ 40 ו"דחייה: R:R מתחת ל־${rrMin}". (4) Drawdown Protection — הערך איך SL מוגדר ביחס ל־max drawdown סביר לתיק; מבנה שיכול לגרור גרירת סטופס סדרתית או drawdown חד → ציון נמוך. (5) Slippage ו-Spread — חשב רווחיות לאחר החלקה ועמלות; נזילות רדודה/ספר לא רציף = risk_score נמוך. (6) Hard Stop Loss ברור חובה; ללא SL או SL רחוק מדי ⇢ הורד ציון. (7) ציון 100 רק כאשר R:R≥${rrMin}, SL/TP מתואמים לתנודתיות, וגודל הפוזיציה עקבי עם Kelly ועם מגבלת drawdown.
@@ -755,10 +759,12 @@ async function runExpertOnChain(
   timeoutMs: number
 ): Promise<ExpertOnChainOutput> {
   const onChainData = await fetchOnChainData(input.symbol);
+  const institutional = input.institutional_whale_context ?? 'לא צוין';
   const prompt = `You are the On-Chain Expert in a hedge-fund grade MoE. Domain: Exchange Inflow/Outflow and Whales' Smart Money movements. Output in professional Hebrew; no generic chatbot language.
 
 Input: Symbol ${input.symbol}, price ${input.current_price}.
 On-chain (live external JSON proxies): Whale movements — ${onChainData.whaleMovements}. Exchange Inflows/Outflows — ${onChainData.exchangeInflowsOutflows}.
+Leviathan institutional feed (CryptoQuant + CoinMarketCap): ${institutional}
 ${input.deep_memory_context}
 
 Mandate: (1) Exchange Inflow/Outflow — Exchange Inflow = coins moving TO exchanges (potential sell pressure); Exchange Outflow = coins moving FROM exchanges (cold storage / accumulation, often bullish). Net outflow = accumulation signal; net inflow = distribution risk. (2) Whales' Smart Money — large holders accumulating (buying into weakness, moving to cold) vs distributing (sending to exchanges); cluster moves and timing relative to price. (3) Combine: outflow + whale accumulation = bullish; inflow + whale distribution = bearish. (4) If onchain_metric_shift is provided, integrate it.
