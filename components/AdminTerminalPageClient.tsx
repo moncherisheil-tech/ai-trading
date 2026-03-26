@@ -189,7 +189,7 @@ export default function AdminTerminalPageClient() {
             <p className="text-xs text-zinc-500 mb-3">
               מבוסס על תקינות מסד הנתונים, בדיקת מודל הטמעה{' '}
               <span className="font-mono text-zinc-300" dir="ltr" lang="en">
-                embedding-001
+                gemini-embedding-001
               </span>{' '}
               (768 ממדים), Pinecone, דגל אינטגרציה{' '}
               <code className="text-cyan-600/90" dir="ltr" lang="en">

@@ -70,7 +70,7 @@ export async function generateLiveText(params: {
   }
 
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-2.5-flash');
+  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
   const model = genAI.getGenerativeModel(
     {
       model: selected.model,

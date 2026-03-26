@@ -7,8 +7,8 @@ export function resolveGeminiModel(modelName: string): {
   model: string;
   requestOptions: GeminiRequestOptions;
 } {
-  void modelName;
-  const model = 'models/gemini-2.5-flash';
+  const normalized = (modelName || 'gemini-3-flash-preview').replace(/^models\//, '').trim();
+  const model = `models/${normalized || 'gemini-3-flash-preview'}`;
 
   return {
     model,

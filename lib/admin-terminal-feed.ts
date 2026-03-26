@@ -24,7 +24,7 @@ export async function buildAdminTerminalFeedPayload(): Promise<AdminTerminalFeed
     settingsLoadOk: true,
     embeddingProbeOk: embedProbe.ok,
     embeddingDetail: embedProbe.ok
-      ? `embedding-001 dim=${embedProbe.dimension}`
+      ? `gemini-embedding-001 dim=${embedProbe.dimension}`
       : embedProbe.error,
     tsClean: resolveTypecheckStatus(),
   });
