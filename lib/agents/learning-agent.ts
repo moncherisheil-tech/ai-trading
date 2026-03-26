@@ -141,7 +141,7 @@ ${JSON.stringify(compactCases, null, 2)}
       );
       const response = await model.generateContent({
         contents: [{ role: 'user', parts: [{ text: `You are a disciplined quantitative trading research assistant. Always respond with strict JSON, no prose.\n\n${userPrompt}` }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+        generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
       });
       const text = response.response.text()?.trim() ?? '';
       rawInsights = text ? parseInsights(text) : [];

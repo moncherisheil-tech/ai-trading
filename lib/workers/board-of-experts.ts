@@ -416,7 +416,6 @@ Output strictly as JSON with these keys exactly:
         generationConfig: {
           temperature: 0.2,
           maxOutputTokens: 600,
-          responseMimeType: 'application/json',
         },
       })
     );
@@ -473,7 +472,6 @@ Output JSON exactly:
         generationConfig: {
           temperature: 0.15,
           maxOutputTokens: 700,
-          responseMimeType: 'application/json',
         },
       })
     );

@@ -783,7 +783,7 @@ RULES:
   const geminiTimeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
 
   const promptText = JSON.stringify(promptData, null, 2);
-  const generationConfig = { temperature: 0.2, maxOutputTokens: 8192, responseMimeType: 'application/json' as const };
+  const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
 
   let apiResult: { response: { text: () => string } };
   try {
@@ -933,7 +933,7 @@ RULES:
       withGeminiTimeout(
         repairModel.generateContent({
           contents: [{ role: 'user', parts: [{ text: `${repairSystemInstruction}\n\n${JSON.stringify(repairPrompt)}` }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json' as const },
+          generationConfig: { temperature: 0, maxOutputTokens: 4096 },
         }),
         geminiTimeoutMs
       )

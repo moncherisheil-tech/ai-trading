@@ -167,7 +167,7 @@ async function runSentimentViaGemini(prompt: string): Promise<SentimentResult | 
     );
     const response = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: `You output only valid JSON. No explanation, no code block wrapper.\n\n${prompt}` }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 256, responseMimeType: 'application/json' },
+      generationConfig: { temperature: 0.1, maxOutputTokens: 256 },
     });
     const text = response.response.text()?.trim();
     if (!text) return null;
