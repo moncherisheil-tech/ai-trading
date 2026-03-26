@@ -65,7 +65,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   if (!APP_CONFIG.postgresUrl?.trim()) {
     return NextResponse.json(
-      { success: false, error: 'DATABASE_URL (Vercel Postgres) required for persistence.' },
+      { success: false, error: 'DATABASE_URL (Quantum Core DB) required for persistence.' },
       { status: 400 }
     );
   }

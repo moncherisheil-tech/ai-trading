@@ -73,7 +73,7 @@ export default function AdminTerminalPageClient() {
     const result = await fetchWithBackoff(getAdminTerminalFeedAction, 3);
     if (!result.success) {
       const msg =
-        'אנומליה בזרם הנתונים — חידוש החיבור נכשל לאחר ניסיונות חוזרים. יש לבדוק את Postgres / מנוע הביצועים.';
+        'אנומליה בזרם הנתונים — חידוש החיבור נכשל לאחר ניסיונות חוזרים. יש לבדוק את Quantum Core DB / מנוע הביצועים.';
       setErr(result.error);
       cyber(msg);
       toastError(result.error);

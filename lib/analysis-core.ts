@@ -1120,7 +1120,8 @@ RULES:
     });
   }
 
-  writeAudit({ event: 'analysis.success', meta: { symbol: cleanSymbol, model: activeModel || 'Unknown', fallbackUsed } });
+  const auditModel = resolveGeminiModel(activeModel || APP_CONFIG.primaryModel || 'gemini-2.5-flash').model.replace(/^models\//, '');
+  writeAudit({ event: 'analysis.success', meta: { symbol: cleanSymbol, model: auditModel, fallbackUsed } });
 
   const gemAlertThreshold = appSettings.neural?.moeConfidenceThreshold ?? appSettings.scanner?.aiConfidenceThreshold ?? 75;
   if (!options?.skipGemAlert && result.probability >= gemAlertThreshold) {

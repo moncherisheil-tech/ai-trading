@@ -200,7 +200,7 @@ async function handleStatus(): Promise<string> {
 /** /halt — emergency: master execution switch OFF (הנהלה). */
 async function handleHalt(): Promise<string> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '❌ עצירת חירום דורשת חיבור ל־Postgres (DATABASE_URL).';
+    return '❌ עצירת חירום דורשת חיבור ל־Quantum Core DB (DATABASE_URL).';
   }
   const cur = await getAppSettings();
   const res = await setAppSettings({
@@ -215,7 +215,7 @@ async function handleHalt(): Promise<string> {
 /** /brief — last-hour execution log summary (monospace). */
 async function handleBrief(): Promise<string> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '❌ תקציר שעה דורש חיבור ל־Postgres.';
+    return '❌ תקציר שעה דורש חיבור ל־Quantum Core DB.';
   }
   const rows = await listVirtualTradeHistory(150);
   const since = Date.now() - 60 * 60 * 1000;
@@ -241,7 +241,7 @@ ${escapeHtml((r.reason ?? '').slice(0, 120))}</pre>`
 /** /report — Executive summary of last 5 closed trades */
 async function handleReport(): Promise<string> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '❌ דוח עסקאות דורש חיבור ל־Vercel Postgres (DATABASE_URL).';
+    return '❌ דוח עסקאות דורש חיבור ל־Quantum Core DB (DATABASE_URL).';
   }
   const closed = await listClosedTrades(5);
   if (closed.length === 0) {
@@ -305,7 +305,7 @@ async function handleStrategy(arg: string): Promise<string> {
     );
   }
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '❌ עדכון אסטרטגיה דורש חיבור ל־Vercel Postgres (DATABASE_URL).';
+    return '❌ עדכון אסטרטגיה דורש חיבור ל־Quantum Core DB (DATABASE_URL).';
   }
   const reason = 'עדכון ידני מהנהלת המערכת';
   await setStrategyOverride(threshold, reason);
@@ -320,7 +320,7 @@ async function handleStrategy(arg: string): Promise<string> {
 /** /portfolio — Virtual P&L and open/closed trades */
 async function handlePortfolio(): Promise<string> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '❌ תיק סימולציה דורש חיבור ל־Vercel Postgres (DATABASE_URL).';
+    return '❌ תיק סימולציה דורש חיבור ל־Quantum Core DB (DATABASE_URL).';
   }
   const [summary, open, closed] = await Promise.all([
     getVirtualPortfolioSummary(),

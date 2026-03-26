@@ -16,7 +16,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   if (!APP_CONFIG.postgresUrl?.trim()) {
     return NextResponse.json(
-      { success: false, error: 'DATABASE_URL (Vercel Postgres) required.' },
+      { success: false, error: 'DATABASE_URL (Quantum Core DB) required.' },
       { status: 400 }
     );
   }

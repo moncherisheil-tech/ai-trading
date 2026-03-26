@@ -69,14 +69,14 @@ function getExpectedEmbeddingDim(): number {
 }
 
 /**
- * v1 REST :embedContent for `text-embedding-004`.
+ * v1beta REST :embedContent for `text-embedding-004`.
  */
 async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<number[]> {
   const dim = getExpectedEmbeddingDim();
   const candidates = getEmbeddingModelCandidates();
   let lastBody = '';
   for (const modelId of candidates) {
-    const url = `https://generativelanguage.googleapis.com/v1/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
     const bodyWithDim = JSON.stringify({
       model: `models/${modelId}`,
       content: { parts: [{ text }] },

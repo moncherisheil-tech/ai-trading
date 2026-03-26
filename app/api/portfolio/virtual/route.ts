@@ -39,7 +39,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       closedCount: 0,
       openTrades: [],
       closedTrades: [],
-      message: 'DATABASE_URL (Vercel Postgres) required.',
+      message: 'DATABASE_URL (Quantum Core DB) required.',
     });
   }
 
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!hasPostgresConfig()) {
-    return NextResponse.json({ success: false, error: 'DATABASE_URL (Vercel Postgres) required.' }, { status: 400 });
+    return NextResponse.json({ success: false, error: 'DATABASE_URL (Quantum Core DB) required.' }, { status: 400 });
   }
 
   let body: { symbol?: string; entry_price?: number; amount_usd?: number; target_profit_pct?: number; stop_loss_pct?: number };

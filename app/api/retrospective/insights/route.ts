@@ -9,14 +9,14 @@ export const revalidate = 0;
 /**
  * GET /api/retrospective/insights
  * Returns latest Lessons Learned report and accuracy snapshots for Learning Progress dashboard.
- * Data from Vercel Postgres.
+ * Data from Quantum Core DB.
  */
 export async function GET(): Promise<NextResponse> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
     return NextResponse.json({
       snapshots: [],
       latestReport: null,
-      message: 'DATABASE_URL (Vercel Postgres) required.',
+      message: 'DATABASE_URL (Quantum Core DB) required.',
     });
   }
 

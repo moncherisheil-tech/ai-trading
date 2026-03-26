@@ -23,7 +23,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return NextResponse.json({ ok: true, skipped: true, message: 'Postgres not configured' });
+    return NextResponse.json({ ok: true, skipped: true, message: 'Quantum Core DB not configured' });
   }
 
   try {

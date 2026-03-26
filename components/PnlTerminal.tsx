@@ -888,7 +888,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
             </div>
           ) : (
             <div className="p-6 text-zinc-500 text-sm">
-              שמירת סימולציה זמינה כאשר מוגדר חיבור למסד (Vercel Postgres / DATABASE_URL). עסקאות מהאנליזר יישמרו ויופיעו כאן.
+              שמירת סימולציה זמינה כאשר מוגדר חיבור למסד (Quantum Core DB / DATABASE_URL). עסקאות מהאנליזר יישמרו ויופיעו כאן.
             </div>
           )}
         </div>

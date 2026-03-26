@@ -64,9 +64,9 @@ export async function GET(): Promise<NextResponse<BacktestAnalyticsResponse | { 
       outcomes: [],
       accuracyByDay: [],
       hebrewSummary: {
-        summary: 'נדרש חיבור ל־Vercel Postgres (DATABASE_URL) כדי להציג דשבורד בקטסט.',
+        summary: 'נדרש חיבור ל־Quantum Core DB (DATABASE_URL) כדי להציג דשבורד בקטסט.',
         insight: 'הפעל הערכת תחזיות כדי למלא את טבלת historical_predictions.',
-        recommendation: 'לאחר הגדרת Postgres והרצת הערכות, רענן דף זה.',
+        recommendation: 'לאחר הגדרת Quantum Core DB והרצת הערכות, רענן דף זה.',
       },
     });
   }

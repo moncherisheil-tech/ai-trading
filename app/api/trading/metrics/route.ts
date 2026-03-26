@@ -38,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       success: true,
       data: [] as DailyMetricsRow[],
       days: 0,
-      message: 'Postgres is not configured.',
+      message: 'Quantum Core DB is not configured.',
     });
   }
 
