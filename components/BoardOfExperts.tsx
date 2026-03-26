@@ -224,6 +224,18 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
           {aiStatus && !aiStatus.adminSecretConfigured ? (
             <p className="text-[10px] text-amber-500/90 tabular-nums">ADMIN_SECRET לא מוגדר בשרת — חלק מפעולות האופס מוגבלות</p>
           ) : null}
+          {aiStatus ? (
+            <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em]">
+              <span className={`inline-flex items-center gap-1 ${aiStatus.cryptoQuant ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.cryptoQuant ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                CryptoQuant {aiStatus.cryptoQuant ? 'Connected' : 'Missing'}
+              </span>
+              <span className={`inline-flex items-center gap-1 ${aiStatus.coinMarketCap ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.coinMarketCap ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                CoinMarketCap {aiStatus.coinMarketCap ? 'Connected' : 'Missing'}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">

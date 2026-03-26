@@ -638,6 +638,8 @@ export async function getAiConsensusBridgeStatusAction(): Promise<{
   gemini: boolean;
   anthropic: boolean;
   grok: boolean;
+  cryptoQuant: boolean;
+  coinMarketCap: boolean;
   dbConnected: boolean;
   anyProviderOk: boolean;
   adminSecretConfigured: boolean;
@@ -660,6 +662,8 @@ export async function getAiConsensusBridgeStatusAction(): Promise<{
       gemini: hb.gemini,
       anthropic: hb.anthropic,
       grok: hb.grok,
+      cryptoQuant: hb.cryptoQuant,
+      coinMarketCap: hb.coinMarketCap,
       dbConnected: hb.dbConnected,
       anyProviderOk: hb.anyProviderOk,
       adminSecretConfigured,
@@ -670,6 +674,8 @@ export async function getAiConsensusBridgeStatusAction(): Promise<{
       gemini: false,
       anthropic: false,
       grok: false,
+      cryptoQuant: false,
+      coinMarketCap: false,
       dbConnected: false,
       anyProviderOk: false,
       adminSecretConfigured,

@@ -67,6 +67,8 @@ export type AiProvidersHeartbeat = {
   gemini: boolean;
   anthropic: boolean;
   grok: boolean;
+  cryptoQuant: boolean;
+  coinMarketCap: boolean;
   dbConnected: boolean;
   adminSecretValid: boolean;
   anyProviderOk: boolean;
@@ -77,10 +79,16 @@ export type AiProvidersHeartbeat = {
  * Used by server actions — never exposes API keys.
  */
 export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
+  const validKey = (value: string | undefined): boolean => {
+    const v = (value || '').trim();
+    return Boolean(v && v.length >= 8 && !/todo|changeme|example/i.test(v));
+  };
   const adminSecretValid = Boolean((process.env.ADMIN_SECRET || '').trim());
   const databaseUrl = (process.env.DATABASE_URL || '').trim();
   const dbConnected = Boolean(databaseUrl && databaseUrl.includes('quantum_admin'));
   const grok = Boolean((process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY || '').trim());
+  const cryptoQuant = validKey(process.env.CRYPTOQUANT_API_KEY);
+  const coinMarketCap = validKey(process.env.CMC_API_KEY);
   const [g, a] = await Promise.all([
     withTimeout(pingGemini(), HEARTBEAT_MS),
     withTimeout(pingAnthropic(), HEARTBEAT_MS),
@@ -92,6 +100,8 @@ export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
     gemini,
     anthropic,
     grok,
+    cryptoQuant,
+    coinMarketCap,
     dbConnected,
     adminSecretValid,
     anyProviderOk: dbConnected && anyProviderWithKey,

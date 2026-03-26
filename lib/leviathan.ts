@@ -1,4 +1,5 @@
 import { LEVIATHAN_SPOOFING_BOOK_RULES } from '@/lib/agents/psych-agent';
+import { ensureMarketDataProviderOrFallback } from '@/lib/market-data';
 
 type LeviathanSignal = {
   provider: 'CryptoQuant' | 'CoinMarketCap';
@@ -19,6 +20,14 @@ function sanitizeSymbol(symbol: string): string {
 }
 
 async function fetchCoinMarketCapQuote(baseAsset: string): Promise<LeviathanSignal> {
+  const guard = ensureMarketDataProviderOrFallback('CoinMarketCap');
+  if (!guard.enabled) {
+    return {
+      provider: 'CoinMarketCap',
+      ok: false,
+      summary: `Fallback mode: ${guard.reason || 'CoinMarketCap unavailable'}`,
+    };
+  }
   const apiKey = (process.env.CMC_API_KEY || '').trim();
   if (!apiKey) {
     console.warn('[Leviathan] Missing API key: CMC_API_KEY');
@@ -77,6 +86,14 @@ async function fetchCoinMarketCapQuote(baseAsset: string): Promise<LeviathanSign
 }
 
 async function fetchCryptoQuantSignals(baseAsset: string): Promise<LeviathanSignal> {
+  const guard = ensureMarketDataProviderOrFallback('CryptoQuant');
+  if (!guard.enabled) {
+    return {
+      provider: 'CryptoQuant',
+      ok: false,
+      summary: `Fallback mode: ${guard.reason || 'CryptoQuant unavailable'}`,
+    };
+  }
   const apiKey = (process.env.CRYPTOQUANT_API_KEY || '').trim();
   if (!apiKey) {
     console.warn('[Leviathan] Missing API key: CRYPTOQUANT_API_KEY');

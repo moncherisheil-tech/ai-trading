@@ -1,3 +1,4 @@
+import { ensureMarketDataProviderOrFallback } from '@/lib/market-data';
 export type WhaleWalletType = 'exchange' | 'private' | 'unknown';
 export type WhaleMovementDirection = 'inflow_to_exchange' | 'outflow_from_exchange' | 'wallet_to_wallet';
 
@@ -36,6 +37,20 @@ function normalizeTicker(assetTicker: string): string {
 
 export async function getRecentWhaleMovements(assetTicker: string): Promise<WhaleMovementsResult> {
   const ticker = normalizeTicker(assetTicker);
+  const providerGuard = ensureMarketDataProviderOrFallback('CryptoQuant');
+  if (!providerGuard.enabled) {
+    return {
+      assetTicker: ticker,
+      status: 'AWAITING_LIVE_DATA',
+      totalMovements: null,
+      severeInflowsToExchanges: null,
+      largestMovementUsd: null,
+      netExchangeFlowUsd: null,
+      generatedAt: new Date().toISOString(),
+      movements: [],
+      providerNote: `Fallback mode: ${providerGuard.reason || 'CryptoQuant unavailable'}.`,
+    };
+  }
   const apiKey = (process.env.CRYPTOQUANT_API_KEY || '').trim();
   if (!apiKey) {
     return {

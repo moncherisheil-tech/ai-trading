@@ -214,7 +214,7 @@ export default function DiagnosticsPage() {
               { key: 'groq', label: 'Groq' },
               { key: 'anthropic', label: 'Anthropic' },
               { key: 'pinecone', label: 'Pinecone' },
-              { key: 'postgres', label: 'Neon Database' },
+              { key: 'postgres', label: 'Quantum Core DB' },
             ].map(({ key, label }) => {
               const status = conn[key as keyof typeof conn];
               const cfg = STATUS_CONFIG[status];
