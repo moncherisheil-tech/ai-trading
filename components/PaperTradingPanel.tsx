@@ -183,17 +183,18 @@ export default function PaperTradingPanel() {
 
   return (
     <section
-      className="relative z-[1] frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-3 min-w-0 w-full max-w-full rounded-3xl shadow-2xl overflow-x-hidden overflow-y-visible backdrop-blur-[60px]"
+      className="relative z-[1] frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-3 min-w-0 w-full max-w-full rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.55)] overflow-x-hidden overflow-y-visible backdrop-blur-[60px] border border-cyan-500/30"
       dir="rtl"
     >
-      <div className="flex flex-wrap items-center justify-between gap-4 px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/5 bg-black/20">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 border border-emerald-400/20 shadow-[0_0_20px_rgba(52,211,153,0.2)]">
-            <Crosshair className="h-5 w-5 text-emerald-400" aria-hidden />
+      <div className="flex flex-wrap items-center justify-between gap-4 px-6 sm:px-7 pt-6 sm:pt-7 pb-5 border-b border-cyan-500/20 bg-black/30 backdrop-blur-xl">
+        <div className="absolute -top-px left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" aria-hidden />
+        <div className="relative flex items-center gap-4 min-w-0">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/25 to-emerald-950/40 border border-emerald-400/50 shadow-[0_0_28px_rgba(52,211,153,0.3)]">
+            <Crosshair className="h-6 w-6 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" aria-hidden />
           </div>
           <div>
-            <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">Paper Trading</h3>
-            <p className="text-[11px] sm:text-xs font-medium text-zinc-500 uppercase tracking-[0.2em] mt-0.5">
+            <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.25)]">Paper Trading</h3>
+            <p className="text-xs font-bold text-emerald-300 uppercase tracking-[0.15em] mt-0.5 drop-shadow-[0_0_6px_rgba(52,211,153,0.4)]">
               Autonomous Execution Engine
             </p>
           </div>
@@ -201,14 +202,14 @@ export default function PaperTradingPanel() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="group relative inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all duration-300 border border-cyan-400/30 text-cyan-200 bg-cyan-500/10 hover:bg-cyan-500/15 hover:border-cyan-300/50 hover:shadow-[0_0_16px_rgba(34,211,238,0.25)] hover:brightness-110 active:scale-95"
+          className="group relative inline-flex items-center gap-2 text-xs font-bold px-5 py-3 rounded-xl transition-all duration-300 border border-cyan-400/50 text-cyan-100 bg-gradient-to-b from-cyan-500/20 to-cyan-950/30 shadow-[0_0_24px_rgba(34,211,238,0.3),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_0_36px_rgba(34,211,238,0.5),0_0_80px_rgba(34,211,238,0.15)] hover:border-cyan-300/70 hover:brightness-110 active:scale-95 backdrop-blur-xl uppercase tracking-wider"
         >
           <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
           רענן
         </button>
       </div>
 
-      <div className="p-5 sm:p-6 space-y-6 min-w-0 max-w-full overflow-x-hidden">
+      <div className="p-6 sm:p-8 space-y-7 min-w-0 max-w-full overflow-x-hidden">
         {loading ? (
           <div className="text-sm text-zinc-500 animate-pulse py-12 text-center font-mono">טוען נתוני מנוע ביצוע…</div>
         ) : error ? (
@@ -296,41 +297,44 @@ export default function PaperTradingPanel() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
               <button
                 type="button"
                 disabled={saving}
                 onClick={() => void updateConfig({ masterSwitchEnabled: !status.masterSwitchEnabled })}
-                className={`group relative overflow-hidden ${GLASS_TILE} px-4 py-4 text-start transition-all duration-300 border ${
+                className={`group relative overflow-hidden ${GLASS_TILE} px-5 py-5 text-start transition-all duration-300 border ${
                   status.masterSwitchEnabled
-                    ? 'border-emerald-400/50 bg-gradient-to-br from-emerald-500/15 to-emerald-950/25 shadow-[0_0_32px_rgba(52,211,153,0.25),inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-emerald-500/30 hover:shadow-[0_0_40px_rgba(52,211,153,0.35)] hover:border-emerald-300/60 hover:brightness-110 active:scale-95'
-                    : 'border-rose-400/30 bg-gradient-to-br from-rose-500/10 to-rose-950/20 shadow-[0_0_28px_rgba(251,113,133,0.15),inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-rose-500/20 hover:shadow-[0_0_36px_rgba(251,113,133,0.25)] hover:border-rose-300/50'
-                } disabled:opacity-40 disabled:cursor-not-allowed`}
+                    ? 'border-emerald-400/60 bg-gradient-to-br from-emerald-500/20 to-emerald-950/35 shadow-[0_0_40px_rgba(52,211,153,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-emerald-500/40 hover:shadow-[0_0_50px_rgba(52,211,153,0.45),0_0_100px_rgba(52,211,153,0.15)] hover:border-emerald-300/70 hover:brightness-110 active:scale-95'
+                    : 'border-rose-400/40 bg-gradient-to-br from-rose-500/15 to-rose-950/30 shadow-[0_0_32px_rgba(251,113,133,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-rose-500/30 hover:shadow-[0_0_44px_rgba(251,113,133,0.35),0_0_80px_rgba(251,113,133,0.1)] hover:border-rose-300/60 hover:brightness-105'
+                } disabled:opacity-40 disabled:cursor-not-allowed backdrop-blur-xl`}
               >
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" aria-hidden />
-                <div className="relative text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Master</div>
+                <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Master Control</div>
                 <div
-                  className={`relative text-2xl font-black font-mono mt-1 transition-all duration-300 ${status.masterSwitchEnabled ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.6)]' : 'text-rose-400 drop-shadow-[0_0_10px_rgba(251,113,133,0.5)]'}`}
+                  className={`relative text-3xl font-black font-mono font-bold mt-2 transition-all duration-300 tabular-nums ${status.masterSwitchEnabled ? 'text-emerald-400 drop-shadow-[0_0_16px_rgba(52,211,153,0.7)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.6)]'}`}
                 >
                   {status.masterSwitchEnabled ? 'ON' : 'OFF'}
                 </div>
               </button>
-              <div className={`${GLASS_TILE} px-4 py-4 border-cyan-500/20`}>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
-                  <Wallet className="h-3 w-3 text-cyan-400/80" />
+              <div className={`${GLASS_TILE} relative px-5 py-5 border-cyan-500/40 group overflow-hidden`}>
+                <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
+                <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-cyan-300 flex items-center gap-2">
+                  <Wallet className="h-4 w-4 text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.6)]" />
                   Virtual Balance
                 </div>
-                <div className="text-xl font-bold font-mono live-data-number text-cyan-300 mt-1 tabular-nums shadow-[0_0_20px_rgba(34,211,238,0.15)]">
+                <div className="relative text-2xl font-black font-mono live-data-number text-cyan-300 mt-2 tabular-nums shadow-[0_0_24px_rgba(34,211,238,0.2)]">
                   ${status.virtualBalanceUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </div>
               </div>
-              <div className={`${GLASS_TILE} px-4 py-4 border-amber-500/15`}>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Active Positions</div>
-                <div className="text-xl font-bold font-mono live-data-number text-amber-200 mt-1 tabular-nums">{status.activeTradesCount}</div>
+              <div className={`${GLASS_TILE} relative px-5 py-5 border-amber-500/40 group overflow-hidden`}>
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
+                <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-amber-300">Active Positions</div>
+                <div className="relative text-2xl font-black font-mono live-data-number text-amber-300 mt-2 tabular-nums shadow-[0_0_20px_rgba(217,119,6,0.15)]">{status.activeTradesCount}</div>
               </div>
-              <div className={`${GLASS_TILE} px-4 py-4 border-emerald-500/20`}>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Win Rate</div>
-                <div className="text-xl font-bold font-mono live-data-number text-emerald-400/90 mt-1 tabular-nums">
+              <div className={`${GLASS_TILE} relative px-5 py-5 border-emerald-500/40 group overflow-hidden`}>
+                <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
+                <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Win Rate</div>
+                <div className="relative text-2xl font-black font-mono live-data-number text-emerald-400 mt-2 tabular-nums shadow-[0_0_24px_rgba(52,211,153,0.2)]">
                   {status.winRatePct.toFixed(1)}%
                 </div>
               </div>
@@ -341,10 +345,10 @@ export default function PaperTradingPanel() {
                 type="button"
                 disabled={saving}
                 onClick={() => void updateConfig({ mode: 'PAPER' })}
-                className={`group relative px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all duration-300 border ${
+                className={`group relative px-6 py-3 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all duration-300 border backdrop-blur-xl ${
                   status.mode === 'PAPER'
-                    ? 'border-emerald-400/50 text-emerald-200 bg-gradient-to-b from-emerald-500/20 to-emerald-950/30 shadow-[0_0_24px_rgba(52,211,153,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_0_32px_rgba(52,211,153,0.45)] hover:border-emerald-300/60 hover:brightness-110 active:scale-95'
-                    : 'border-white/10 text-zinc-400 bg-white/5 hover:bg-white/10 hover:border-white/20 hover:text-zinc-200'
+                    ? 'border-emerald-400/60 text-emerald-100 bg-gradient-to-b from-emerald-500/25 to-emerald-950/40 shadow-[0_0_32px_rgba(52,211,153,0.4),inset_0_1px_0_rgba(255,255,255,0.12)] hover:shadow-[0_0_44px_rgba(52,211,153,0.55),0_0_80px_rgba(52,211,153,0.15)] hover:border-emerald-300/70 hover:brightness-110 active:scale-95'
+                    : 'border-white/15 text-zinc-400 bg-white/5 hover:bg-white/10 hover:border-white/25 hover:text-zinc-300 active:scale-95'
                 } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
@@ -353,13 +357,13 @@ export default function PaperTradingPanel() {
               <button
                 type="button"
                 disabled
-                className="group relative px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider inline-flex items-center gap-2 transition-all duration-300 border border-rose-400/20 text-rose-400/50 bg-rose-500/5 cursor-not-allowed"
+                className="group relative px-6 py-3 rounded-xl text-xs font-bold font-mono uppercase tracking-wider inline-flex items-center gap-2 transition-all duration-300 border border-rose-400/30 text-rose-400/60 bg-rose-500/8 cursor-not-allowed backdrop-blur-xl"
                 title="ייפתח לאחר הזנת ואימות מפתח לבורסה"
               >
                 <span dir="ltr" className="relative">
                   Live
                 </span>
-                <Lock className="w-3.5 h-3.5 relative" />
+                <Lock className="w-4 h-4 relative drop-shadow-[0_0_4px_rgba(244,63,94,0.4)]" />
               </button>
               {status.liveLocked && (
                 <span className="text-xs text-amber-400/90 font-medium">
@@ -391,23 +395,23 @@ export default function PaperTradingPanel() {
                     <span className="text-end">PnL $</span>
                     <span className="text-end pe-1">Audit</span>
                   </div>
-                  <ul className="divide-y divide-white/[0.06]">
+                  <ul className="divide-y divide-white/[0.08]">
                     {activeTrades.map((trade) => {
                       const up = trade.unrealizedPnlUsd >= 0;
                       return (
                         <li
                           key={trade.id}
-                          className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-3 py-3 items-center hover:bg-white/[0.03] transition-colors"
+                          className="group grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-4 py-4 items-center hover:bg-white/[0.06] transition-all duration-200 hover:shadow-[inset_0_0_16px_rgba(34,211,238,0.08)]"
                         >
                           <span className="text-start font-semibold text-zinc-200 tracking-tight">
                             {trade.symbol.replace('USDT', '')}
                             <span className="text-zinc-600 font-normal">/USDT</span>
                           </span>
-                          <span className="text-end text-zinc-500 tabular-nums live-data-number text-[10px] sm:text-xs">
+                          <span className="text-end text-zinc-400 tabular-nums live-data-number text-xs font-mono">
                             {trade.entryPrice.toFixed(2)} → {trade.currentPrice.toFixed(2)}
                           </span>
                           <span
-                            className={`text-end font-bold tabular-nums live-data-number ${up ? 'text-emerald-400 drop-shadow-[0_0_10px_rgba(52,211,153,0.35)]' : 'text-rose-400 drop-shadow-[0_0_10px_rgba(251,113,133,0.3)]'}`}
+                            className={`text-end font-black font-mono tabular-nums live-data-number text-sm ${up ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.5)]'}`}
                           >
                             {up ? '+' : ''}
                             {trade.unrealizedPnlUsd.toFixed(2)}
@@ -449,26 +453,27 @@ export default function PaperTradingPanel() {
                   {status.recentExecutions.map((ev) => (
                     <div
                       key={ev.id}
-                      className={`${GLASS_TILE} px-4 py-3 flex flex-wrap items-center justify-between gap-3`}
+                      className={`${GLASS_TILE} relative px-5 py-4 flex flex-wrap items-center justify-between gap-3 group border-white/15 bg-black/40 shadow-[0_4px_16px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_24px_rgba(34,211,238,0.15)] hover:border-cyan-500/40 transition-all duration-200 backdrop-blur-xl`}
                       dir="ltr"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="font-mono font-bold text-zinc-200">{ev.symbol.replace('USDT', '')}</span>
+                      <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-transparent to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl" aria-hidden />
+                      <div className="relative flex items-center gap-4 min-w-0 z-10">
+                        <span className="font-mono font-bold text-lg text-white drop-shadow-[0_0_8px_rgba(34,211,238,0.2)]">{ev.symbol.replace('USDT', '')}</span>
                         <span
-                          className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md ${
+                          className={`text-xs font-black uppercase px-3 py-1 rounded-lg border font-mono ${
                             ev.signal === 'BUY'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-400/25'
-                              : 'bg-rose-500/20 text-rose-400 border border-rose-400/25'
+                              ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
+                              : 'bg-rose-500/25 text-rose-300 border-rose-400/50 shadow-[0_0_12px_rgba(251,113,133,0.3)]'
                           }`}
                         >
                           {ev.signal}
                         </span>
-                        <span className="text-zinc-500 font-mono live-data-number text-xs">{ev.confidence.toFixed(1)}%</span>
+                        <span className="text-cyan-300 font-mono font-bold live-data-number text-sm drop-shadow-[0_0_6px_rgba(34,211,238,0.3)]">{ev.confidence.toFixed(1)}%</span>
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
+                      <div className="relative flex items-center gap-3 shrink-0 z-10">
                         <span
-                          className={`text-[10px] font-bold uppercase tracking-wider ${
-                            ev.executed ? 'text-emerald-400' : 'text-rose-400/80'
+                          className={`text-xs font-bold uppercase tracking-wider font-mono ${
+                            ev.executed ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 'text-rose-400/80 drop-shadow-[0_0_6px_rgba(251,113,133,0.3)]'
                           }`}
                         >
                           {ev.status}

@@ -721,6 +721,86 @@ textarea:focus-visible {
   border-color: rgba(244, 63, 94, 0.52);
 }
 
+/* V12 Institutional Neon Text Shadows — cyberpunk HFT grade */
+.neon-emerald {
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.8), 0 0 16px rgba(52, 211, 153, 0.4);
+  color: #34d399;
+}
+
+.neon-rose {
+  text-shadow: 0 0 8px rgba(244, 63, 94, 0.8), 0 0 16px rgba(244, 63, 94, 0.4);
+  color: #f43f5e;
+}
+
+.neon-cyan {
+  text-shadow: 0 0 10px rgba(34, 211, 238, 0.8), 0 0 20px rgba(34, 211, 238, 0.4);
+  color: #06b6d4;
+}
+
+.neon-violet {
+  text-shadow: 0 0 10px rgba(168, 85, 247, 0.8), 0 0 20px rgba(168, 85, 247, 0.4);
+  color: #a855f7;
+}
+
+/* Live Pulse Indicator — institutional status dot */
+@keyframes live-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 4px rgba(52, 211, 153, 0.6), 0 0 12px rgba(52, 211, 153, 0.3);
+    opacity: 0.9;
+  }
+  50% {
+    box-shadow: 0 0 8px rgba(52, 211, 153, 0.8), 0 0 20px rgba(52, 211, 153, 0.4);
+    opacity: 1;
+  }
+}
+
+.live-pulse-dot {
+  display: inline-block;
+  height: 0.5rem;
+  width: 0.5rem;
+  border-radius: 50%;
+  background: #34d399;
+  animation: live-pulse-glow 1.2s ease-in-out infinite;
+}
+
+/* Spring physics button ripple */
+@keyframes ripple-burst {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(34, 211, 238, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+}
+
+.btn-ripple-active {
+  animation: ripple-burst 0.6s ease-out;
+}
+
+/* Stagger entrance for signal rows */
+@keyframes signal-row-enter {
+  from {
+    opacity: 0;
+    transform: rotateX(10deg) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: rotateX(0) translateY(0);
+  }
+}
+
+.signal-row {
+  animation: signal-row-enter 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.signal-row:nth-child(1) { animation-delay: 0.05s; }
+.signal-row:nth-child(2) { animation-delay: 0.1s; }
+.signal-row:nth-child(3) { animation-delay: 0.15s; }
+.signal-row:nth-child(n+4) { animation-delay: calc(0.05s * (var(--row-index, 4))); }
+
 /* Print Mode: Native window.print() — no popups. Hide chrome, show only report content. */
 @media print {
   /* Hide navigation, sidebars, headers, and all interactive UI */

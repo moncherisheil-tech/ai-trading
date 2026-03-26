@@ -201,33 +201,35 @@ export default function AlphaSignalsDashboard() {
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-6 md:px-8">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 md:text-3xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
-          <p className="mt-1 text-sm text-zinc-400">
+          <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow-[0_0_24px_rgba(34,211,238,0.3)] md:text-4xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
+          <p className="mt-2 text-sm text-zinc-300">
             {t.alphaSignalsSubtitle ?? 'Human-in-the-loop recommendations with short-horizon and swing forecasts.'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-zinc-300">
-            {t.dataMode ?? 'Data Mode'}: {t.liveAnalysis ?? 'Live Analysis'}
+        <div className="flex items-center gap-3">
+          <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-200 backdrop-blur-xl shadow-[0_0_16px_rgba(34,211,238,0.15)]">
+            <span className="relative inline-block h-2 w-2 rounded-full bg-emerald-400 me-2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" aria-hidden /> {t.dataMode ?? 'Data Mode'}: {t.liveAnalysis ?? 'Live Analysis'}
           </span>
           <button
             type="button"
             onClick={() => void loadSignals()}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-sm font-medium text-cyan-200 backdrop-blur-[60px] transition hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-70"
+            className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/50 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition hover:shadow-[0_0_32px_rgba(34,211,238,0.55),0_0_60px_rgba(34,211,238,0.15)] hover:border-cyan-300/70 hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            {t.refreshRunLiveAnalysis ?? 'Refresh / Run Live Analysis'}
+            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+            {loading ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <RefreshCw className="h-4 w-4 relative group-hover:rotate-180 transition-transform duration-500" />}
+            <span className="relative">{t.refreshRunLiveAnalysis ?? 'Refresh'}</span>
           </button>
         </div>
       </div>
 
       {topPick && (
-        <div className="relative mb-6 overflow-hidden rounded-3xl border border-cyan-300/35 bg-gradient-to-r from-cyan-500/15 via-violet-500/10 to-emerald-500/15 p-5 frosted-obsidian shadow-[0_0_40px_rgba(34,211,238,0.25)]">
-          <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-cyan-400/20 blur-3xl" />
-          <div className="absolute -bottom-10 left-12 h-36 w-36 rounded-full bg-emerald-400/15 blur-3xl" />
+        <div className="relative mb-8 overflow-hidden rounded-3xl border border-cyan-400/50 bg-black/40 p-6 frosted-obsidian shadow-[0_0_60px_rgba(34,211,238,0.35)]">
+          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-500/25 blur-3xl animate-pulse opacity-60" />
+          <div className="absolute -bottom-16 left-8 h-48 w-48 rounded-full bg-emerald-500/20 blur-3xl animate-pulse opacity-50" />
+          <div className="absolute top-1/3 right-1/4 h-64 w-64 rounded-full bg-violet-500/15 blur-3xl animate-pulse opacity-40" />
           <div className="relative flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-100">
@@ -251,8 +253,8 @@ export default function AlphaSignalsDashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {items.map((item) => (
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {items.map((item, idx) => (
           (() => {
             const cardExecution = executionStateByAsset[item.asset] ?? { status: 'idle' as const };
             const isProcessing = cardExecution.status === 'processing';
@@ -261,45 +263,47 @@ export default function AlphaSignalsDashboard() {
             return (
           <article
             key={item.asset}
-            className="rounded-2xl border border-white/15 bg-white/[0.04] p-4 frosted-obsidian shadow-[0_8px_30px_rgba(0,0,0,0.25)]"
+            className="signal-row group relative rounded-2xl border border-white/20 bg-black/40 p-5 frosted-obsidian shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_16px_50px_rgba(34,211,238,0.15),0_0_40px_rgba(34,211,238,0.2)] hover:border-cyan-400/60"
+            style={{ '--row-index': idx } as React.CSSProperties}
           >
-            <div className="mb-4 flex items-center justify-between gap-2">
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-transparent to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
+            <div className="relative mb-5 flex items-center justify-between gap-3 z-10">
               <div>
-                <p className="text-xl font-semibold text-zinc-100">{item.asset}</p>
-                <p className="text-xs uppercase tracking-[0.15em] text-zinc-500">AI Advisory Signal</p>
+                <p className="text-2xl font-black text-white tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.3)]">{item.asset}</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold mt-1">AI Advisory Signal</p>
               </div>
               <ProbabilityRing probability={item.shortTermOutlook.probability} signal={item.shortTermOutlook.signal} />
             </div>
 
-            <div className="space-y-3">
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">{t.nextFewHours ?? 'Next Few Hours'}</p>
-                  <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${signalClass(item.shortTermOutlook.signal)}`}>
+            <div className="relative space-y-3 z-10">
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 backdrop-blur-xl p-4 shadow-[0_0_20px_rgba(34,211,238,0.1)]">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.2em] font-semibold text-cyan-300">{t.nextFewHours ?? 'Next Few Hours'}</p>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-bold ${signalClass(item.shortTermOutlook.signal)}`}>
                     {getSignalLabel(item.shortTermOutlook.signal, locale)}
                   </span>
                 </div>
-                <p className="mb-1 text-xs text-zinc-500">{item.shortTermOutlook.timeframe}</p>
-                <p className="text-sm text-zinc-200">{item.shortTermOutlook.rationale}</p>
+                <p className="mb-2 text-xs text-zinc-500 font-mono">{item.shortTermOutlook.timeframe}</p>
+                <p className="text-sm leading-relaxed text-zinc-100">{item.shortTermOutlook.rationale}</p>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.15em] text-zinc-400">{t.upcomingDays ?? 'Upcoming Days'}</p>
-                  <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${signalClass(item.swingOutlook.signal)}`}>
+              <div className="rounded-xl border border-violet-500/30 bg-violet-950/20 backdrop-blur-xl p-4 shadow-[0_0_20px_rgba(168,85,247,0.1)]">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.2em] font-semibold text-violet-300">{t.upcomingDays ?? 'Upcoming Days'}</p>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-bold ${signalClass(item.swingOutlook.signal)}`}>
                     {getSignalLabel(item.swingOutlook.signal, locale)}
                   </span>
                 </div>
-                <p className="mb-1 text-xs text-zinc-500">{item.swingOutlook.timeframe}</p>
-                <p className="text-sm text-zinc-200">{item.swingOutlook.rationale}</p>
+                <p className="mb-2 text-xs text-zinc-500 font-mono">{item.swingOutlook.timeframe}</p>
+                <p className="text-sm leading-relaxed text-zinc-100">{item.swingOutlook.rationale}</p>
               </div>
 
               {isExecuted ? (
-                <div className="mt-1 inline-flex w-full items-center justify-center rounded-xl border border-emerald-400/45 bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-200 shadow-[0_0_22px_rgba(16,185,129,0.35)]">
-                  ⚡ {t.executedTwapActive ?? 'Executed (TWAP Active)'}
+                <div className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-emerald-400/60 bg-gradient-to-r from-emerald-500/20 to-emerald-950/30 px-4 py-3 text-sm font-bold text-emerald-100 shadow-[0_0_32px_rgba(52,211,153,0.4),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl">
+                  <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 me-2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" aria-hidden /> {t.executedTwapActive ?? 'Executed (TWAP Active)'}
                 </div>
               ) : isBlocked ? (
-                <div className="mt-1 inline-flex w-full items-center justify-center rounded-xl border border-rose-400/45 bg-rose-500/15 px-3 py-2 text-sm font-semibold text-rose-200 shadow-[0_0_22px_rgba(244,63,94,0.35)]">
+                <div className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-rose-400/60 bg-gradient-to-r from-rose-500/20 to-rose-950/30 px-4 py-3 text-sm font-bold text-rose-100 shadow-[0_0_32px_rgba(244,63,94,0.4),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl">
                   🛡️ {t.blockedRiskLimit ?? 'Blocked: Risk Limit'}
                 </div>
               ) : (
@@ -313,10 +317,11 @@ export default function AlphaSignalsDashboard() {
                     )
                   }
                   disabled={item.shortTermOutlook.signal === 'HOLD' || isProcessing}
-                  className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/35 bg-violet-500/15 px-3 py-2 text-sm font-semibold text-violet-100 shadow-[0_0_22px_rgba(168,85,247,0.25)] backdrop-blur-[60px] transition hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:border-zinc-700/60 disabled:bg-zinc-900/40 disabled:text-zinc-500 disabled:shadow-none"
+                  className="group relative mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/60 bg-gradient-to-b from-violet-500/25 to-violet-950/40 px-4 py-3 text-sm font-bold text-violet-100 shadow-[0_0_28px_rgba(168,85,247,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_40px_rgba(168,85,247,0.55),0_0_80px_rgba(168,85,247,0.2)] hover:border-violet-300/70 hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:border-zinc-700/40 disabled:bg-zinc-900/30 disabled:text-zinc-500 disabled:shadow-none disabled:opacity-50"
                 >
-                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                  {isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}
+                  <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative drop-shadow-[0_0_6px_rgba(168,85,247,0.6)]" />}
+                  <span className="relative">{isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}</span>
                 </button>
               )}
             </div>
@@ -338,12 +343,12 @@ export default function AlphaSignalsDashboard() {
 
       {pendingExecution && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={closeExecutionModal} aria-hidden />
+          <div className="absolute inset-0 bg-black/75 backdrop-blur-lg" onClick={closeExecutionModal} aria-hidden />
           <div
             role="dialog"
             aria-modal="true"
             aria-label="Confirm manual override"
-            className="relative z-[91] w-full max-w-xl rounded-3xl border border-white/20 bg-white/[0.07] p-5 frosted-obsidian shadow-[0_20px_70px_rgba(0,0,0,0.45)]"
+            className="relative z-[91] w-full max-w-xl rounded-3xl border border-violet-400/60 bg-black/50 p-6 frosted-obsidian shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_60px_rgba(168,85,247,0.25)]"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
@@ -365,12 +370,12 @@ export default function AlphaSignalsDashboard() {
               <span className="font-semibold">{pendingExecution.asset}</span>. {t.riskManagerExecutionText ?? 'The Quantum Risk Manager will automatically calculate safe position sizing and route via TWAP stealth execution.'}
             </p>
 
-            <div className="mt-5 flex items-center justify-end gap-2">
+            <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 type="button"
                 onClick={closeExecutionModal}
                 disabled={submittingExecution}
-                className="rounded-xl border border-white/15 bg-black/25 px-4 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10 disabled:opacity-60"
+                className="rounded-xl border border-white/20 bg-white/5 px-5 py-2.5 text-sm font-semibold text-zinc-200 transition-all duration-300 hover:bg-white/10 hover:border-white/30 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t.cancel ?? 'Cancel'}
               </button>
@@ -378,10 +383,11 @@ export default function AlphaSignalsDashboard() {
                 type="button"
                 onClick={() => void confirmAndExecute()}
                 disabled={submittingExecution}
-                className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-400/15 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.25)] transition hover:bg-cyan-400/25 disabled:opacity-60"
+                className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/60 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 px-5 py-2.5 text-sm font-bold text-cyan-100 shadow-[0_0_32px_rgba(34,211,238,0.4),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all duration-300 hover:shadow-[0_0_48px_rgba(34,211,238,0.6),0_0_100px_rgba(34,211,238,0.25)] hover:border-cyan-300/80 hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
-                {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                {t.confirmAndDeploy ?? 'Confirm & Deploy'}
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" />}
+                <span className="relative">{t.confirmAndDeploy ?? 'Confirm & Deploy'}</span>
               </button>
             </div>
           </div>
