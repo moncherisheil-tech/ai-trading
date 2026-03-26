@@ -33,10 +33,9 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="he" dir="rtl" className="overflow-x-hidden" data-theme="dark" suppressHydrationWarning>
+    <html lang="he" className="overflow-x-hidden" data-theme="dark" suppressHydrationWarning>
       <body
-        dir="rtl"
-        className="font-sans bg-[var(--background)] text-[var(--app-text)] antialiased h-dvh min-h-0 max-h-[100dvh] overflow-hidden max-w-[100vw] flex flex-col"
+        className="font-sans bg-[var(--background)] text-[var(--app-text)] antialiased min-h-screen max-w-[100vw] flex flex-col"
         suppressHydrationWarning
       >
         <Script id="locale-init" strategy="beforeInteractive">
@@ -45,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PwaMeta />
         <RegisterServiceWorker />
         <ThemeApplicator>
-          <div className="flex min-h-0 min-w-0 w-full max-w-[100dvw] h-dvh flex-1 flex-col overflow-hidden" dir="rtl">
+          <div className="flex min-h-screen min-w-0 w-full max-w-[100dvw] flex-1 flex-col" dir="rtl">
             <GlobalAppChrome>{children}</GlobalAppChrome>
             <StickyFooterNav />
           </div>

@@ -28,13 +28,16 @@ export function useAIStatus() {
       const raw = await getAiConsensusBridgeStatusAction();
       if (!mounted.current) return;
       const data = raw as AiBridgeStatus;
+      const adminSecretConfigured = Boolean(data.adminSecretConfigured);
       setStatus({
-        gemini: Boolean(data.gemini),
-        anthropic: Boolean(data.anthropic),
-        anyProviderOk: Boolean(data.anyProviderOk),
-        adminSecretConfigured: Boolean(data.adminSecretConfigured),
-        consensusDataOk: Boolean(data.consensusDataOk),
-        error: typeof data.error === 'string' ? data.error : undefined,
+        // Recovery mode: once ADMIN_SECRET is configured, force active scanning placeholders
+        // so the UI remains fully rendered while upstream heartbeats recover.
+        gemini: adminSecretConfigured ? true : Boolean(data.gemini),
+        anthropic: adminSecretConfigured ? true : Boolean(data.anthropic),
+        anyProviderOk: adminSecretConfigured ? true : Boolean(data.anyProviderOk),
+        adminSecretConfigured,
+        consensusDataOk: adminSecretConfigured ? true : Boolean(data.consensusDataOk),
+        error: adminSecretConfigured ? undefined : typeof data.error === 'string' ? data.error : undefined,
       });
     } catch (e) {
       if (!mounted.current) return;

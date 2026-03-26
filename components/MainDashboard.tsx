@@ -91,6 +91,7 @@ function TerminalClock() {
 export default function MainDashboard() {
   const { isDefcon1, defcon, sentiment, volatilityNormalized } = useMarketState();
   const [marketMode, setMarketMode] = useState<MarketMode>('bull');
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +101,8 @@ export default function MainDashboard() {
         setMarketMode(payload.status === 'DANGEROUS' ? 'bear' : 'bull');
       } catch {
         if (mounted) setMarketMode('bull');
+      } finally {
+        if (mounted) setIsBootstrapping(false);
       }
     };
     void syncMarketMode();
@@ -120,6 +123,13 @@ export default function MainDashboard() {
       dir="rtl"
     >
       <div className="pointer-events-none absolute inset-0 council-vignette" aria-hidden />
+      {isBootstrapping ? (
+        <div className="relative z-[3] mx-auto mb-4 max-w-[1680px] px-4 sm:px-6 lg:px-8">
+          <div className="rounded-xl border border-cyan-400/25 bg-cyan-950/35 px-4 py-2 text-sm text-cyan-200">
+            Loading...
+          </div>
+        </div>
+      ) : null}
 
       <motion.div
         initial="hidden"

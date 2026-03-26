@@ -25,13 +25,11 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
 
   return (
     <MarketStateProvider>
-      <div className="flex flex-1 min-h-0 min-w-0 w-full max-w-full flex-col">
+      <div className="grid w-full min-h-screen md:grid-cols-[minmax(0,1fr)_280px] md:grid-rows-[auto_1fr]">
         <AppHeader />
-        <div
-          className="sovereign-shell relative z-[1] flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto pt-20 md:pt-0 transition-[margin,padding] duration-200 md:mr-[280px]"
-        >
+        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-20 md:pt-0 md:pr-[280px] [grid-area:main]">
           <CryptoTicker />
-          <main className="relative z-0 flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-y-auto pb-20 md:pb-0">
+          <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-20 md:pb-0">
             <ToastProvider>
               <SimulationProvider>
                 <PageTransition>{children}</PageTransition>
@@ -40,6 +38,7 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
             <ConsultationChat />
           </main>
         </div>
+        <div className="hidden md:block [grid-area:side]" aria-hidden />
       </div>
     </MarketStateProvider>
   );
