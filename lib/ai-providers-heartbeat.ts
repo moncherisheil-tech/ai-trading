@@ -1,4 +1,3 @@
-import { APP_CONFIG } from '@/lib/config';
 import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
 
 const HEARTBEAT_MS = 8_000;
@@ -49,9 +48,9 @@ async function pingGemini(): Promise<boolean> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey || apiKey.includes('TODO')) return false;
 
-  const model = (APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest').replace(/^models\//, '');
+  const model = 'gemini-1.5-flash-latest';
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

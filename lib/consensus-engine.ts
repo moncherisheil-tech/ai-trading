@@ -446,7 +446,7 @@ const NO_MISSING_EMA_BB_RULE =
 async function callGeminiJson<T>(
   prompt: string,
   fieldNames: string[],
-  model: string,
+  _model: string,
   timeoutMs: number,
   retryMeta?: RetryContext
 ): Promise<T> {
@@ -455,11 +455,10 @@ async function callGeminiJson<T>(
   const schemaDesc = fieldNames.map((k) => `"${k}"`).join(', ');
   let fullPrompt = `${prompt}\n\nחובה: החזר רק אובייקט JSON גולמי עם השדות: ${schemaDesc}. אסור markdown (למשל \`\`\`json). אסור טקסט מקדים או מסביר.`;
   fullPrompt += "\n\nCRITICAL JSON FORMATTING RULES:\n1. Output strictly valid JSON.\n2. DO NOT use unescaped double quotes (\") inside string values. If you need to quote a word inside the text, use single quotes (') instead.\n3. Ensure all properties and string values are properly closed.";
-  const selectedModel = resolveGeminiModel(model);
+  const selectedModel = resolveGeminiModel(SAFE_GEMINI_FALLBACK_MODEL);
   const generativeModel = genAI.getGenerativeModel(
     {
       model: selectedModel.model,
-      systemInstruction: CONSENSUS_SYSTEM_INSTRUCTION,
     },
     selectedModel.requestOptions
   );
@@ -469,11 +468,13 @@ async function callGeminiJson<T>(
       withGeminiRateLimitRetry(() =>
         withTimeout(
           generativeModel.generateContent({
-            contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+            contents: [
+              { role: 'user', parts: [{ text: CONSENSUS_SYSTEM_INSTRUCTION }] },
+              { role: 'user', parts: [{ text: fullPrompt }] },
+            ],
             generationConfig: {
               temperature: 0.25,
               maxOutputTokens: 8192,
-              responseMimeType: 'application/json',
             },
           }),
           timeoutMs
