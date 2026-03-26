@@ -236,12 +236,13 @@ export default function CryptoAnalyzer() {
   const handleAnalyze = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setLoadingMessage('AWAITING_LIVE_DATA · Cyber-Decrypt in progress...');
+    setLoadingMessage('ממתין לנתוני שוק חיים · סנכרון טלמטריה מתקדם...');
     setError(null);
     setSimError(null);
     setChartData([]);
+    const symbolForAnalysis = (fetchedPriceForSymbol || symbol).toUpperCase();
     const res = await analyzeCrypto({
-      symbol,
+      symbol: symbolForAnalysis,
       honeypot,
       submittedAt: formRenderedAt,
       captchaToken: '',
@@ -268,7 +269,7 @@ export default function CryptoAnalyzer() {
     }
     setLoading(false);
     setLoadingMessage('');
-  }, [formRenderedAt, honeypot, loadHistory, symbol, t.analysisErrorDefault, t.unauthorizedRequest]);
+  }, [fetchedPriceForSymbol, formRenderedAt, honeypot, loadHistory, symbol, locale, t.analysisErrorDefault, t.unauthorizedRequest]);
 
   const handleEvaluate = useCallback(async () => {
     setEvaluating(true);

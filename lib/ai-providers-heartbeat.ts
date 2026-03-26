@@ -49,9 +49,9 @@ async function pingGemini(): Promise<boolean> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey || apiKey.includes('TODO')) return false;
 
-  const model = (APP_CONFIG.primaryModel || 'gemini-2.5-flash').replace(/^models\//, '');
+  const model = (APP_CONFIG.primaryModel || 'gemini-2.0-flash').replace(/^models\//, '');
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

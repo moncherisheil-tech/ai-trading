@@ -13,7 +13,7 @@ const LOGIN_PATH = '/login';
 
 /**
  * Global shell: sidebar (AppHeader) on every authenticated route including /ops.
- * Main content uses physical padding-right for a fixed right sidebar under global RTL.
+ * Desktop uses strict 2-column grid so sidebar never overlaps content.
  */
 export default function GlobalAppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -25,9 +25,8 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
 
   return (
     <MarketStateProvider>
-      <div className="grid w-full min-h-screen md:grid-cols-[minmax(0,1fr)_280px] md:grid-rows-[auto_1fr]">
-        <AppHeader />
-        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-20 md:pt-0 md:pr-[280px] [grid-area:main]">
+      <div className="grid min-h-screen w-full grid-cols-1 md:grid-cols-[1fr_280px]">
+        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-20 md:pt-0">
           <CryptoTicker />
           <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-20 md:pb-0">
             <ToastProvider>
@@ -38,7 +37,9 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
             <ConsultationChat />
           </main>
         </div>
-        <div className="hidden md:block [grid-area:side]" aria-hidden />
+        <div className="hidden md:block">
+          <AppHeader />
+        </div>
       </div>
     </MarketStateProvider>
   );

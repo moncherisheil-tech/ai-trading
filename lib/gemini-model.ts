@@ -1,5 +1,5 @@
 type GeminiRequestOptions = {
-  /** v1beta is required for systemInstruction + JSON responseMimeType on generateContent. */
+  /** v1beta supports systemInstruction + JSON responseMimeType on generateContent. */
   apiVersion: 'v1beta';
 };
 
@@ -9,7 +9,7 @@ export function resolveGeminiModel(modelName: string): {
 } {
   const raw = (modelName || '').trim();
   const normalized = raw.replace(/^models\//, '');
-  const model = normalized ? `models/${normalized}` : 'models/gemini-2.5-flash';
+  const model = normalized ? `models/${normalized}` : 'models/gemini-2.0-flash';
 
   return {
     model,

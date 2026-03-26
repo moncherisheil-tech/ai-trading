@@ -58,11 +58,11 @@ export const APP_CONFIG = {
   tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
-  /** Primary Gemini model. Use env or default to 2.5-flash (supports responseMimeType/systemInstruction). */
-  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.5-flash',
-  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-2.5-flash',
-  /** Model used when primary returns 429 (quota exhausted). Must support structured JSON (no 1.5). */
-  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-2.5-flash',
+  /** Primary Gemini model. */
+  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.0-flash',
+  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-2.0-flash',
+  /** Model used when primary returns 429 (quota exhausted). */
+  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-2.0-flash',
   authToken: process.env.APP_AUTH_TOKEN || '',
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
   dbDriver: process.env.DB_DRIVER || 'file',
