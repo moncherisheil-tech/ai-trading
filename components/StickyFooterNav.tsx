@@ -12,7 +12,10 @@ import LegalDisclaimer from '@/components/LegalDisclaimer';
  */
 export default function StickyFooterNav() {
   return (
-    <div className="mt-auto">
+    <div
+      className="mt-auto w-full min-w-0 max-w-full overflow-x-hidden md:pr-[var(--app-main-inline-offset)]"
+      dir="rtl"
+    >
       {/* Mobile bottom navigation (icons) */}
       <div className="md:hidden">
         <BottomNav />

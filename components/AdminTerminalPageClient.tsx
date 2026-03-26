@@ -13,7 +13,7 @@ async function fetchWithBackoff<T>(
   loader: () => Promise<{ success: true; data: T } | { success: false; error: string }>,
   maxAttempts = 3
 ): Promise<{ success: true; data: T } | { success: false; error: string }> {
-  let lastErr = 'Unknown error';
+  let lastErr = 'שגיאה לא ידועה';
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const out = await loader();
     if (out.success) return out;
@@ -96,7 +96,9 @@ export default function AdminTerminalPageClient() {
   const handleGoLiveToggle = async (wantLive: boolean) => {
     if (wantLive) {
       if (!goLiveSafety?.allGreen) {
-        toastError('מעבר ל-LIVE נחסם: החלקה, יחס קלי/חשיפה או סטופ-לוס חייבים להיות ירוקים.');
+        toastError(
+          'מעבר למצב מסחר חי נחסם: החלקה, יחס קלי־חשיפה או סטופ־לוס חייבים להיות בסטטוס תקין (ירוק).'
+        );
         return;
       }
       setGoBusy(true);
@@ -110,7 +112,9 @@ export default function AdminTerminalPageClient() {
         await load();
         return;
       }
-      toastSuccess('נשלחה בקשה למצב LIVE — יש להגדיר מפתחות בצד השרת; עיין בשדה liveLocked בפיד.');
+      toastSuccess(
+        'נשלחה בקשה למצב מסחר חי — יש להגדיר מפתחות בורסה בצד השרת; עיינו בשדה נעילת מצב חי (liveLocked) בפיד.'
+      );
     } else {
       setGoBusy(true);
       const res = await updateTradingExecutionStatusAction({ mode: 'PAPER' });
@@ -120,7 +124,7 @@ export default function AdminTerminalPageClient() {
         await load();
         return;
       }
-      toastSuccess('מצב ביצוע הוגדר לנייר (PAPER).');
+      toastSuccess('מצב ביצוע הוגדר לנייר (סימולציה).');
     }
     await load();
   };
@@ -143,8 +147,8 @@ export default function AdminTerminalPageClient() {
               </p>
               <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">מסוף מצב-אל</h1>
               <p className="text-sm text-zinc-500 mt-2 max-w-xl">
-                תצלום ביצוע עם פיד מתאושש (backoff אקספוננציאלי ×2). ממשקי Ops נשארים מאובטחים בכותרות; כאן אגרגציה בצד
-                השרת.
+                תצלום ביצוע עם פיד מתאושש (המתנה כפולה בין ניסיונות חוזרים). ממשקי הפעלה נשארים מאובטחים בכותרות; כאן
+                אגרגציה בצד השרת.
               </p>
             </div>
             <button
@@ -183,8 +187,15 @@ export default function AdminTerminalPageClient() {
               </div>
             </div>
             <p className="text-xs text-zinc-500 mb-3">
-              מבוסס על תקינות מסד הנתונים, בדיקת <span className="text-zinc-300">text-embedding-004</span> (768 ממדים),
-              Pinecone, דגל CI <code className="text-cyan-600/90">TYPECHECK_PASSED</code> ויציבות נתיבי ליבה.
+              מבוסס על תקינות מסד הנתונים, בדיקת מודל הטמעה{' '}
+              <span className="font-mono text-zinc-300" dir="ltr" lang="en">
+                text-embedding-004
+              </span>{' '}
+              (768 ממדים), Pinecone, דגל אינטגרציה{' '}
+              <code className="text-cyan-600/90" dir="ltr" lang="en">
+                TYPECHECK_PASSED
+              </code>{' '}
+              ויציבות נתיבי ליבה.
             </p>
             <ul className="space-y-2">
               {readiness.factors.map((f) => (
@@ -209,11 +220,11 @@ export default function AdminTerminalPageClient() {
         <div className={`${FROST_PANEL} p-5 sm:p-6`}>
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3 flex items-center gap-2">
             <Lock className="h-3.5 w-3.5" aria-hidden />
-            שער מעבר ל-LIVE
+            שער מעבר למצב מסחר חי
           </h2>
           <p className="text-xs text-zinc-500 mb-4">
-            מפתחות הבורסה מוזרקים דרך סביבת הריצה — המתג מאשר LIVE רק לאחר מעבר בדיקות בטיחות מוסדיות. ה-API אוכף את אותם
-            כללים.
+            מפתחות הבורסה מוזרקים דרך סביבת הריצה — המתג מאשר מסחר חי רק לאחר מעבר בדיקות בטיחות מוסדיות. ממשק ה-API אוכף
+            את אותם כללים.
           </p>
           {goLiveSafety && (
             <ul className="space-y-2 mb-5">
@@ -240,7 +251,7 @@ export default function AdminTerminalPageClient() {
               onClick={() => void handleGoLiveToggle(true)}
               className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-xs font-bold uppercase tracking-wider text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-35 disabled:pointer-events-none transition-colors"
             >
-              {goBusy && !isLive ? 'מכין…' : 'מעבר ל-LIVE'}
+              {goBusy && !isLive ? 'מכין…' : 'מעבר למצב חי'}
             </button>
             <button
               type="button"
@@ -248,15 +259,17 @@ export default function AdminTerminalPageClient() {
               onClick={() => void handleGoLiveToggle(false)}
               className="rounded-xl border border-zinc-600/50 bg-zinc-900/60 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 disabled:opacity-35 disabled:pointer-events-none transition-colors"
             >
-              נייר
+              נייר (סימולציה)
             </button>
             {!canArmLive && !isLive ? (
-              <span className="text-[11px] text-amber-400/90">כל בדיקות הבטיחות חייבות להיות ירוקות כדי לאשר LIVE.</span>
+              <span className="text-[11px] text-amber-400/90">
+                כל בדיקות הבטיחות חייבות להיות תקינות כדי לאשר מסחר חי.
+              </span>
             ) : null}
             {snap?.liveLocked ? (
               <span className="text-[11px] text-cyan-400/90 flex items-center gap-1">
                 <Lock className="h-3 w-3" aria-hidden />
-                נעילת LIVE: יש להגדיר מפתחות בורסה מאומתים לביצוע LIVE אמיתי.
+                נעילת מצב חי: יש להגדיר מפתחות בורסה מאומתים לביצוע מסחר חי אמיתי.
               </span>
             ) : null}
           </div>
@@ -297,10 +310,11 @@ export default function AdminTerminalPageClient() {
         </div>
 
         <div className={`${FROST_PANEL} p-5 sm:p-6`}>
-          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3">פיד גולמי (JSON)</h2>
+          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3">פיד גולמי (פורמט JSON)</h2>
           <pre
-            className="text-[11px] sm:text-xs font-mono text-zinc-400 overflow-x-auto max-h-[420px] overflow-y-auto rounded-xl bg-black/40 p-4 border border-white/5"
+            className="text-[11px] sm:text-xs font-mono text-zinc-400 overflow-x-auto max-h-[420px] overflow-y-auto rounded-xl bg-black/40 p-4 border border-white/5 max-w-full min-w-0"
             dir="ltr"
+            lang="en"
           >
             {loading ? 'ממתין לערוץ מאובטח…' : JSON.stringify(payload, null, 2)}
           </pre>

@@ -29,8 +29,17 @@
 }
 
 /* Mobile-first: prevent horizontal scroll from fixed-width children */
-html, body {
+html,
+body {
   overflow-x: hidden;
+  max-width: 100%;
+}
+
+@supports (overflow: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
 }
 
 /* DEFCON: tactical crimson shell when black-swan proxy (see MarketStateContext) */

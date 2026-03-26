@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'Quantum Crypto',
+    title: 'מסוף קוונטום',
   },
 };
 
@@ -45,9 +45,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <PwaMeta />
         <RegisterServiceWorker />
         <ThemeApplicator>
-          <GlobalAppChrome>{children}</GlobalAppChrome>
-          {/* Unified sticky footer/nav for all viewports */}
-          <StickyFooterNav />
+          <div
+            className="flex min-h-0 min-w-0 w-full max-w-[100dvw] flex-1 flex-col overflow-x-clip"
+            dir="rtl"
+          >
+            <GlobalAppChrome>{children}</GlobalAppChrome>
+            <StickyFooterNav />
+          </div>
         </ThemeApplicator>
       </body>
     </html>
