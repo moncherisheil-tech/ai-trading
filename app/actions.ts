@@ -49,6 +49,7 @@ interface BinanceTickerPrice {
 
 type AnalyzeInput = {
   symbol: string;
+  price?: number;
   honeypot?: string;
   submittedAt?: number;
   captchaToken?: string;
@@ -245,6 +246,10 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
     }
 
     const cleanSymbol = normalizeSymbol(inputSymbol);
+    const incomingPrice = typeof input.price === 'number' ? input.price : Number(input.price);
+    if (Number.isFinite(incomingPrice) && incomingPrice > 0 && process.env.NODE_ENV === 'development') {
+      console.log('[Analysis] Ticker payload received', { symbol: cleanSymbol, price: incomingPrice });
+    }
     const requestLocale = input.locale ?? await getRequestLocale();
     return await doAnalysisCore(cleanSymbol, startedAt, true, { locale: requestLocale });
   } catch (error: unknown) {
@@ -402,7 +407,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in ${isHebrew ? 'Hebrew' : 'English'}) to avoid this mistake next time.
           `;
 
-          const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-2.0-flash' });
+          const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest' });
           const geminiPromise = model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { temperature: 0.2 },

@@ -71,7 +71,7 @@ export async function generateLiveText(params: {
 
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-2.0-flash',
+    model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest',
     ...(systemInstruction ? { systemInstruction } : {}),
   });
   const response = await withGeminiRateLimitRetry(() =>

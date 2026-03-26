@@ -158,7 +158,7 @@ async function runSentimentViaGemini(prompt: string): Promise<SentimentResult | 
   try {
     const apiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(apiKey);
-    const selected = resolveGeminiModel('gemini-2.0-flash');
+    const selected = resolveGeminiModel('gemini-1.5-flash-latest');
     const model = genAI.getGenerativeModel(
       {
         model: selected.model,

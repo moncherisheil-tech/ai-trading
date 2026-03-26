@@ -236,40 +236,48 @@ export default function CryptoAnalyzer() {
   const handleAnalyze = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    setLoadingMessage('ממתין לנתוני שוק חיים · סנכרון טלמטריה מתקדם...');
+    const waitingForSocket = livePrice == null && !livePriceConnected;
+    setLoadingMessage(waitingForSocket ? 'Scanning... מתחבר למחיר חי מהשוק' : 'ממתין לנתוני שוק חיים · סנכרון טלמטריה מתקדם...');
     setError(null);
     setSimError(null);
     setChartData([]);
-    const symbolForAnalysis = (fetchedPriceForSymbol || symbol).toUpperCase();
-    const res = await analyzeCrypto({
-      symbol: symbolForAnalysis,
-      honeypot,
-      submittedAt: formRenderedAt,
-      captchaToken: '',
-      locale,
-    });
-    if (res.success) {
-      const chartData = 'chartData' in res ? res.chartData : undefined;
-      if (chartData?.length) {
-        setChartData(
-          chartData.map((d: { date: string; close: number; open?: number; high?: number; low?: number }) => ({
-            date: d.date,
-            close: d.close,
-            open: d.open,
-            high: d.high,
-            low: d.low,
-          }))
-        );
+    try {
+      const symbolForAnalysis = (fetchedPriceForSymbol || symbol).toUpperCase();
+      const res = await analyzeCrypto({
+        symbol: symbolForAnalysis,
+        price: Number.isFinite(livePrice) && livePrice != null ? livePrice : undefined,
+        honeypot,
+        submittedAt: formRenderedAt,
+        captchaToken: '',
+        locale,
+      });
+      if (res.success) {
+        const chartData = 'chartData' in res ? res.chartData : undefined;
+        if (chartData?.length) {
+          setChartData(
+            chartData.map((d: { date: string; close: number; open?: number; high?: number; low?: number }) => ({
+              date: d.date,
+              close: d.close,
+              open: d.open,
+              high: d.high,
+              low: d.low,
+            }))
+          );
+        }
+        await loadHistory();
+      } else {
+        const message = res.error === 'Unauthorized request.' ? t.unauthorizedRequest : (res.error || t.analysisErrorDefault);
+        setError(message);
+        setChartData([]);
       }
-      await loadHistory();
-    } else {
-      const message = res.error === 'Unauthorized request.' ? t.unauthorizedRequest : (res.error || t.analysisErrorDefault);
-      setError(message);
+    } catch {
+      setError(waitingForSocket ? 'Scanning... החיבור למחיר חי עדיין בהקמה, נסו שוב בעוד רגע.' : t.analysisErrorDefault);
       setChartData([]);
+    } finally {
+      setLoading(false);
+      setLoadingMessage('');
     }
-    setLoading(false);
-    setLoadingMessage('');
-  }, [fetchedPriceForSymbol, formRenderedAt, honeypot, loadHistory, symbol, locale, t.analysisErrorDefault, t.unauthorizedRequest]);
+  }, [fetchedPriceForSymbol, formRenderedAt, honeypot, livePrice, livePriceConnected, loadHistory, symbol, locale, t.analysisErrorDefault, t.unauthorizedRequest]);
 
   const handleEvaluate = useCallback(async () => {
     setEvaluating(true);

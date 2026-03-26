@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useMemo, useState } from 'react';
-import { motion, useMotionValue, useSpring, useTransform, type Variants } from 'motion/react';
+import { motion, type Variants } from 'motion/react';
 import { getExecutionDashboardSnapshotAction } from '@/app/actions';
 import { useMarketState } from '@/context/MarketStateContext';
 import { useCyberDecryptNumber } from '@/hooks/use-cyber-decrypt-value';
@@ -57,7 +57,7 @@ function statusTone(status: ExpertAgentStatus): string {
   return 'text-amber-300';
 }
 
-function ExpertTiltCard({
+function ExpertCard({
   expert,
   consensusPulse,
   isDefcon1,
@@ -67,19 +67,12 @@ function ExpertTiltCard({
   isDefcon1: boolean;
 }) {
   const sigGradId = useId().replace(/:/g, '');
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rx = useSpring(useTransform(y, [-50, 50], [11, -11]), { stiffness: 220, damping: 18 });
-  const ry = useSpring(useTransform(x, [-50, 50], [-11, 11]), { stiffness: 220, damping: 18 });
-  const tzRaw = useTransform([x, y], ([lx, ly]) => 18 + Math.abs(lx as number) * 0.08 + Math.abs(ly as number) * 0.04);
-  const tz = useSpring(tzRaw, { stiffness: 260, damping: 24 });
   const glow = useMemo(
     () => `${expert.neon}${expert.status === 'פעיל' || expert.status === 'פעיל (סריקה)' ? '66' : '2a'}`,
     [expert.neon, expert.status]
   );
   const isLeviathan = expert.alias.includes('לווייתן');
   const isShield = expert.alias.includes('מגן');
-  const [spotlight, setSpotlight] = useState({ x: '50%', y: '50%', opacity: 0 });
   const scoreDecrypt = useCyberDecryptNumber(expert.score, { decimals: 1 });
 
   const auraTone =
@@ -90,36 +83,15 @@ function ExpertTiltCard({
         : `${expert.neon}22`;
 
   return (
-    <div className="[perspective:1100px]">
+    <div>
       <motion.article
-        onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const relX = e.clientX - (rect.left + rect.width / 2);
-          const relY = e.clientY - (rect.top + rect.height / 2);
-          x.set(relX);
-          y.set(relY);
-          setSpotlight({
-            x: `${((e.clientX - rect.left) / rect.width) * 100}%`,
-            y: `${((e.clientY - rect.top) / rect.height) * 100}%`,
-            opacity: 1,
-          });
-        }}
-        onMouseLeave={() => {
-          x.set(0);
-          y.set(0);
-          setSpotlight((prev) => ({ ...prev, opacity: 0 }));
-        }}
+        whileHover={{ y: -2 }}
         style={{
-          rotateX: rx,
-          rotateY: ry,
-          transformStyle: 'preserve-3d',
           background: `radial-gradient(120% 110% at 50% 0%, ${expert.neon}22 0%, rgba(255,255,255,0.02) 58%)`,
           boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.06), 0 22px 40px rgba(0,0,0,0.5), 0 0 32px ${glow}`,
-          ['--spotlight-x' as string]: spotlight.x,
-          ['--spotlight-y' as string]: spotlight.y,
-          ['--spotlight-opacity' as string]: spotlight.opacity,
+          borderColor: `${expert.neon}33`,
         }}
-        className="spotlight-card frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-2 relative z-0 rounded-2xl p-4 overflow-hidden transition-transform duration-200 backdrop-blur-[60px]"
+        className="spotlight-card frosted-obsidian panel-sovereign-diamond z-depth-2 relative z-0 rounded-2xl p-4 overflow-hidden transition-transform duration-200 backdrop-blur-[60px] border border-white/10 hover:border-white/20"
       >
         {isLeviathan ? <div className="leviathan-wave" aria-hidden /> : null}
         <div
@@ -133,28 +105,22 @@ function ExpertTiltCard({
           className="absolute inset-0 opacity-40 pointer-events-none"
           style={{ background: `radial-gradient(circle at 50% 90%, ${expert.neon}1f, transparent 70%)` }}
         />
-        <motion.div className="relative z-[1] flex items-center justify-between" style={{ translateZ: tz }}>
+        <motion.div className="relative z-[1] flex items-center justify-between">
           <div className="h-10 w-10 rounded-xl border border-white/10 bg-black/45 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
             <ExpertSigil neon={expert.neon} active={consensusPulse} gradId={sigGradId} />
           </div>
           <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expert.neon, boxShadow: `0 0 12px ${expert.neon}` }} />
         </motion.div>
-        <motion.p className="relative z-[1] mt-3 text-sm text-zinc-100 font-semibold leading-tight tracking-tight" style={{ translateZ: 26 }}>
+        <motion.p className="relative z-[1] mt-3 text-sm text-zinc-100 font-semibold leading-tight tracking-tight">
           {expert.name}
         </motion.p>
-        <p className="relative z-[1] text-[11px] uppercase tracking-wider text-zinc-300/90 mt-1" style={{ transform: 'translateZ(22px)' }}>
+        <p className="relative z-[1] text-[11px] uppercase tracking-wider text-zinc-300/90 mt-1">
           {expert.alias}
         </p>
-        <p
-          className="relative z-[1] mt-2 text-[11px] text-zinc-300/90 font-mono tabular-nums tracking-tight"
-          style={{ transform: 'translateZ(20px)' }}
-        >
+        <p className="relative z-[1] mt-2 text-[11px] text-zinc-300/90 font-mono tabular-nums tracking-tight">
           {expert.score != null ? `ניקוד ${scoreDecrypt}` : 'ניקוד — ממתין לנתוני שוק'}
         </p>
-        <p
-          className={`relative z-[1] text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${statusTone(expert.status)}`}
-          style={{ transform: 'translateZ(16px)' }}
-        >
+        <p className={`relative z-[1] text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${statusTone(expert.status)}`}>
           {expert.status}
         </p>
       </motion.article>
@@ -265,7 +231,7 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
         {experts.map((expert) => (
-          <ExpertTiltCard key={expert.name} expert={expert} consensusPulse={consensusPulse} isDefcon1={isDefcon1} />
+          <ExpertCard key={expert.name} expert={expert} consensusPulse={consensusPulse} isDefcon1={isDefcon1} />
         ))}
       </div>
     </motion.div>

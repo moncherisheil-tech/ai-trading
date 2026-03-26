@@ -1,6 +1,6 @@
 type GeminiRequestOptions = {
-  /** v1beta supports systemInstruction + JSON responseMimeType on generateContent. */
-  apiVersion: 'v1beta';
+  /** Stable API version for current Gemini SDK calls. */
+  apiVersion: 'v1';
 };
 
 export function resolveGeminiModel(modelName: string): {
@@ -9,11 +9,11 @@ export function resolveGeminiModel(modelName: string): {
 } {
   const raw = (modelName || '').trim();
   const normalized = raw.replace(/^models\//, '');
-  const model = normalized ? `models/${normalized}` : 'models/gemini-2.0-flash';
+  const model = normalized ? `models/${normalized}` : 'models/gemini-1.5-flash-latest';
 
   return {
     model,
-    requestOptions: { apiVersion: 'v1beta' },
+    requestOptions: { apiVersion: 'v1' },
   };
 }
 

@@ -75,7 +75,7 @@ async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<nu
   const candidates = getEmbeddingModelCandidates();
   let lastBody = '';
   for (const modelId of candidates) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
     const bodyWithDim = JSON.stringify({
       model: `models/${modelId}`,
       content: { parts: [{ text }] },
