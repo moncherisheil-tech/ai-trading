@@ -10,9 +10,9 @@ const { loadEnvConfig } = nextEnv;
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production');
 
 const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
+if (!connectionString || !connectionString.includes('quantum_admin')) {
   console.error(
-    'DATABASE_URL is required for migrate-postgres. Refusing to fall back to local postgres defaults.'
+    'Security Breach: Unauthorized DB User Attempted'
   );
   process.exit(1);
 }

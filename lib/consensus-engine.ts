@@ -31,7 +31,7 @@ import {
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
 /** Wall-clock cap for one MoE round; fail fast to avoid UI hangs. */
-const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 120_000;
+const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 45_000;
 /** Neutral fallback message when an expert times out or fails — never show raw error to UI. */
 const NEUTRAL_FALLBACK_LOGIC = 'הנתונים אינם זמינים כרגע. ממשיכים במשקל ניטרלי.';
 
@@ -756,6 +756,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
   const envVarName = 'GROQ_API_KEY';
   const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
+    console.error('[CRITICAL] Grok/Groq API key missing during Macro expert initialization. Expected GROQ_API_KEY.');
     console.error(`[ConsensusEngine] Missing Groq API key; attempted env var: ${envVarName}`);
     console.warn('[ConsensusEngine] GROQ_API_KEY missing; Macro agent skipped.');
     return {

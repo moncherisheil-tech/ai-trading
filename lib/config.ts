@@ -1,3 +1,6 @@
+import 'dotenv/config';
+import { CRYPTO_SYMBOLS } from './symbols';
+
 /** Production base URL for absolute links and redirects. Set APP_URL in .env. */
 export const BASE_URL = normalizeAppUrl(process.env.APP_URL);
 
@@ -89,8 +92,6 @@ if (APP_CONFIG.proxyBinanceUrl) {
     // invalid PROXY_BINANCE_URL ignored
   }
 }
-
-import { CRYPTO_SYMBOLS } from './symbols';
 
 /** סימבולי Binance (עם USDT) לניתוח ולבדיקות. */
 export const TARGET_SYMBOLS = CRYPTO_SYMBOLS.map((b) => `${b}USDT`) as readonly string[];

@@ -66,6 +66,8 @@ async function pingGemini(): Promise<boolean> {
 export type AiProvidersHeartbeat = {
   gemini: boolean;
   anthropic: boolean;
+  grok: boolean;
+  dbConnected: boolean;
   adminSecretValid: boolean;
   anyProviderOk: boolean;
 };
@@ -76,16 +78,22 @@ export type AiProvidersHeartbeat = {
  */
 export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
   const adminSecretValid = Boolean((process.env.ADMIN_SECRET || '').trim());
+  const databaseUrl = (process.env.DATABASE_URL || '').trim();
+  const dbConnected = Boolean(databaseUrl && databaseUrl.includes('quantum_admin'));
+  const grok = Boolean((process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY || '').trim());
   const [g, a] = await Promise.all([
     withTimeout(pingGemini(), HEARTBEAT_MS),
     withTimeout(pingAnthropic(), HEARTBEAT_MS),
   ]);
   const gemini = g === true;
   const anthropic = a === true;
+  const anyProviderWithKey = gemini || anthropic || grok;
   return {
     gemini,
     anthropic,
+    grok,
+    dbConnected,
     adminSecretValid,
-    anyProviderOk: adminSecretValid && (gemini || anthropic),
+    anyProviderOk: dbConnected && anyProviderWithKey,
   };
 }

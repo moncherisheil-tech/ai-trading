@@ -81,7 +81,11 @@ export interface PredictionRecord {
 }
 
 function hasPostgres(): boolean {
-  return Boolean(APP_CONFIG.postgresUrl?.trim());
+  const url = APP_CONFIG.postgresUrl?.trim() || '';
+  if (!url || !url.includes('quantum_admin')) {
+    throw new Error('Security Breach: Unauthorized DB User Attempted');
+  }
+  return true;
 }
 
 export async function getPredictionRepository() {

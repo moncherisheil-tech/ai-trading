@@ -6,7 +6,7 @@
 
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getGeminiApiKey } from '@/lib/env';
+import { getGeminiApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
 import { resolveGeminiModel } from '@/lib/gemini-model';
 import { TRUTH_MATRIX_RULES } from '@/lib/agents/psych-agent';
 
@@ -137,9 +137,7 @@ export async function fetchLatestCryptoNews(symbol: string): Promise<string[]> {
 }
 
 function getClaudeApiKey(): string {
-  const key = process.env.CLAUDE_API_KEY ?? process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new Error('Claude API key missing. Set CLAUDE_API_KEY or ANTHROPIC_API_KEY.');
-  return key;
+  return getRequiredAnthropicApiKey();
 }
 
 function extractJsonFromText(text: string): string {

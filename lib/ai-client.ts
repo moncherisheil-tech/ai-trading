@@ -3,7 +3,7 @@ import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { APP_CONFIG } from '@/lib/config';
 import { getGeminiApiKey, getOpenAiApiKey, getRequiredGroqApiKey } from '@/lib/env';
-import { withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
 type Provider = 'gemini' | 'openai' | 'groq';
 
@@ -70,9 +70,13 @@ export async function generateLiveText(params: {
   }
 
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-2.5-flash',
-  });
+  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-2.5-flash');
+  const model = genAI.getGenerativeModel(
+    {
+      model: selected.model,
+    },
+    selected.requestOptions
+  );
   const geminiPrompt = systemInstruction ? `${systemInstruction}\n\n${prompt}` : prompt;
   const response = await withGeminiRateLimitRetry(() =>
     model.generateContent({

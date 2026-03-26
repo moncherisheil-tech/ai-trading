@@ -5,7 +5,7 @@ import { appendStrategyInsights } from '@/lib/db/strategy-repository';
 import type { BacktestLogEntry } from '@/lib/db/backtest-repository';
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getGeminiApiKey } from '@/lib/env';
+import { getRequiredAnthropicApiKey, getGeminiApiKey } from '@/lib/env';
 import { resolveGeminiModel } from '@/lib/gemini-model';
 
 const BACKTEST_LOG_PATH = path.join(process.cwd(), 'backtests.jsonl');
@@ -32,11 +32,7 @@ async function loadCriticalBacktests(): Promise<BacktestLogEntry[]> {
 }
 
 function getClaudeApiKey(): string {
-  const key = process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    throw new Error('Claude API key is missing. Set CLAUDE_API_KEY or ANTHROPIC_API_KEY.');
-  }
-  return key;
+  return getRequiredAnthropicApiKey();
 }
 
 function extractJsonFromText(text: string): string {

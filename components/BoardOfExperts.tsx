@@ -129,6 +129,8 @@ function mergeExpertStatus(
   ai: ReturnType<typeof useAIStatus>['status']
 ): ExpertAgentStatus {
   if (score != null) return 'פעיל';
+  const providerReady = Boolean(ai?.gemini || ai?.anthropic || ai?.grok);
+  if (ai?.dbConnected && providerReady) return 'פעיל';
   if (aiLoading && !ai) return 'ממתין לנתוני שוק';
   if (ai?.anyProviderOk) return 'פעיל (סריקה)';
   if (ai?.error || (ai && !ai.anyProviderOk)) return 'לא זמין — ניסיון חוזר';

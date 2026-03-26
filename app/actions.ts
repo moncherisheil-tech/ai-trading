@@ -1,4 +1,5 @@
 'use server';
+import 'dotenv/config';
 
 /** Long-running analyzeCrypto relies on page route maxDuration (e.g. app/page.tsx export const maxDuration = 60). */
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -636,6 +637,8 @@ export async function getMarketRiskSentinelAction(): Promise<unknown> {
 export async function getAiConsensusBridgeStatusAction(): Promise<{
   gemini: boolean;
   anthropic: boolean;
+  grok: boolean;
+  dbConnected: boolean;
   anyProviderOk: boolean;
   adminSecretConfigured: boolean;
   consensusDataOk: boolean;
@@ -656,6 +659,8 @@ export async function getAiConsensusBridgeStatusAction(): Promise<{
     return {
       gemini: hb.gemini,
       anthropic: hb.anthropic,
+      grok: hb.grok,
+      dbConnected: hb.dbConnected,
       anyProviderOk: hb.anyProviderOk,
       adminSecretConfigured,
       consensusDataOk,
@@ -664,6 +669,8 @@ export async function getAiConsensusBridgeStatusAction(): Promise<{
     return {
       gemini: false,
       anthropic: false,
+      grok: false,
+      dbConnected: false,
       anyProviderOk: false,
       adminSecretConfigured,
       consensusDataOk,

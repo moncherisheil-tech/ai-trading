@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 /**
  * verify-save.mjs — Persistence verification script
  * Verifies that POST /api/settings/app persists data and GET returns it.

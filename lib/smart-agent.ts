@@ -225,6 +225,9 @@ export async function generatePostMortem(
       // Fall through to Gemini fallback
     }
   }
+  if (!groqKey) {
+    console.error('[CRITICAL] Grok/Groq API key missing during smart-agent post-mortem initialization. Expected GROQ_API_KEY.');
+  }
 
   try {
     const geminiKey = getGeminiApiKey();

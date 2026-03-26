@@ -1,3 +1,5 @@
+import 'dotenv/config';
+
 const INVALID_KEY_MARKERS = ['TODO'];
 
 function isInvalidKey(value: string | undefined): boolean {
@@ -34,7 +36,17 @@ export function getGroqApiKey(): string | undefined {
 export function getRequiredGroqApiKey(): string {
   const key = getGroqApiKey();
   if (!key) {
+    console.error('[CRITICAL] Grok/Groq API key missing during expert initialization. Expected GROQ_API_KEY.');
     throw new Error('Groq API key is missing or invalid. Set GROQ_API_KEY in your server environment.');
+  }
+  return key;
+}
+
+export function getRequiredAnthropicApiKey(): string {
+  const key = (process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!key || isInvalidKey(key)) {
+    console.error('[CRITICAL] Anthropic API key missing during expert initialization. Expected CLAUDE_API_KEY or ANTHROPIC_API_KEY.');
+    throw new Error('Anthropic API key is missing or invalid. Set CLAUDE_API_KEY or ANTHROPIC_API_KEY.');
   }
   return key;
 }

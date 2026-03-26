@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { Pool, type QueryResult } from 'pg';
 
 let pool: Pool | null = null;
@@ -17,7 +18,10 @@ function normalizeEnvValue(raw: string | undefined): string {
 function connectionString(): string {
   const url = normalizeEnvValue(process.env.DATABASE_URL);
   if (!url) {
-    throw new Error('DATABASE_URL must be set for PostgreSQL access.');
+    throw new Error('Security Breach: Unauthorized DB User Attempted');
+  }
+  if (!url.includes('quantum_admin')) {
+    throw new Error('Security Breach: Unauthorized DB User Attempted');
   }
   try {
     const parsed = new URL(url);
