@@ -24,14 +24,11 @@ export default function BottomNav() {
           const label = getNavLabel(item, t as Record<string, string>);
           const isActive =
             item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-          const defconSoft = Boolean(item.softInDefcon && isDefcon1);
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 gap-0.5 rounded-xl transition-colors touch-manipulation ${
-                defconSoft ? 'opacity-[0.2] pointer-events-none saturate-[0.35]' : ''
-              } ${isActive ? 'text-amber-500' : 'text-zinc-500 hover:text-zinc-100'}`}
+              className={`relative flex flex-col items-center justify-center flex-1 min-w-0 py-2 gap-0.5 rounded-xl transition-colors touch-manipulation ${isActive ? 'text-amber-500' : 'text-zinc-500 hover:text-zinc-100'}`}
               aria-current={isActive ? 'page' : undefined}
             >
               {isActive && (

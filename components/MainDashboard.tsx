@@ -180,15 +180,11 @@ export default function MainDashboard() {
         <motion.div variants={staggerItem} className="grid grid-cols-1 lg:grid-cols-12 auto-rows-[minmax(160px,auto)] gap-x-5 gap-y-7 lg:gap-x-7 lg:gap-y-8">
           {/* Deep Memory — prominent */}
           <DeepMemoryFeed
-            className={`lg:col-span-4 xl:col-span-3 min-h-[320px] lg:min-h-[380px] lg:row-span-2 transition-[opacity,filter] duration-500 ${
-              isDefcon1 ? 'opacity-[0.18] pointer-events-none saturate-50 blur-[0.5px] lg:max-h-[120px] overflow-hidden' : ''
-            }`}
+            className="lg:col-span-4 xl:col-span-3 min-h-[320px] lg:min-h-[380px] lg:row-span-2"
           />
 
           <div
-            className={`${GLASS} neural-pulse-border sovereign-tilt z-depth-3 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-6 lg:row-span-2 shadow-[0_35px_80px_rgba(0,0,0,0.6)] transition-transform duration-500 ${
-              isDefcon1 ? 'lg:scale-[1.01] ring-1 ring-rose-500/25' : ''
-            }`}
+            className={`${GLASS} neural-pulse-border sovereign-tilt z-depth-3 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-6 lg:row-span-2 shadow-[0_35px_80px_rgba(0,0,0,0.6)]`}
           >
             <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-black/20 shrink-0">
               <div className="flex items-center gap-2">
@@ -206,9 +202,7 @@ export default function MainDashboard() {
 
           {/* Market pulse stack */}
           <div
-            className={`${GLASS} sovereign-tilt z-depth-2 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-3 transition-transform duration-500 ${
-              isDefcon1 ? 'lg:scale-[1.01] ring-1 ring-rose-500/30 order-first lg:order-none' : ''
-            }`}
+            className={`${GLASS} sovereign-tilt z-depth-2 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-3`}
           >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-black/15">
               <Shield className="h-4 w-4 text-emerald-400/90" aria-hidden />
@@ -222,9 +216,7 @@ export default function MainDashboard() {
 
           {/* Quick stat tiles */}
           <div
-            className={`${GLASS} sovereign-tilt z-depth-1 p-5 flex flex-col justify-center gap-4 lg:col-span-4 xl:col-span-3 transition-[opacity,filter] duration-500 ${
-              isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-50' : ''
-            }`}
+            className={`${GLASS} sovereign-tilt z-depth-1 p-5 flex flex-col justify-center gap-4 lg:col-span-4 xl:col-span-3`}
           >
             <div className="flex items-start gap-3">
               <BarChart2 className="h-5 w-5 text-cyan-400/80 shrink-0 mt-0.5" aria-hidden />
@@ -240,23 +232,19 @@ export default function MainDashboard() {
           </div>
 
           {/* Execution engine — panel ships its own glass bento */}
-          <div className={`lg:col-span-8 xl:col-span-9 min-w-0 transition-transform duration-500 ${isDefcon1 ? 'lg:scale-[1.005]' : ''}`}>
+          <div className="lg:col-span-8 xl:col-span-9 min-w-0">
             <PaperTradingPanel />
           </div>
 
           {/* AI accuracy */}
           <div
-            className={`${GLASS} sovereign-tilt z-depth-2 p-5 sm:p-6 lg:col-span-4 xl:col-span-3 transition-[opacity,filter] duration-500 ${
-              isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-50' : ''
-            }`}
+            className={`${GLASS} sovereign-tilt z-depth-2 p-5 sm:p-6 lg:col-span-4 xl:col-span-3`}
           >
             <AIAccuracyChart />
           </div>
 
           <div
-            className={`${GLASS} sovereign-tilt z-depth-2 overflow-hidden lg:col-span-8 xl:col-span-9 transition-[opacity,filter] duration-500 ${
-              isDefcon1 ? 'opacity-[0.22] pointer-events-none saturate-50' : ''
-            }`}
+            className={`${GLASS} sovereign-tilt z-depth-2 overflow-hidden lg:col-span-8 xl:col-span-9`}
           >
             <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5 bg-black/20">
               <Cpu className="h-4 w-4 text-amber-400/90" />

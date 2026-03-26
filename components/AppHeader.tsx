@@ -104,7 +104,6 @@ export default function AppHeader() {
               const Icon = item.icon;
               const label = getNavLabel(item, t as Record<string, string>);
               const isActive = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
-              const defconSoft = Boolean(item.softInDefcon && isDefcon1);
 
               return (
                 <Link
@@ -114,11 +113,9 @@ export default function AppHeader() {
                   onMouseMove={magnetMove}
                   onMouseLeave={magnetReset}
                   className={`magnet-link relative group flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                    defconSoft ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
-                  } ${
                     isActive
-                      ? 'text-amber-300 bg-white/10 border border-white/20 scale-[1.02]'
-                      : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:scale-[1.04]'
+                      ? 'text-amber-300 bg-white/10 border border-white/20'
+                      : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20'
                   } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
                     isActive
                       ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
@@ -140,11 +137,9 @@ export default function AppHeader() {
               onMouseMove={magnetMove}
               onMouseLeave={magnetReset}
               className={`magnet-link relative group flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
-                isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
-              } ${
                 isGuideActive
-                  ? 'text-amber-300 bg-white/10 border border-white/20 scale-[1.02]'
-                  : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20 hover:scale-[1.04]'
+                  ? 'text-amber-300 bg-white/10 border border-white/20'
+                  : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/20'
               } before:content-[''] before:absolute before:top-2 before:bottom-2 before:end-0 before:w-[3px] before:rounded-full before:transition-all ${
                 isGuideActive
                   ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'

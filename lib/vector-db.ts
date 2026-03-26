@@ -255,14 +255,19 @@ export async function storePostMortem(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
+    const expectedDim = getExpectedEmbeddingDim();
+    const isIndexError = /1002|index/i.test(message);
     console.error('[vector-db] Pinecone upsert failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
-      dimension: getExpectedEmbeddingDim(),
+      expectedDimension: expectedDim,
       error: message,
+      errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
-        ? 'Pinecone index must be 768 dims for gemini-embedding-001 unless PINECONE_EMBEDDING_DIM overrides.'
-        : undefined,
+        ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
+        : isIndexError
+          ? 'Pinecone index 1002 error typically indicates dimension mismatch or misconfiguration. Check that the index supports the embedding dimension.'
+          : undefined,
     });
   }
 }
@@ -326,15 +331,20 @@ export async function querySimilarTrades(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
+    const expectedDim = getExpectedEmbeddingDim();
+    const isIndexError = /1002|index/i.test(message);
 
     console.error('[vector-db] Pinecone query failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
-      dimension: getExpectedEmbeddingDim(),
+      expectedDimension: expectedDim,
       error: message,
+      errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
-        ? 'Pinecone index must be 768 dims for gemini-embedding-001 unless PINECONE_EMBEDDING_DIM overrides.'
-        : undefined,
+        ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
+        : isIndexError
+          ? 'Pinecone index 1002 error typically indicates dimension mismatch or misconfiguration. Check that the index supports the embedding dimension.'
+          : undefined,
     });
     return [];
   }

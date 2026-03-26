@@ -20,15 +20,13 @@ export type NavItemConfig = {
   href: string;
   labelKey: NavLabelKey;
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>;
-  /** Fade when DEFCON 1 — non-essential navigation */
-  softInDefcon?: boolean;
 };
 
 export const NAV_ITEMS: NavItemConfig[] = [
   { href: '/', labelKey: 'dashboard', icon: Home },
-  { href: '/academy', labelKey: 'academy', icon: GraduationCap, softInDefcon: true },
+  { href: '/academy', labelKey: 'academy', icon: GraduationCap },
   { href: '/ops/pnl', labelKey: 'pnlTerminal', icon: LineChart },
-  { href: '/performance', labelKey: 'performanceTrends', icon: BarChart3, softInDefcon: true },
+  { href: '/performance', labelKey: 'performanceTrends', icon: BarChart3 },
   { href: '/admin/quantum', labelKey: 'quantumAi', icon: Cpu },
   { href: '/admin/signals', labelKey: 'alphaSignals', icon: Sparkles },
   { href: '/ops/diagnostics', labelKey: 'diagnostics', icon: Activity },
