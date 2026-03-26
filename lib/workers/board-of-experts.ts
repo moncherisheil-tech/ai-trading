@@ -391,7 +391,7 @@ async function callExpert(
 ): Promise<ExpertOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-2.5-flash',
+    model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview',
   });
   const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
 
@@ -444,7 +444,7 @@ Output strictly as JSON with these keys exactly:
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-2.5-flash',
+    model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview',
   });
   const prompt = `System instruction: You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.
 

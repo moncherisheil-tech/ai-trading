@@ -59,7 +59,7 @@ async function main() {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.5-flash',
+      model: process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview',
       systemInstruction: 'Reply with valid JSON only. No markdown, no explanation. Example: { "status": "ok" }',
     });
     const result = await model.generateContent({

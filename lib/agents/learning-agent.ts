@@ -128,7 +128,7 @@ ${JSON.stringify(compactCases, null, 2)}
   if (rawInsights.length === 0) {
     try {
       const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-      const selected = resolveGeminiModel('gemini-2.5-flash');
+      const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview');
       const model = genAI.getGenerativeModel(
         {
           model: selected.model,

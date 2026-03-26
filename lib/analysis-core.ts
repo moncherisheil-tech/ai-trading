@@ -393,7 +393,7 @@ export async function doAnalysisCore(
     outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
   const hardLocaleDirective =
     outputLocale === 'he' ? '\nCRITICAL: You MUST answer in Hebrew. Do not use English.' : '';
-  let activeModel = APP_CONFIG.primaryModel || 'gemini-2.5-flash';
+  let activeModel = APP_CONFIG.primaryModel || 'gemini-3-flash-preview';
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
   }
@@ -1120,7 +1120,7 @@ RULES:
     });
   }
 
-  const auditModel = resolveGeminiModel(activeModel || APP_CONFIG.primaryModel || 'gemini-2.5-flash').model.replace(/^models\//, '');
+  const auditModel = resolveGeminiModel(activeModel || APP_CONFIG.primaryModel || 'gemini-3-flash-preview').model.replace(/^models\//, '');
   writeAudit({ event: 'analysis.success', meta: { symbol: cleanSymbol, model: auditModel, fallbackUsed } });
 
   const gemAlertThreshold = appSettings.neural?.moeConfidenceThreshold ?? appSettings.scanner?.aiConfidenceThreshold ?? 75;
