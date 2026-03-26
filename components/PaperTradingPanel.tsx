@@ -128,7 +128,7 @@ function ReasoningTrigger({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="group relative overflow-hidden rounded-xl px-4 py-2.5 text-[11px] sm:text-xs font-bold font-mono uppercase tracking-[0.15em] text-cyan-100 transition-all duration-300 disabled:opacity-35 disabled:cursor-not-allowed disabled:shadow-none border border-cyan-400/40 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 shadow-[0_0_22px_rgba(34,211,238,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] hover:shadow-[0_0_32px_rgba(34,211,238,0.55),0_0_60px_rgba(34,211,238,0.15)] hover:border-cyan-300/60 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+      className="group relative overflow-hidden rounded-xl px-4 py-2.5 text-[11px] sm:text-xs font-bold font-mono uppercase tracking-[0.15em] text-cyan-100 transition-all duration-300 disabled:opacity-35 disabled:cursor-not-allowed disabled:shadow-none border border-cyan-400/40 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 shadow-[0_0_22px_rgba(34,211,238,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] hover:shadow-[0_0_32px_rgba(34,211,238,0.55),0_0_60px_rgba(34,211,238,0.15)] hover:border-cyan-300/60 hover:text-white hover:brightness-110 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
     >
       <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" aria-hidden />
       <span className="relative flex items-center gap-2">
@@ -201,9 +201,9 @@ export default function PaperTradingPanel() {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="btn-neon-ghost inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
+          className="group relative inline-flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all duration-300 border border-cyan-400/30 text-cyan-200 bg-cyan-500/10 hover:bg-cyan-500/15 hover:border-cyan-300/50 hover:shadow-[0_0_16px_rgba(34,211,238,0.25)] hover:brightness-110 active:scale-95"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
           רענן
         </button>
       </div>
@@ -221,12 +221,12 @@ export default function PaperTradingPanel() {
           <>
             {status.alphaEvolution && status.alphaEvolution.length >= 2 && (
               <div
-                className={`${GLASS_TILE} p-4 sm:p-5 border border-cyan-500/15`}
+                className={`${GLASS_TILE} p-4 sm:p-5 border border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.15)]`}
                 dir="ltr"
               >
                 <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="h-4 w-4 text-cyan-400" aria-hidden />
-                  <h4 className="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-400 font-sans">
+                  <TrendingUp className="h-4 w-4 text-cyan-400 drop-shadow-[0_0_4px_rgba(34,211,238,0.6)]" aria-hidden />
+                  <h4 className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-200 font-sans">
                     Alpha Evolution Curve
                   </h4>
                   <span className="text-[10px] text-zinc-600 font-mono">Cumulative PnL $ · Rolling win %</span>
@@ -301,20 +301,21 @@ export default function PaperTradingPanel() {
                 type="button"
                 disabled={saving}
                 onClick={() => void updateConfig({ masterSwitchEnabled: !status.masterSwitchEnabled })}
-                className={`${GLASS_TILE} px-4 py-4 text-start transition-all ${
+                className={`group relative overflow-hidden ${GLASS_TILE} px-4 py-4 text-start transition-all duration-300 border ${
                   status.masterSwitchEnabled
-                    ? 'border-emerald-400/25 shadow-[0_0_24px_rgba(52,211,153,0.12)] ring-1 ring-emerald-500/20'
-                    : 'border-rose-400/20 shadow-[0_0_20px_rgba(251,113,133,0.08)] ring-1 ring-rose-500/15'
-                }`}
+                    ? 'border-emerald-400/50 bg-gradient-to-br from-emerald-500/15 to-emerald-950/25 shadow-[0_0_32px_rgba(52,211,153,0.25),inset_0_1px_0_rgba(255,255,255,0.08)] ring-1 ring-emerald-500/30 hover:shadow-[0_0_40px_rgba(52,211,153,0.35)] hover:border-emerald-300/60 hover:brightness-110 active:scale-95'
+                    : 'border-rose-400/30 bg-gradient-to-br from-rose-500/10 to-rose-950/20 shadow-[0_0_28px_rgba(251,113,133,0.15),inset_0_1px_0_rgba(255,255,255,0.05)] ring-1 ring-rose-500/20 hover:shadow-[0_0_36px_rgba(251,113,133,0.25)] hover:border-rose-300/50'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Master</div>
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" aria-hidden />
+                <div className="relative text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Master</div>
                 <div
-                  className={`text-2xl font-black font-mono mt-1 ${status.masterSwitchEnabled ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]' : 'text-rose-400 drop-shadow-[0_0_8px_rgba(251,113,133,0.4)]'}`}
+                  className={`relative text-2xl font-black font-mono mt-1 transition-all duration-300 ${status.masterSwitchEnabled ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.6)]' : 'text-rose-400 drop-shadow-[0_0_10px_rgba(251,113,133,0.5)]'}`}
                 >
                   {status.masterSwitchEnabled ? 'ON' : 'OFF'}
                 </div>
               </button>
-              <div className={`${GLASS_TILE} px-4 py-4`}>
+              <div className={`${GLASS_TILE} px-4 py-4 border-cyan-500/20`}>
                 <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 flex items-center gap-2">
                   <Wallet className="h-3 w-3 text-cyan-400/80" />
                   Virtual Balance
@@ -323,11 +324,11 @@ export default function PaperTradingPanel() {
                   ${status.virtualBalanceUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </div>
               </div>
-              <div className={`${GLASS_TILE} px-4 py-4`}>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Active</div>
+              <div className={`${GLASS_TILE} px-4 py-4 border-amber-500/15`}>
+                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Active Positions</div>
                 <div className="text-xl font-bold font-mono live-data-number text-amber-200 mt-1 tabular-nums">{status.activeTradesCount}</div>
               </div>
-              <div className={`${GLASS_TILE} px-4 py-4`}>
+              <div className={`${GLASS_TILE} px-4 py-4 border-emerald-500/20`}>
                 <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Win Rate</div>
                 <div className="text-xl font-bold font-mono live-data-number text-emerald-400/90 mt-1 tabular-nums">
                   {status.winRatePct.toFixed(1)}%
@@ -340,24 +341,25 @@ export default function PaperTradingPanel() {
                 type="button"
                 disabled={saving}
                 onClick={() => void updateConfig({ mode: 'PAPER' })}
-                className={`btn-neon-ghost px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all ${
+                className={`group relative px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all duration-300 border ${
                   status.mode === 'PAPER'
-                    ? 'border border-cyan-400/45 text-cyan-200 bg-cyan-500/15 shadow-[0_0_20px_rgba(34,211,238,0.25)]'
-                    : 'text-zinc-500'
-                }`}
+                    ? 'border-emerald-400/50 text-emerald-200 bg-gradient-to-b from-emerald-500/20 to-emerald-950/30 shadow-[0_0_24px_rgba(52,211,153,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_0_32px_rgba(52,211,153,0.45)] hover:border-emerald-300/60 hover:brightness-110 active:scale-95'
+                    : 'border-white/10 text-zinc-400 bg-white/5 hover:bg-white/10 hover:border-white/20 hover:text-zinc-200'
+                } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
-                Paper
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                <span className="relative">Paper</span>
               </button>
               <button
                 type="button"
                 disabled
-                className="btn-neon-ghost px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider text-zinc-600 inline-flex items-center gap-2 cursor-not-allowed"
+                className="group relative px-5 py-2.5 rounded-xl text-xs font-bold font-mono uppercase tracking-wider inline-flex items-center gap-2 transition-all duration-300 border border-rose-400/20 text-rose-400/50 bg-rose-500/5 cursor-not-allowed"
                 title="ייפתח לאחר הזנת ואימות מפתח לבורסה"
               >
-                <span dir="ltr" className="text-rose-400/60">
+                <span dir="ltr" className="relative">
                   Live
                 </span>
-                <Lock className="w-3.5 h-3.5" />
+                <Lock className="w-3.5 h-3.5 relative" />
               </button>
               {status.liveLocked && (
                 <span className="text-xs text-amber-400/90 font-medium">
@@ -374,13 +376,13 @@ export default function PaperTradingPanel() {
 
             {activeTrades.length > 0 && (
               <div>
-                <h4 className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500 mb-3 flex items-center gap-2">
-                  <span className="h-px flex-1 bg-gradient-to-l from-white/10 to-transparent max-w-[80px]" aria-hidden />
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-300 mb-3 flex items-center gap-2">
+                  <span className="h-px flex-1 bg-gradient-to-l from-emerald-500/30 to-transparent max-w-[80px]" aria-hidden />
                   פוזיציות פעילות — Execution Ledger
-                  <span className="h-px flex-1 bg-gradient-to-r from-white/10 to-transparent max-w-[80px]" aria-hidden />
+                  <span className="h-px flex-1 bg-gradient-to-r from-emerald-500/30 to-transparent max-w-[80px]" aria-hidden />
                 </h4>
                 <div
-                  className="rounded-2xl border border-white/5 bg-black/30 overflow-x-hidden max-w-full font-mono text-[11px] sm:text-xs"
+                  className="rounded-2xl border border-white/10 bg-black/40 overflow-x-hidden max-w-full font-mono text-[11px] sm:text-xs shadow-[0_0_24px_rgba(255,255,255,0.05)]"
                   dir="ltr"
                 >
                   <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-3 py-2.5 bg-zinc-900/80 border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
@@ -438,7 +440,11 @@ export default function PaperTradingPanel() {
 
             {status.recentExecutions.length > 0 && (
               <div>
-                <h4 className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500 mb-3">ביצועים אחרונים</h4>
+                <h4 className="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-300 mb-3 flex items-center gap-2">
+                  <span className="h-px flex-1 bg-gradient-to-l from-cyan-500/30 to-transparent max-w-[80px]" aria-hidden />
+                  ביצועים אחרונים
+                  <span className="h-px flex-1 bg-gradient-to-r from-cyan-500/30 to-transparent max-w-[80px]" aria-hidden />
+                </h4>
                 <div className="space-y-2 max-h-56 overflow-y-auto pe-1">
                   {status.recentExecutions.map((ev) => (
                     <div

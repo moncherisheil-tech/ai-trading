@@ -187,14 +187,16 @@ export async function sendTelegramMessage(
 }
 
 export function getDashboardReportKeyboard(baseUrl: string): TelegramReplyMarkup {
-  const root = (baseUrl || '').replace(/\/$/, '');
+  const root = (baseUrl || getBaseUrl()).replace(/\/$/, '');
+  // Ensure we never send localhost URLs to Telegram
+  const safeUrl = root.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : root;
   return {
     inline_keyboard: [
       [
-        { text: '🔍 Deep Analysis', url: `${root}/insights` },
-        { text: '📊 View Chart', url: `${root}/performance` },
+        { text: '🔍 Deep Analysis', url: `${safeUrl}/insights` },
+        { text: '📊 View Chart', url: `${safeUrl}/performance` },
       ],
-      [{ text: '⚙️ Adjust Strategy', url: `${root}/settings` }],
+      [{ text: '⚙️ Adjust Strategy', url: `${safeUrl}/settings` }],
     ],
   };
 }
@@ -237,7 +239,9 @@ export async function sendGemAlert(params: {
   const callbackDeep = `${GEM_CALLBACK_DEEP}${symbol}`.slice(0, 64);
   const callbackIgnore = `${GEM_CALLBACK_IGNORE}${symbol}`.slice(0, 64);
   const tradingViewUrl = getTradingViewChartUrl(symbol);
-  const strategyUrl = `${getBaseUrl()}/settings`;
+  const baseUrl = getBaseUrl();
+  const safeBaseUrl = baseUrl.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : baseUrl;
+  const strategyUrl = `${safeBaseUrl}/settings`;
   const reply_markup = {
     inline_keyboard: [
       [
@@ -359,7 +363,9 @@ Conf: ${params.confidence}/100</pre>`;
   const callbackDeep = `${GEM_CALLBACK_DEEP}${params.symbol}`.slice(0, 64);
   const callbackIgnore = `${GEM_CALLBACK_IGNORE}${params.symbol}`.slice(0, 64);
   const tradingViewUrl = getTradingViewChartUrl(params.symbol);
-  const strategyUrl = `${getBaseUrl()}/settings`;
+  const baseUrl = getBaseUrl();
+  const safeBaseUrl = baseUrl.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : baseUrl;
+  const strategyUrl = `${safeBaseUrl}/settings`;
   const reply_markup = {
     inline_keyboard: [
       [
