@@ -393,7 +393,7 @@ export async function doAnalysisCore(
     outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
   const hardLocaleDirective =
     outputLocale === 'he' ? '\nCRITICAL: You MUST answer in Hebrew. Do not use English.' : '';
-  let activeModel = APP_CONFIG.primaryModel || 'gemini-2.0-flash';
+  let activeModel = APP_CONFIG.primaryModel || 'gemini-1.5-flash';
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
   }

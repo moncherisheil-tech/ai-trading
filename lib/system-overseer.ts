@@ -239,7 +239,7 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
   const timeoutMs = Math.min(15_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
   const model = genAI.getGenerativeModel(
-    { model: APP_CONFIG.primaryModel || 'gemini-2.0-flash' },
+    { model: APP_CONFIG.primaryModel || 'gemini-1.5-flash' },
     { apiVersion: 'v1' }
   );
   const res = await Promise.race([
@@ -298,7 +298,7 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
 
   const model = genAI.getGenerativeModel(
     {
-      model: APP_CONFIG.primaryModel || 'gemini-2.0-flash',
+      model: APP_CONFIG.primaryModel || 'gemini-1.5-flash',
     },
     { apiVersion: 'v1' }
   );

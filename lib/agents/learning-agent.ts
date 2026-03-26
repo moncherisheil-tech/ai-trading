@@ -132,7 +132,7 @@ ${JSON.stringify(compactCases, null, 2)}
   if (rawInsights.length === 0) {
     try {
       const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-      const selected = resolveGeminiModel('gemini-2.0-flash');
+      const selected = resolveGeminiModel('gemini-1.5-flash');
       const model = genAI.getGenerativeModel(
         {
           model: selected.model,
