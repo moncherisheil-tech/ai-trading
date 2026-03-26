@@ -67,6 +67,7 @@ async function pingGemini(): Promise<boolean> {
 export type AiProvidersHeartbeat = {
   gemini: boolean;
   anthropic: boolean;
+  adminSecretValid: boolean;
   anyProviderOk: boolean;
 };
 
@@ -75,6 +76,7 @@ export type AiProvidersHeartbeat = {
  * Used by server actions — never exposes API keys.
  */
 export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
+  const adminSecretValid = Boolean((process.env.ADMIN_SECRET || '').trim());
   const [g, a] = await Promise.all([
     withTimeout(pingGemini(), HEARTBEAT_MS),
     withTimeout(pingAnthropic(), HEARTBEAT_MS),
@@ -84,6 +86,7 @@ export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
   return {
     gemini,
     anthropic,
-    anyProviderOk: gemini || anthropic,
+    adminSecretValid,
+    anyProviderOk: adminSecretValid && (gemini || anthropic),
   };
 }

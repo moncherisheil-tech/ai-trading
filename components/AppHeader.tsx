@@ -74,7 +74,7 @@ export default function AppHeader() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, type: 'spring', stiffness: 100, damping: 20 }}
-        className={`hidden md:flex fixed top-0 right-0 z-[var(--z-header)] h-screen min-h-0 max-h-[100dvh] w-[280px] max-w-[280px] shrink-0 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 rounded-e-[2rem] ${marketModeClass} frosted-obsidian aside-sovereign-diamond backdrop-blur-[60px]`}
+        className={`hidden md:flex fixed top-0 right-0 h-full w-[280px] z-50 min-h-0 max-h-[100dvh] max-w-[280px] shrink-0 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 rounded-e-[2rem] ${marketModeClass} frosted-obsidian aside-sovereign-diamond backdrop-blur-[60px]`}
         style={{ boxShadow: '0 32px 60px rgba(0,0,0,0.58), 0 0 30px rgba(var(--market-border-rgb),0.24)' }}
         dir="rtl"
         aria-label="ניווט צדדי"

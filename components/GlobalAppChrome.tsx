@@ -28,10 +28,10 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
       <div className="flex flex-1 min-h-0 min-w-0 w-full max-w-full flex-col">
         <AppHeader />
         <div
-          className="sovereign-shell relative z-[1] flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto pt-20 md:pt-0 transition-[padding] duration-200 md:pr-[var(--app-main-inline-offset)]"
+          className="sovereign-shell relative z-[1] flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden overflow-y-auto pt-20 md:pt-0 transition-[margin,padding] duration-200 md:mr-[280px]"
         >
           <CryptoTicker />
-          <main className="flex flex-1 min-h-0 min-w-0 max-w-full flex-col pb-20 md:pb-0 relative z-0">
+          <main className="relative z-0 flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-y-auto pb-20 md:pb-0">
             <ToastProvider>
               <SimulationProvider>
                 <PageTransition>{children}</PageTransition>
