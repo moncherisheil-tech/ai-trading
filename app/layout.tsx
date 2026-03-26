@@ -13,9 +13,9 @@ import StickyFooterNav from '@/components/StickyFooterNav';
 // const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
-  title: 'Quantum Crypto | Mon Chéri',
+  title: 'מסוף קוונטום | מון שרי',
   description:
-    'Quantum Crypto analytics and simulation terminal by Mon Chéri. Educational and simulation information only, not investment advice.',
+    'מסוף אנליטיקה וסימולציה — למידה והדגמה בלבד; אין זה ייעוץ השקעות או המלצה לפעולה.',
   manifest: '/manifest.json',
   robots: 'noindex, nofollow',
   appleWebApp: {
