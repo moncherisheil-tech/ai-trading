@@ -18,7 +18,7 @@
 - **חישובים מקומיים:** RSI-14, תנודתיות, נפח דלתא, `riskFactor`. משקל אסטרטגיות מאושרות מ־`listStrategyInsights()` (Postgres).
 - **Feedback loop:** טעינת `past_mistakes_to_learn_from` מ־`getDbAsync()` (חיזויים עם `status === 'evaluated'` ו־`error_report`), ו־`historical_prediction_outcomes` מ־`getHistoricalBySymbol(cleanSymbol, 10)` — רק כאשר Postgres זמין (`historical_predictions` ב־Vercel Postgres).
 - **Guardrail סנטימנט:** `checkSentimentGuardrail(sentiment_score)`. אם לא `NORMAL` — שליחת התראת טלגרם ו־**הורדת הסתברות ל־50%** (`result.probability * 0.5`).
-- **קריאת Gemini:** `GoogleGenAI` עם `responseMimeType: 'application/json'` ו־`responseSchema` קבוע. Timeout: `APP_CONFIG.geminiTimeoutMs` (ברירת מחדל 60 שניות) דרך `withGeminiTimeout`.
+- **קריאת Gemini:** `GoogleGenAI` עם `responseSchema` קבוע. Timeout: `APP_CONFIG.geminiTimeoutMs` (ברירת מחדל 60 שניות) דרך `withGeminiTimeout`.
 
 ### 1.2 מודלי Gemini — Primary ו־Fallback
 

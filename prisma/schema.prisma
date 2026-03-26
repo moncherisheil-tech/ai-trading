@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TradeExecutionType {
+  PAPER
+  LIVE
+}
+
+enum TradeSide {
+  BUY
+  SELL
+}
+
+enum TradeExecutionStatus {
+  OPEN
+  CLOSED
+  FAILED
+}
+
+model TradeExecution {
+  id            String               @id @default(cuid())
+  symbol        String
+  alphaSignalId String?
+  type          TradeExecutionType
+  side          TradeSide
+  amount        Decimal              @db.Decimal(24, 8)
+  entryPrice    Decimal              @db.Decimal(24, 8)
+  exitPrice     Decimal?             @db.Decimal(24, 8)
+  pnl           Decimal?             @db.Decimal(24, 8)
+  status        TradeExecutionStatus @default(OPEN)
+  executedAt    DateTime             @default(now())
+  closedAt      DateTime?
+
+  insights      LearnedInsight[]
+
+  @@index([symbol, executedAt(sort: Desc)])
+  @@index([status, executedAt(sort: Desc)])
+}
+
+model LearnedInsight {
+  id                String   @id @default(cuid())
+  tradeId           String
+  failureReason     String
+  academyReference  String?
+  adjustmentApplied Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  trade             TradeExecution @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId, createdAt(sort: Desc)])
+}

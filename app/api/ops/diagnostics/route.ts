@@ -43,19 +43,36 @@ export async function GET(): Promise<NextResponse> {
   let anthropic: 'ok' | 'fail' | 'skip' = anthropicKey ? 'ok' : 'skip';
   let pinecone: 'ok' | 'fail' | 'skip' = pineconeKey && pineconeIndex ? 'ok' : 'skip';
   let postgres: 'ok' | 'fail' = 'fail';
+  let dbHealth: { status: 'online' | 'offline'; error: string | null } = { status: 'offline', error: null };
+  let vectorStorageHealth: { status: 'online' | 'offline' | 'skip'; error: string | null } = {
+    status: pinecone === 'skip' ? 'skip' : 'offline',
+    error: null,
+  };
 
   try {
     await getAppSettings();
     await listOpenVirtualTrades();
     postgres = 'ok';
-  } catch {
+    dbHealth = { status: 'online', error: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     postgres = 'fail';
+    dbHealth = { status: 'offline', error: message };
   }
 
   if (pinecone === 'ok') {
-    const connection = await verifyPineconeConnectionStrict();
-    if (!connection.ok) {
+    try {
+      const connection = await verifyPineconeConnectionStrict();
+      if (!connection.ok) {
+        pinecone = 'fail';
+        vectorStorageHealth = { status: 'offline', error: connection.error || 'Pinecone connection failed.' };
+      } else {
+        vectorStorageHealth = { status: 'online', error: null };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       pinecone = 'fail';
+      vectorStorageHealth = { status: 'offline', error: message };
     }
   }
 
@@ -225,6 +242,10 @@ export async function GET(): Promise<NextResponse> {
       anthropic,
       pinecone,
       postgres,
+    },
+    healthChecks: {
+      db: dbHealth,
+      vectorStorage: vectorStorageHealth,
     },
     agents: agentStatuses,
     systemIntegrity: {

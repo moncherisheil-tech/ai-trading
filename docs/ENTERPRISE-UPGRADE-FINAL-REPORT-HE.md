@@ -56,7 +56,7 @@
   - שדה אופציונלי `twitter_realtime_tweets` ב־`ConsensusEngineInput`.
   - לפני הרצת המומחים: קריאה ל־`fetchTwitterSentiment` במקביל ל־`getDeepMemoryContext`; בכשל — משתמשים במחרוזת ריקה.
   - ב־`runExpertPsych` הפרומפט כולל בלוק "טוויטר/סושיאל בזמן אמת" עם התוכן שהוחזר, והכלל עודכן כך ש־psych_score יתבסס גם על מדדי סושיאל חיים.
-- **בטיחות JSON:** ההזרקה היא לטקסט הפרומפט בלבד; התשובה מ־Gemini נשלחת כ־JSON דרך `responseMimeType: 'application/json'` — אין שבירת פורמט.
+- **בטיחות JSON:** ההזרקה היא לטקסט הפרומפט בלבד; התשובה מ־Gemini נשמרת בפורמט JSON לצד `responseSchema` — אין שבירת פורמט.
 
 ### אימות
 - הזרקת הטוויטר לפרומפט כטקסט רגיל; לא משתמשת בתווים שמשבשים JSON.

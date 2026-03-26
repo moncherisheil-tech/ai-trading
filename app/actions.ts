@@ -407,7 +407,10 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in ${isHebrew ? 'Hebrew' : 'English'}) to avoid this mistake next time.
           `;
 
-          const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-2.0-flash' });
+          const model = genAI.getGenerativeModel(
+            { model: APP_CONFIG.primaryModel || 'gemini-2.0-flash' },
+            { apiVersion: 'v1' }
+          );
           const geminiPromise = model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             generationConfig: { temperature: 0.2 },

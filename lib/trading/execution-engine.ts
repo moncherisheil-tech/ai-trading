@@ -29,6 +29,8 @@ import { createBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-
 import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
 import { ReinforcementEngine } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
+import ccxt from 'ccxt';
+import { insertTradeExecution, markTradeExecutionFailed, type TradeExecutionRow } from '@/lib/db/execution-learning';
 
 const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
 
@@ -751,3 +753,102 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
     alphaEvolution,
   };
 }
+
+export interface AlphaSignalExecutionInput {
+  id?: string;
+  symbol: string;
+  side: 'BUY' | 'SELL';
+  orderType?: 'market' | 'limit';
+  limitPrice?: number;
+  amountUsd?: number;
+}
+
+function normalizeCcxtSymbol(symbol: string): string {
+  const s = (symbol || '').toUpperCase().replace(/\s+/g, '');
+  if (s.includes('/')) return s;
+  if (s.endsWith('USDT')) return `${s.slice(0, -4)}/USDT`;
+  return s;
+}
+
+/**
+ * CEO-facing execution service: records PAPER or sends LIVE order.
+ */
+export class LiveExecutionEngine {
+  async executeSignal(signal: AlphaSignalExecutionInput): Promise<{
+    success: boolean;
+    mode: 'PAPER' | 'LIVE';
+    reason: string;
+    execution: TradeExecutionRow | null;
+  }> {
+    const settings = await getAppSettings();
+    const isLiveTradingEnabled = settings.execution.masterSwitchEnabled && settings.execution.mode === 'LIVE';
+    const mode: 'PAPER' | 'LIVE' = isLiveTradingEnabled ? 'LIVE' : 'PAPER';
+    const symbol = normalizeSymbol(signal.symbol);
+    const amountUsd = signal.amountUsd ?? settings.trading.defaultTradeSizeUsd ?? 100;
+
+    const execution = await insertTradeExecution({
+      id: crypto.randomUUID(),
+      symbol,
+      alphaSignalId: signal.id ?? null,
+      type: mode,
+      side: signal.side,
+      amount: amountUsd,
+      entryPrice: signal.limitPrice ?? 0,
+      status: 'OPEN',
+    });
+
+    if (!isLiveTradingEnabled) {
+      return { success: true, mode, reason: 'isLiveTradingEnabled=false; stored as PAPER execution.', execution };
+    }
+
+    try {
+      const apiKey = process.env.BINANCE_API_KEY?.trim();
+      const secret = process.env.BINANCE_SECRET?.trim();
+      if (!apiKey || !secret) {
+        if (execution?.id) await markTradeExecutionFailed(execution.id);
+        return { success: false, mode, reason: 'Missing BINANCE_API_KEY / BINANCE_SECRET.', execution };
+      }
+
+      const exchange = new ccxt.binance({
+        apiKey,
+        secret,
+        enableRateLimit: true,
+        options: { defaultType: 'spot' },
+      });
+
+      const ccxtSymbol = normalizeCcxtSymbol(symbol);
+      const ticker = await exchange.fetchTicker(ccxtSymbol);
+      const marketPrice = Number(ticker.last ?? ticker.close ?? ticker.ask ?? ticker.bid ?? 0);
+      if (!Number.isFinite(marketPrice) || marketPrice <= 0) {
+        throw new Error(`Invalid market price for ${ccxtSymbol}.`);
+      }
+
+      const amountBase = amountUsd / marketPrice;
+      if (!Number.isFinite(amountBase) || amountBase <= 0) {
+        throw new Error('Invalid order amount.');
+      }
+
+      const orderType = signal.orderType ?? 'market';
+      await exchange.createOrder(
+        ccxtSymbol,
+        orderType,
+        signal.side.toLowerCase() as 'buy' | 'sell',
+        amountBase,
+        orderType === 'limit' ? signal.limitPrice : undefined
+      );
+
+      return { success: true, mode, reason: `LIVE ${orderType.toUpperCase()} order submitted.`, execution };
+    } catch (err) {
+      console.error('[LiveExecutionEngine] executeSignal failed:', err);
+      if (execution?.id) await markTradeExecutionFailed(execution.id);
+      return {
+        success: false,
+        mode,
+        reason: err instanceof Error ? err.message : 'Unknown live execution failure.',
+        execution,
+      };
+    }
+  }
+}
+
+export const liveExecutionEngine = new LiveExecutionEngine();

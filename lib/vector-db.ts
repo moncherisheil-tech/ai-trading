@@ -444,3 +444,53 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     };
   }
 }
+
+export interface AcademyHit {
+  id: string;
+  score: number;
+  text: string;
+  reference: string | null;
+}
+
+/**
+ * Query Academy RAG namespace for retrospective explanations.
+ * Falls back to [] when Pinecone is unavailable or index is empty.
+ */
+export async function queryAcademyKnowledge(query: string, topK = 5): Promise<AcademyHit[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const apiKey = getPineconeApiKey();
+  const indexName = getPineconeIndexName();
+  if (!apiKey || !indexName) return [];
+  try {
+    const { index } = await getPineconeIndexOrThrow();
+    const vector = await embedTextWithGemini(trimmed);
+    const result = await index.namespace('academy').query({
+      vector,
+      topK: Math.min(Math.max(topK, 1), 10),
+      includeMetadata: true,
+    });
+    const matches = result?.matches ?? [];
+    return matches
+      .map((m) => {
+        const metadata = (m.metadata || {}) as Record<string, unknown>;
+        const text =
+          typeof metadata.text === 'string'
+            ? metadata.text
+            : typeof metadata.content === 'string'
+              ? metadata.content
+              : '';
+        if (!text) return null;
+        return {
+          id: String(m.id || ''),
+          score: Number(m.score || 0),
+          text,
+          reference: typeof metadata.reference === 'string' ? metadata.reference : null,
+        } satisfies AcademyHit;
+      })
+      .filter((x): x is AcademyHit => x != null);
+  } catch (err) {
+    console.error('[vector-db] Academy knowledge query failed:', err);
+    return [];
+  }
+}
