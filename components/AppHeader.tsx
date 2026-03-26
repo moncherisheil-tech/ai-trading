@@ -41,7 +41,6 @@ export default function AppHeader() {
   const sim = useSimulationOptional();
   const { isDefcon1 } = useMarketState();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [riskPulse, setRiskPulse] = useState<RiskLevel>('green');
 
   useEffect(() => {
@@ -64,11 +63,6 @@ export default function AppHeader() {
     return () => { document.body.style.overflow = ''; };
   }, [menuOpen]);
 
-  useEffect(() => {
-    const w = sidebarCollapsed ? '92px' : '280px';
-    document.documentElement.style.setProperty('--app-sidebar-width', w);
-  }, [sidebarCollapsed]);
-
   const isOpsArea = pathname.startsWith('/ops');
   const marketModeClass = riskPulse === 'red' ? 'market-mode-bear' : 'market-mode-bull';
 
@@ -80,42 +74,29 @@ export default function AppHeader() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, type: 'spring', stiffness: 100, damping: 20 }}
-        className={`hidden md:flex fixed top-0 right-3 z-50 h-screen min-h-[100dvh] w-[280px] max-w-[280px] shrink-0 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 transition-[width,transform,box-shadow] duration-300 rounded-e-[2rem] ${marketModeClass} ${
-          sidebarCollapsed ? '!w-[92px] !max-w-[92px]' : ''
-        } frosted-obsidian aside-sovereign-diamond`}
+        className={`hidden md:flex fixed top-0 right-0 z-[var(--z-header)] h-screen min-h-0 max-h-[100dvh] w-[280px] max-w-[280px] shrink-0 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 rounded-e-[2rem] ${marketModeClass} frosted-obsidian aside-sovereign-diamond backdrop-blur-[60px]`}
         style={{ boxShadow: '0 32px 60px rgba(0,0,0,0.58), 0 0 30px rgba(var(--market-border-rgb),0.24)' }}
         dir="rtl"
         aria-label="ניווט צדדי"
       >
-        <div className="flex flex-col h-full">
-          <div className="h-16 px-4 flex items-center justify-between gap-3 border-b border-white/10 bg-[var(--app-surface)]/70">
+        <div className="flex flex-col h-full min-h-0">
+          <div className="h-16 px-4 flex items-center gap-3 border-b border-white/10 bg-[var(--app-surface)]/70 shrink-0">
             <Link
               href="/"
-              className="flex items-center gap-3 min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 rounded-lg"
+              className="flex items-center gap-3 min-w-0 flex-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 rounded-lg"
               aria-label="דף הבית"
             >
               <div className="w-9 h-9 bg-emerald-500/20 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)] shrink-0">
                 <Activity className="w-5 h-5" aria-hidden />
               </div>
-              {!sidebarCollapsed && (
-                <h1 className="text-sm font-bold text-gray-100 tracking-tight truncate max-w-[180px] whitespace-nowrap">
-                  מסוף קוונטום · מון שרי
-                </h1>
-              )}
+              <h1 className="text-sm font-bold text-gray-100 tracking-tight truncate max-w-[180px] whitespace-nowrap">
+                מסוף קוונטום · מון שרי
+              </h1>
             </Link>
-
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              className="flex items-center justify-center w-10 h-10 rounded-xl text-zinc-400 hover:bg-white/5 hover:text-amber-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-              aria-label={sidebarCollapsed ? 'הרחב סרגל ניווט' : 'כווץ סרגל ניווט'}
-            >
-              {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
-            </button>
           </div>
 
-          <div className="px-4 pb-2">
-            <ForexTicker collapsed={sidebarCollapsed} />
+          <div className="px-4 pb-2 shrink-0">
+            <ForexTicker />
           </div>
 
           <nav className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1" aria-label="ניווט ראשי">
@@ -132,7 +113,6 @@ export default function AppHeader() {
                   prefetch={true}
                   onMouseMove={magnetMove}
                   onMouseLeave={magnetReset}
-                  title={sidebarCollapsed ? label : undefined}
                   className={`magnet-link relative group flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                     defconSoft ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
                   } ${
@@ -143,12 +123,12 @@ export default function AppHeader() {
                     isActive
                       ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
                       : 'before:bg-transparent'
-                  } ${sidebarCollapsed ? 'justify-center gap-0 px-4' : ''}`}
+                  }`}
                   style={!isActive ? { boxShadow: '0 0 0 rgba(0,0,0,0)' } : { boxShadow: '0 0 22px rgba(var(--market-border-rgb),0.35)' }}
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <Icon className="w-5 h-5 shrink-0" aria-hidden />
-                  {!sidebarCollapsed && <span className="truncate">{label}</span>}
+                  <span className="truncate">{label}</span>
                 </Link>
               );
             })}
@@ -159,7 +139,6 @@ export default function AppHeader() {
               prefetch={true}
               onMouseMove={magnetMove}
               onMouseLeave={magnetReset}
-              title={sidebarCollapsed ? 'מדריך למשתמש' : undefined}
               className={`magnet-link relative group flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                 isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
               } ${
@@ -170,19 +149,17 @@ export default function AppHeader() {
                 isGuideActive
                   ? 'before:bg-amber-300/90 before:shadow-[0_0_22px_rgba(245,158,11,0.55)]'
                   : 'before:bg-transparent'
-              } ${sidebarCollapsed ? 'justify-center gap-0 px-4' : ''}`}
+              }`}
               aria-current={isGuideActive ? 'page' : undefined}
             >
               <BookOpen className="w-5 h-5 shrink-0" aria-hidden />
-              {!sidebarCollapsed && <span className="truncate">מדריך למשתמש</span>}
+              <span className="truncate">מדריך למשתמש</span>
             </Link>
           </nav>
 
           <div className="p-4 border-t border-white/10 space-y-3">
-            <div className={`flex items-center gap-3 ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
-              {!sidebarCollapsed && (
-                <span className="text-xs text-zinc-500 font-medium">חשיפה</span>
-              )}
+            <div className="flex items-center gap-3 justify-between">
+              <span className="text-xs text-zinc-500 font-medium">חשיפה</span>
               <span
                 className="w-3.5 h-3.5 rounded-full shrink-0"
                 title={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
@@ -199,31 +176,30 @@ export default function AppHeader() {
               />
             </div>
 
-            {sim && !sidebarCollapsed && (
+            {sim && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-zinc-800/70 border border-zinc-700/50 text-amber-300/90 text-xs font-medium">
                 <Wallet className="w-4 h-4 shrink-0" aria-hidden />
                 <span className="truncate">
-                  {sim.selectedSymbol} • <span className="live-data-number">${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  {sim.selectedSymbol} •{' '}
+                  <span className="live-data-number tabular-nums">
+                    ${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </span>
                 </span>
               </div>
             )}
 
-            <div className={`flex ${sidebarCollapsed ? 'justify-center' : 'justify-between'} items-center`}>
+            <div className="flex justify-between items-center">
               <Link
                 href="/profile"
-                className={`flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-semibold ${
-                  sidebarCollapsed
-                    ? 'justify-center'
-                    : 'text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50'
-                } ${sidebarCollapsed ? 'text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50' : ''}`}
+                className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-sm font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
                 aria-label="פרופיל"
               >
                 <UserCircle2 className="w-5 h-5 shrink-0" aria-hidden />
-                {!sidebarCollapsed && <span className="truncate">פרופיל</span>}
+                <span className="truncate">פרופיל</span>
               </Link>
             </div>
 
-            {isOpsArea && !sidebarCollapsed && (
+            {isOpsArea && (
               <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <TelegramStatus />
@@ -231,16 +207,8 @@ export default function AppHeader() {
                 <LogoutButton />
               </div>
             )}
-            {isOpsArea && sidebarCollapsed && (
-              <div className="flex flex-col items-center gap-2 pt-2 border-t border-white/5">
-                <TelegramStatus />
-                <LogoutButton />
-              </div>
-            )}
 
-            {!sidebarCollapsed && (
-              <div className="text-center text-[11px] text-zinc-500">v1.3</div>
-            )}
+            <div className="text-center text-[11px] text-zinc-500 tabular-nums">v1.3</div>
           </div>
         </div>
       </motion.aside>

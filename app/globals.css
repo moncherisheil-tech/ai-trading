@@ -4,8 +4,8 @@
 /* Z-index scale: overlay layers above charts and sticky elements */
 :root {
   --app-sidebar-width: 280px;
-  /** Sidebar is `fixed` at `inset-inline-start/end: 0.75rem`; reserve gutter after rail so main never sits under the glass. */
-  --app-main-inline-offset: calc(0.75rem + var(--app-sidebar-width, 280px) + 0.75rem);
+  /** Fixed right rail (`w-[280px]`) + breathing room so main never sits under the glass. */
+  --app-main-inline-offset: calc(var(--app-sidebar-width, 280px) + 1rem);
   --z-sticky: 10;
   --z-dropdown: 100;
   --z-header: 50;

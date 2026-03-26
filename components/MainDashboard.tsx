@@ -1,8 +1,8 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useId, useMemo, useState } from 'react';
-import { motion, useMotionValue, useSpring, useTransform } from 'motion/react';
+import { useEffect, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Activity,
   BarChart2,
@@ -15,10 +15,10 @@ import MarketSafetyBanner from '@/components/MarketSafetyBanner';
 import PaperTradingPanel from '@/components/PaperTradingPanel';
 import AIAccuracyChart from '@/components/AIAccuracyChart';
 import DeepMemoryFeed from '@/components/DeepMemoryFeed';
+import BoardOfExperts from '@/components/BoardOfExperts';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { getExecutionDashboardSnapshotAction, getMarketRiskSentinelAction } from '@/app/actions';
+import { getMarketRiskSentinelAction } from '@/app/actions';
 import { useMarketState } from '@/context/MarketStateContext';
-import { useCyberDecryptNumber } from '@/hooks/use-cyber-decrypt-value';
 
 const GLASS =
   'frosted-obsidian panel-sovereign-diamond sovereign-tilt rounded-3xl';
@@ -42,21 +42,6 @@ const staggerItem = {
   },
 };
 
-const EXPERT_META = [
-  { name: 'אנליסט טכני', alias: 'מהנדס השוק', neon: '#00E5FF' },
-  { name: 'אנליסט פונדמנטלי', alias: 'פרופסור הנתונים', neon: '#A855F7' },
-  { name: 'אנליסט סנטימנט', alias: 'מוביל תחושת השוק', neon: '#EC4899' },
-  { name: 'אנליסט אונ־צ׳יין / לווייתנים', alias: 'לווייתן', neon: '#06B6D4' },
-  { name: 'מנהל סיכונים', alias: 'המגן', neon: '#22C55E' },
-  { name: 'אנליסט מאקרו', alias: 'אסטרטג המאקרו', neon: '#F59E0B' },
-  { name: 'מפקח AI', alias: 'האדריכל', neon: '#FB7185' },
-] as const;
-
-type ExpertCardData = (typeof EXPERT_META)[number] & {
-  score: number | null;
-  status: 'פעיל' | 'ממתין לנתוני שוק';
-};
-
 const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
   loading: () => (
     <div className="w-full min-w-0 p-6 space-y-4" dir="rtl" aria-live="polite">
@@ -74,124 +59,6 @@ const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
 });
 
 type MarketMode = 'bull' | 'bear';
-
-function ExpertSigil({ neon, active, gradId }: { neon: string; active: boolean; gradId: string }) {
-  return (
-    <svg viewBox="0 0 56 56" className="h-6 w-6" aria-hidden>
-      <defs>
-        <radialGradient id={gradId} cx="50%" cy="50%" r="60%">
-          <stop offset="0%" stopColor={neon} stopOpacity="0.8" />
-          <stop offset="100%" stopColor={neon} stopOpacity="0.1" />
-        </radialGradient>
-      </defs>
-      <circle cx="28" cy="28" r="25" fill="none" stroke={neon} strokeOpacity="0.35" />
-      <path d="M12 28h32M28 12v32M17 17l22 22M39 17L17 39" stroke={neon} strokeOpacity="0.7" strokeWidth="1.5" />
-      <circle
-        cx="28"
-        cy="28"
-        r="8"
-        fill={`url(#${gradId})`}
-        style={active ? { filter: `drop-shadow(0 0 10px ${neon})` } : undefined}
-      />
-    </svg>
-  );
-}
-
-function ExpertTiltCard({
-  expert,
-  consensusPulse,
-  isDefcon1,
-}: {
-  expert: ExpertCardData;
-  consensusPulse: boolean;
-  isDefcon1: boolean;
-}) {
-  const sigGradId = useId().replace(/:/g, '');
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const rx = useSpring(useTransform(y, [-50, 50], [11, -11]), { stiffness: 220, damping: 18 });
-  const ry = useSpring(useTransform(x, [-50, 50], [-11, 11]), { stiffness: 220, damping: 18 });
-  const tzRaw = useTransform([x, y], ([lx, ly]) => 18 + Math.abs(lx as number) * 0.08 + Math.abs(ly as number) * 0.04);
-  const tz = useSpring(tzRaw, { stiffness: 260, damping: 24 });
-  const glow = useMemo(() => `${expert.neon}${expert.status === 'פעיל' ? '66' : '2a'}`, [expert.neon, expert.status]);
-  const isLeviathan = expert.alias.includes('לווייתן');
-  const isShield = expert.alias.includes('מגן');
-  const [spotlight, setSpotlight] = useState({ x: '50%', y: '50%', opacity: 0 });
-  const scoreDecrypt = useCyberDecryptNumber(expert.score, { decimals: 1 });
-
-  const auraTone =
-    isDefcon1 && isShield
-      ? 'rgba(248,113,113,0.35)'
-      : consensusPulse
-        ? `${expert.neon}44`
-        : `${expert.neon}22`;
-
-  return (
-    <div className="[perspective:1100px]">
-      <motion.article
-        onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const relX = e.clientX - (rect.left + rect.width / 2);
-          const relY = e.clientY - (rect.top + rect.height / 2);
-          x.set(relX);
-          y.set(relY);
-          setSpotlight({
-            x: `${((e.clientX - rect.left) / rect.width) * 100}%`,
-            y: `${((e.clientY - rect.top) / rect.height) * 100}%`,
-            opacity: 1,
-          });
-        }}
-        onMouseLeave={() => {
-          x.set(0);
-          y.set(0);
-          setSpotlight((prev) => ({ ...prev, opacity: 0 }));
-        }}
-        style={{
-          rotateX: rx,
-          rotateY: ry,
-          transformStyle: 'preserve-3d',
-          background: `radial-gradient(120% 110% at 50% 0%, ${expert.neon}22 0%, rgba(255,255,255,0.02) 58%)`,
-          boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.06), 0 22px 40px rgba(0,0,0,0.5), 0 0 32px ${glow}`,
-          ['--spotlight-x' as string]: spotlight.x,
-          ['--spotlight-y' as string]: spotlight.y,
-          ['--spotlight-opacity' as string]: spotlight.opacity,
-        }}
-        className="spotlight-card frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-2 relative rounded-2xl p-4 overflow-hidden transition-transform duration-200"
-      >
-        {isLeviathan ? <div className="leviathan-wave" aria-hidden /> : null}
-        <div
-          className="absolute -inset-20 opacity-30 motion-safe:animate-pulse motion-reduce:animate-none"
-          style={{
-            background: `radial-gradient(circle, ${auraTone}, transparent 62%)`,
-            animationDuration: consensusPulse ? '2.8s' : '4.2s',
-          }}
-        />
-        <div className="absolute inset-0 opacity-40" style={{ background: `radial-gradient(circle at 50% 90%, ${expert.neon}1f, transparent 70%)` }} />
-        <motion.div className="relative flex items-center justify-between" style={{ translateZ: tz }}>
-          <div className="h-10 w-10 rounded-xl border border-white/10 bg-black/45 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
-            <ExpertSigil neon={expert.neon} active={consensusPulse} gradId={sigGradId} />
-          </div>
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expert.neon, boxShadow: `0 0 12px ${expert.neon}` }} />
-        </motion.div>
-        <motion.p className="relative mt-3 text-sm text-zinc-100 font-semibold leading-tight tracking-tight" style={{ translateZ: 26 }}>
-          {expert.name}
-        </motion.p>
-        <p className="relative text-[11px] uppercase tracking-wider text-zinc-300/90 mt-1" style={{ transform: 'translateZ(22px)' }}>
-          {expert.alias}
-        </p>
-        <p className="relative mt-2 text-[11px] text-zinc-300/90 font-mono tabular-nums tracking-tight" style={{ transform: 'translateZ(20px)' }}>
-          {expert.score != null ? `ניקוד ${scoreDecrypt}` : 'ניקוד — ממתין לנתוני שוק'}
-        </p>
-        <p
-          className={`relative text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${expert.status === 'פעיל' ? 'text-emerald-300' : 'text-amber-300'}`}
-          style={{ transform: 'translateZ(16px)' }}
-        >
-          {expert.status}
-        </p>
-      </motion.article>
-    </div>
-  );
-}
 
 function TerminalClock() {
   const [now, setNow] = useState<string>('');
@@ -223,71 +90,7 @@ function TerminalClock() {
  */
 export default function MainDashboard() {
   const { isDefcon1, defcon, sentiment, volatilityNormalized } = useMarketState();
-  const [consensusPulse, setConsensusPulse] = useState(false);
   const [marketMode, setMarketMode] = useState<MarketMode>('bull');
-  const [experts, setExperts] = useState<ExpertCardData[]>(
-    EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'ממתין לנתוני שוק' }))
-  );
-
-  useEffect(() => {
-    let mounted = true;
-    type ExecutionSnapshot = {
-      minConfidenceToExecute?: number;
-      recentExecutions?: Array<{
-        confidence?: number;
-        expertBreakdown?: {
-          technician?: { score?: number };
-          deepMemory?: { score?: number };
-          marketPsychologist?: { score?: number };
-          onChainSleuth?: { score?: number };
-          riskManager?: { score?: number };
-          macroOrderBook?: { score?: number };
-        } | null;
-      }>;
-    };
-    const toScore = (value: unknown): number | null => {
-      const n = typeof value === 'number' ? value : Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
-    const syncExecutionState = async () => {
-      try {
-        const payload = (await getExecutionDashboardSnapshotAction()) as ExecutionSnapshot;
-        if (!mounted || !payload) return;
-        const latest = payload.recentExecutions?.[0];
-        const breakdown = latest?.expertBreakdown ?? null;
-        const mappedScores: Array<number | null> = [
-          toScore(breakdown?.technician?.score),
-          toScore(breakdown?.deepMemory?.score),
-          toScore(breakdown?.marketPsychologist?.score),
-          toScore(breakdown?.onChainSleuth?.score),
-          toScore(breakdown?.riskManager?.score),
-          toScore(breakdown?.macroOrderBook?.score),
-          toScore(latest?.confidence),
-        ];
-        const nextExperts = EXPERT_META.map((meta, idx) => {
-          const score = mappedScores[idx] ?? null;
-          const status: ExpertCardData['status'] = score == null ? 'ממתין לנתוני שוק' : 'פעיל';
-          return { ...meta, score, status };
-        });
-        setExperts(nextExperts);
-        const threshold = typeof payload.minConfidenceToExecute === 'number' ? payload.minConfidenceToExecute : 75;
-        const latestConfidence = toScore(latest?.confidence);
-        setConsensusPulse(latestConfidence != null && latestConfidence >= threshold);
-      } catch {
-        if (!mounted) return;
-        setConsensusPulse(false);
-        setExperts(
-          EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'ממתין לנתוני שוק' as const }))
-        );
-      }
-    };
-    void syncExecutionState();
-    const timer = setInterval(syncExecutionState, 12000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -362,21 +165,7 @@ export default function MainDashboard() {
           </div>
         </motion.header>
 
-        <motion.div variants={staggerItem} className="mb-6">
-          <div className="flex items-center justify-between gap-3 mb-3">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">שבעת המומחים</p>
-            <p className={`text-xs ${consensusPulse ? 'text-emerald-300' : 'text-zinc-500'}`}>
-              {consensusPulse ? 'הושג קונצנזוס' : 'ממתין לקונצנזוס'}
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
-            {experts.map((expert) => {
-              return (
-                <ExpertTiltCard key={expert.name} expert={expert} consensusPulse={consensusPulse} isDefcon1={isDefcon1} />
-              );
-            })}
-          </div>
-        </motion.div>
+        <BoardOfExperts staggerItem={staggerItem} />
 
         <motion.div variants={staggerItem} className="grid grid-cols-1 lg:grid-cols-12 auto-rows-[minmax(160px,auto)] gap-x-5 gap-y-7 lg:gap-x-7 lg:gap-y-8">
           {/* Deep Memory — prominent */}
@@ -391,16 +180,16 @@ export default function MainDashboard() {
               isDefcon1 ? 'lg:scale-[1.01] ring-1 ring-rose-500/25' : ''
             }`}
           >
-            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-black/20">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-black/20 shrink-0">
               <div className="flex items-center gap-2">
                 <BrainCircuit className="h-5 w-5 text-cyan-300" />
                 <span className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-100/90">ליבת המפקח</span>
               </div>
-              <span className={`text-[11px] uppercase tracking-[0.18em] live-data-number ${consensusPulse ? 'text-emerald-300' : 'text-zinc-400'}`}>
-                {consensusPulse ? 'סנכרון נוירלי' : 'סריקה נוירלית'}
+              <span className="text-[11px] uppercase tracking-[0.18em] live-data-number tabular-nums text-zinc-400">
+                סריקה נוירלית
               </span>
             </div>
-            <div className="flex-1 p-4 sm:p-5">
+            <div className="flex-1 min-h-0 p-4 sm:p-5 overflow-y-auto">
               <CryptoAnalyzer />
             </div>
           </div>

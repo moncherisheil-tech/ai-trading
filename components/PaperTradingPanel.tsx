@@ -183,7 +183,7 @@ export default function PaperTradingPanel() {
 
   return (
     <section
-      className="frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-3 min-w-0 w-full max-w-full rounded-3xl shadow-2xl overflow-x-hidden overflow-y-visible"
+      className="relative z-[1] frosted-obsidian panel-sovereign-diamond sovereign-tilt z-depth-3 min-w-0 w-full max-w-full rounded-3xl shadow-2xl overflow-x-hidden overflow-y-visible backdrop-blur-[60px]"
       dir="rtl"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 px-5 sm:px-6 pt-5 sm:pt-6 pb-4 border-b border-white/5 bg-black/20">
@@ -493,7 +493,7 @@ export default function PaperTradingPanel() {
       </div>
 
       {analysis && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+        <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
           <div
             dir="rtl"
             className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto"

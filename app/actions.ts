@@ -622,6 +622,49 @@ export async function getMarketRiskSentinelAction(): Promise<unknown> {
 }
 
 /**
+ * AI bridge for dashboard: validates Gemini/Anthropic with a tiny heartbeat, confirms DB/snapshot path,
+ * and reports whether ADMIN_SECRET is configured (boolean only — never exposes the secret).
+ */
+export async function getAiConsensusBridgeStatusAction(): Promise<{
+  gemini: boolean;
+  anthropic: boolean;
+  anyProviderOk: boolean;
+  adminSecretConfigured: boolean;
+  consensusDataOk: boolean;
+  error?: string;
+}> {
+  const adminSecretConfigured = Boolean((process.env.ADMIN_SECRET || '').trim().length);
+  let consensusDataOk = false;
+  try {
+    const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
+    await getExecutionDashboardSnapshot();
+    consensusDataOk = true;
+  } catch {
+    consensusDataOk = false;
+  }
+  try {
+    const { runAiProvidersHeartbeat } = await import('@/lib/ai-providers-heartbeat');
+    const hb = await runAiProvidersHeartbeat();
+    return {
+      gemini: hb.gemini,
+      anthropic: hb.anthropic,
+      anyProviderOk: hb.anyProviderOk,
+      adminSecretConfigured,
+      consensusDataOk,
+    };
+  } catch (e) {
+    return {
+      gemini: false,
+      anthropic: false,
+      anyProviderOk: false,
+      adminSecretConfigured,
+      consensusDataOk,
+      error: e instanceof Error ? e.message : 'Heartbeat failed',
+    };
+  }
+}
+
+/**
  * Live gems ticker for the Market Marquee.
  * Note: returns real Binance-derived feed from `lib/gem-finder` (no mocking).
  */

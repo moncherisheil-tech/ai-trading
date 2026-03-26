@@ -402,9 +402,9 @@ export default function CryptoAnalyzer() {
       dir="rtl"
     >
       {/* Currency switcher + Input */}
-      <div className="lg:col-span-4 space-y-4 md:space-y-5">
+      <div className="lg:col-span-4 space-y-4 md:space-y-5 relative z-[2]">
         {/* Multi-currency switcher */}
-        <div className="ui-panel-dense ui-card frosted-obsidian min-w-0 min-h-[260px]">
+        <div className="ui-panel-dense ui-card frosted-obsidian min-w-0 min-h-[260px] backdrop-blur-[60px]">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-500 shrink-0">
               <Activity className="w-5 h-5" />
@@ -457,7 +457,7 @@ export default function CryptoAnalyzer() {
         </div>
 
         {/* Simulation wallet & quick trade — Deep Sea Trading Station theme */}
-        <div className="ui-panel-dense ui-card frosted-obsidian rounded-2xl min-w-0 min-h-[230px] bg-gradient-to-b from-[#0a1628] to-[#06101a] border-cyan-500/24 shadow-[0_0_24px_rgba(34,211,238,0.08)]">
+        <div className="ui-panel-dense ui-card frosted-obsidian rounded-2xl min-w-0 min-h-[230px] bg-gradient-to-b from-[#0a1628] to-[#06101a] border-cyan-500/24 shadow-[0_0_24px_rgba(34,211,238,0.08)] backdrop-blur-[60px]">
           <div className="flex items-center justify-between mb-4 gap-2 min-w-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="p-2 bg-cyan-500/15 border border-cyan-400/30 rounded-lg text-cyan-400 shrink-0">
