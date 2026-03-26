@@ -113,7 +113,7 @@ export default function CryptoTicker() {
   }, []);
 
   return (
-    <div className="relative z-40 w-full bg-[var(--app-surface)] border-b border-[var(--app-border)] overflow-hidden py-2" id="crypto-ticker" role="region" aria-label="Crypto ticker stream">
+    <div className="relative z-40 w-full bg-[var(--app-surface)] border-b border-[var(--app-border)] overflow-hidden py-2" id="crypto-ticker" role="region" aria-label="זרם מחירי קריפטו">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="pb-1 flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${connectionState === 'connected' ? 'bg-emerald-400' : connectionState === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`} />

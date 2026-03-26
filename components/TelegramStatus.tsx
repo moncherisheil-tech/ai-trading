@@ -40,7 +40,7 @@ export default function TelegramStatus() {
   if (connected === null) {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-slate-700/70 text-slate-300 ring-1 ring-slate-600/40">
-        AWAITING_LIVE_DATA
+        ממתין לנתוני שוק
       </span>
     );
   }

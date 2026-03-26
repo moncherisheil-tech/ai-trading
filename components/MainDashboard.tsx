@@ -16,7 +16,6 @@ import PaperTradingPanel from '@/components/PaperTradingPanel';
 import AIAccuracyChart from '@/components/AIAccuracyChart';
 import DeepMemoryFeed from '@/components/DeepMemoryFeed';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useLocale } from '@/hooks/use-locale';
 import { getExecutionDashboardSnapshotAction, getMarketRiskSentinelAction } from '@/app/actions';
 import { useMarketState } from '@/context/MarketStateContext';
 import { useCyberDecryptNumber } from '@/hooks/use-cyber-decrypt-value';
@@ -44,25 +43,25 @@ const staggerItem = {
 };
 
 const EXPERT_META = [
-  { name: 'Technical Analyst', alias: 'The Engineer', neon: '#00E5FF' },
-  { name: 'Fundamental Analyst', alias: 'The Professor', neon: '#A855F7' },
-  { name: 'Sentiment Analyst', alias: 'The Social Lead', neon: '#EC4899' },
-  { name: 'On-Chain/Whale Analyst', alias: 'The Leviathan', neon: '#06B6D4' },
-  { name: 'Risk Manager', alias: 'The Shield', neon: '#22C55E' },
-  { name: 'Macro Analyst', alias: 'The Strategist', neon: '#F59E0B' },
-  { name: 'AI Overseer', alias: 'The Architect', neon: '#FB7185' },
+  { name: 'אנליסט טכני', alias: 'מהנדס השוק', neon: '#00E5FF' },
+  { name: 'אנליסט פונדמנטלי', alias: 'פרופסור הנתונים', neon: '#A855F7' },
+  { name: 'אנליסט סנטימנט', alias: 'מוביל תחושת השוק', neon: '#EC4899' },
+  { name: 'אנליסט אונ־צ׳יין / לווייתנים', alias: 'לווייתן', neon: '#06B6D4' },
+  { name: 'מנהל סיכונים', alias: 'המגן', neon: '#22C55E' },
+  { name: 'אנליסט מאקרו', alias: 'אסטרטג המאקרו', neon: '#F59E0B' },
+  { name: 'מפקח AI', alias: 'האדריכל', neon: '#FB7185' },
 ] as const;
 
 type ExpertCardData = (typeof EXPERT_META)[number] & {
   score: number | null;
-  status: 'LIVE' | 'AWAITING_LIVE_DATA';
+  status: 'פעיל' | 'ממתין לנתוני שוק';
 };
 
 const CryptoAnalyzer = dynamic(() => import('@/components/CryptoAnalyzer'), {
   loading: () => (
     <div className="w-full min-w-0 p-6 space-y-4" dir="rtl" aria-live="polite">
       <div className="cyber-decrypt text-xs font-semibold tracking-[0.3em]" data-scramble="7X-NEURAL-KEY">
-        INITIALIZING CONSENSUS
+        מאתחל קונצנזוס
       </div>
       <div className="grid grid-cols-3 gap-4">
         <Skeleton className="h-16 rounded-2xl" />
@@ -114,9 +113,9 @@ function ExpertTiltCard({
   const ry = useSpring(useTransform(x, [-50, 50], [-11, 11]), { stiffness: 220, damping: 18 });
   const tzRaw = useTransform([x, y], ([lx, ly]) => 18 + Math.abs(lx as number) * 0.08 + Math.abs(ly as number) * 0.04);
   const tz = useSpring(tzRaw, { stiffness: 260, damping: 24 });
-  const glow = useMemo(() => `${expert.neon}${expert.status === 'LIVE' ? '66' : '2a'}`, [expert.neon, expert.status]);
-  const isLeviathan = expert.alias.includes('Leviathan');
-  const isShield = expert.alias.includes('Shield');
+  const glow = useMemo(() => `${expert.neon}${expert.status === 'פעיל' ? '66' : '2a'}`, [expert.neon, expert.status]);
+  const isLeviathan = expert.alias.includes('לווייתן');
+  const isShield = expert.alias.includes('מגן');
   const [spotlight, setSpotlight] = useState({ x: '50%', y: '50%', opacity: 0 });
   const scoreDecrypt = useCyberDecryptNumber(expert.score, { decimals: 1 });
 
@@ -181,10 +180,10 @@ function ExpertTiltCard({
           {expert.alias}
         </p>
         <p className="relative mt-2 text-[11px] text-zinc-300/90 font-mono tabular-nums tracking-tight" style={{ transform: 'translateZ(20px)' }}>
-          {expert.score != null ? `Score ${scoreDecrypt}` : 'Score AWAITING_LIVE_DATA'}
+          {expert.score != null ? `ניקוד ${scoreDecrypt}` : 'ניקוד — ממתין לנתוני שוק'}
         </p>
         <p
-          className={`relative text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${expert.status === 'LIVE' ? 'text-emerald-300' : 'text-amber-300'}`}
+          className={`relative text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${expert.status === 'פעיל' ? 'text-emerald-300' : 'text-amber-300'}`}
           style={{ transform: 'translateZ(16px)' }}
         >
           {expert.status}
@@ -195,12 +194,11 @@ function ExpertTiltCard({
 }
 
 function TerminalClock() {
-  const { locale } = useLocale();
   const [now, setNow] = useState<string>('');
   useEffect(() => {
     const tick = () =>
       setNow(
-        new Date().toLocaleString(locale === 'he' ? 'he-IL' : 'en-GB', {
+        new Date().toLocaleString('he-IL', {
           weekday: 'short',
           hour: '2-digit',
           minute: '2-digit',
@@ -211,10 +209,10 @@ function TerminalClock() {
     tick();
     const t = setInterval(tick, 1000);
     return () => clearInterval(t);
-  }, [locale]);
+  }, []);
   return (
     <div className="font-mono text-xs sm:text-sm text-cyan-400/90 tabular-nums tracking-tight text-end">
-      <span className="text-zinc-500 text-[10px] uppercase tracking-widest block sm:inline sm:me-3">UTC+local</span>
+      <span className="text-zinc-500 text-[10px] uppercase tracking-widest block sm:inline sm:me-3">שעון מקומי</span>
       {now}
     </div>
   );
@@ -224,12 +222,11 @@ function TerminalClock() {
  * Bloomberg-style terminal dashboard: bento grid + glass cards + Deep Memory stream.
  */
 export default function MainDashboard() {
-  const { locale, isRtl } = useLocale();
   const { isDefcon1, defcon, sentiment, volatilityNormalized } = useMarketState();
   const [consensusPulse, setConsensusPulse] = useState(false);
   const [marketMode, setMarketMode] = useState<MarketMode>('bull');
   const [experts, setExperts] = useState<ExpertCardData[]>(
-    EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'AWAITING_LIVE_DATA' }))
+    EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'ממתין לנתוני שוק' }))
   );
 
   useEffect(() => {
@@ -269,7 +266,7 @@ export default function MainDashboard() {
         ];
         const nextExperts = EXPERT_META.map((meta, idx) => {
           const score = mappedScores[idx] ?? null;
-          const status: ExpertCardData['status'] = score == null ? 'AWAITING_LIVE_DATA' : 'LIVE';
+          const status: ExpertCardData['status'] = score == null ? 'ממתין לנתוני שוק' : 'פעיל';
           return { ...meta, score, status };
         });
         setExperts(nextExperts);
@@ -280,7 +277,7 @@ export default function MainDashboard() {
         if (!mounted) return;
         setConsensusPulse(false);
         setExperts(
-          EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'AWAITING_LIVE_DATA' as const }))
+          EXPERT_META.map((expert) => ({ ...expert, score: null, status: 'ממתין לנתוני שוק' as const }))
         );
       }
     };
@@ -317,7 +314,7 @@ export default function MainDashboard() {
       className={`relative z-[2] min-h-screen bg-transparent text-zinc-100 overflow-x-hidden transition-colors duration-500 ${
         marketMode === 'bull' ? 'market-mode-bull' : 'market-mode-bear'
       } ${isDefcon1 ? 'defcon-terminal' : ''}`}
-      dir={isRtl ? 'rtl' : 'ltr'}
+      dir="rtl"
     >
       <div className="pointer-events-none absolute inset-0 council-vignette" aria-hidden />
 
@@ -335,14 +332,14 @@ export default function MainDashboard() {
               <Activity className="h-5 w-5 text-cyan-300" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300/85">AI Council Terminal</p>
-              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">{locale === 'he' ? 'Sovereign Terminal' : 'Sovereign Terminal'}</h1>
-              <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">{locale === 'he' ? 'סימולציה ולימוד בלבד · לא ייעוץ השקעות' : 'Simulation and learning only · not investment advice'}</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300/85">מועצת ה-AI</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">מסוף ריבונות</h1>
+              <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">סימולציה ולימוד בלבד · אין זה ייעוץ השקעות</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <span className={`text-[10px] uppercase tracking-[0.24em] px-3 py-1 rounded-full border live-data-number tabular-nums tracking-tight ${marketMode === 'bull' ? 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10' : 'text-rose-300 border-rose-400/40 bg-rose-500/10'}`}>
-              {marketMode === 'bull' ? 'Bull Mode' : 'Bear Mode'}
+              {marketMode === 'bull' ? 'מצב שור' : 'מצב דוב'}
             </span>
             <span
               className={`text-[10px] uppercase tracking-[0.24em] px-3 py-1 rounded-full border font-mono tabular-nums tracking-tight ${
@@ -355,11 +352,11 @@ export default function MainDashboard() {
               title={sentiment?.reasoning ?? ''}
             >
               DEFCON {defcon}
-              {volatilityNormalized > 0.55 ? ' · HI-VOL' : ''}
+              {volatilityNormalized > 0.55 ? ' · תנודתיות גבוהה' : ''}
             </span>
             <div className="hidden sm:flex items-center gap-2 text-[10px] uppercase tracking-widest text-zinc-500">
               <Cpu className="h-3.5 w-3.5 text-cyan-500/70" />
-              <span>Consensus · Deep Memory</span>
+              <span>קונצנזוס · זיכרון עמוק</span>
             </div>
             <TerminalClock />
           </div>
@@ -367,9 +364,9 @@ export default function MainDashboard() {
 
         <motion.div variants={staggerItem} className="mb-6">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">The 7 Experts</p>
+            <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">שבעת המומחים</p>
             <p className={`text-xs ${consensusPulse ? 'text-emerald-300' : 'text-zinc-500'}`}>
-              {consensusPulse ? 'Consensus Reached' : 'Awaiting Consensus'}
+              {consensusPulse ? 'הושג קונצנזוס' : 'ממתין לקונצנזוס'}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
@@ -397,10 +394,10 @@ export default function MainDashboard() {
             <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-black/20">
               <div className="flex items-center gap-2">
                 <BrainCircuit className="h-5 w-5 text-cyan-300" />
-                <span className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-100/90">{locale === 'he' ? 'ליבת Overseer' : 'AI Overseer Hub'}</span>
+                <span className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-100/90">ליבת המפקח</span>
               </div>
               <span className={`text-[11px] uppercase tracking-[0.18em] live-data-number ${consensusPulse ? 'text-emerald-300' : 'text-zinc-400'}`}>
-                {consensusPulse ? 'NEURAL SYNCED' : 'NEURAL SCANNING'}
+                {consensusPulse ? 'סנכרון נוירלי' : 'סריקה נוירלית'}
               </span>
             </div>
             <div className="flex-1 p-4 sm:p-5">
@@ -416,7 +413,7 @@ export default function MainDashboard() {
           >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-black/15">
               <Shield className="h-4 w-4 text-emerald-400/90" aria-hidden />
-              <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">{locale === 'he' ? 'סטטוס שוק' : 'Market Status'}</span>
+              <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">סטטוס שוק</span>
             </div>
             <MarketSafetyBanner />
             <div className="border-t border-white/5 flex-1 min-h-0">
@@ -433,13 +430,13 @@ export default function MainDashboard() {
             <div className="flex items-start gap-3">
               <BarChart2 className="h-5 w-5 text-cyan-400/80 shrink-0 mt-0.5" aria-hidden />
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">Analytics</p>
-                <p className="text-sm font-semibold text-zinc-200 leading-snug">{locale === 'he' ? 'דיוק AI ומגמות ביצועים בזמן אמת' : 'AI accuracy and real-time performance trends'}</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">אנליטיקה</p>
+                <p className="text-sm font-semibold text-zinc-200 leading-snug">דיוק AI ומגמות ביצועים בזמן אמת</p>
               </div>
             </div>
             <div className="h-px bg-white/5" />
             <p className="text-xs text-zinc-500 leading-relaxed">
-              {locale === 'he' ? 'הנתונים מסונכרנים עם מנוע הקונצנזוס והזיכרון העמוק. השתמש בלוח הביצועים לפרטים מלאים.' : 'Data is synced with the consensus engine and deep memory layer. Use the performance board for full details.'}
+              הנתונים מסונכרנים עם מנוע הקונצנזוס והזיכרון העמוק. לפרטים מלאים — לוח הביצועים.
             </p>
           </div>
 
@@ -464,14 +461,14 @@ export default function MainDashboard() {
           >
             <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5 bg-black/20">
               <Cpu className="h-4 w-4 text-amber-400/90" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">{locale === 'he' ? 'מנוע ביצועים' : 'Performance Intelligence Stream'}</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">מנוע מודיעין ביצועים</span>
             </div>
             <div className="p-4 sm:p-6 overflow-x-hidden">
               <div className="cyber-decrypt text-xs tracking-[0.24em] font-semibold mb-4" data-scramble="DATA-LINK-SECURE">
-                LIVE TELEMETRY READY
+                טלמטריה חיה — מוכנה
               </div>
               <p className="text-sm text-zinc-300 leading-relaxed">
-                {locale === 'he' ? 'זרם הנתונים מבוסס על 7 מומחי AI, מנוע קונצנזוס וזיכרון עמוק. כל המדדים מתעדכנים באופן רציף.' : 'Telemetry is fused from the 7 AI experts, consensus engine, and deep memory layer with continuous refresh.'}
+                זרם הנתונים משלב שבעה מומחי AI, מנוע קונצנזוס וזיכרון עמוק. המדדים מתעדכנים ברציפות.
               </p>
             </div>
           </div>

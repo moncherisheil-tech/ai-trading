@@ -73,7 +73,7 @@ export default function AdminTerminalPageClient() {
     const result = await fetchWithBackoff(getAdminTerminalFeedAction, 3);
     if (!result.success) {
       const msg =
-        'Data stream anomaly detected — Re-establishing connection failed after retries. Check Postgres / execution engine.';
+        'אנומליה בזרם הנתונים — חידוש החיבור נכשל לאחר ניסיונות חוזרים. יש לבדוק את Postgres / מנוע הביצועים.';
       setErr(result.error);
       cyber(msg);
       toastError(result.error);
@@ -96,7 +96,7 @@ export default function AdminTerminalPageClient() {
   const handleGoLiveToggle = async (wantLive: boolean) => {
     if (wantLive) {
       if (!goLiveSafety?.allGreen) {
-        toastError('GO LIVE blocked: slippage, Kelly/exposure, or stop-loss must be green.');
+        toastError('מעבר ל-LIVE נחסם: החלקה, יחס קלי/חשיפה או סטופ-לוס חייבים להיות ירוקים.');
         return;
       }
       setGoBusy(true);
@@ -110,7 +110,7 @@ export default function AdminTerminalPageClient() {
         await load();
         return;
       }
-      toastSuccess('LIVE mode requested — keys must be configured server-side; see liveLocked in feed.');
+      toastSuccess('נשלחה בקשה למצב LIVE — יש להגדיר מפתחות בצד השרת; עיין בשדה liveLocked בפיד.');
     } else {
       setGoBusy(true);
       const res = await updateTradingExecutionStatusAction({ mode: 'PAPER' });
@@ -120,7 +120,7 @@ export default function AdminTerminalPageClient() {
         await load();
         return;
       }
-      toastSuccess('Execution mode set to PAPER.');
+      toastSuccess('מצב ביצוע הוגדר לנייר (PAPER).');
     }
     await load();
   };
@@ -129,19 +129,22 @@ export default function AdminTerminalPageClient() {
   const canArmLive = Boolean(goLiveSafety?.allGreen) && !goBusy && !loading;
 
   return (
-    <div className="w-full min-w-0 max-w-full min-h-[calc(100dvh-5rem)] overflow-x-hidden p-4 sm:p-8 bg-gradient-to-b from-zinc-950 via-black to-zinc-950">
+    <div
+      className="w-full min-w-0 max-w-full min-h-[calc(100dvh-5rem)] overflow-x-hidden p-4 sm:p-8 bg-gradient-to-b from-zinc-950 via-black to-zinc-950"
+      dir="rtl"
+    >
       <div className="mx-auto w-full min-w-0 max-w-6xl space-y-6">
         <header className={`${FROST_PANEL} p-6 sm:p-8`}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-500/80 mb-2 flex items-center gap-2">
                 <Radio className="h-3.5 w-3.5 text-cyan-400 animate-pulse" aria-hidden />
-                CEO Command Center
+                חדר פיקוד מנכ״ל
               </p>
-              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">God-Mode Terminal</h1>
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">מסוף מצב-אל</h1>
               <p className="text-sm text-zinc-500 mt-2 max-w-xl">
-                V4 Frosted Obsidian — execution snapshot with self-healing feed (exponential backoff ×2). Ops APIs remain
-                header-gated; this surface uses server-side aggregation.
+                תצלום ביצוע עם פיד מתאושש (backoff אקספוננציאלי ×2). ממשקי Ops נשארים מאובטחים בכותרות; כאן אגרגציה בצד
+                השרת.
               </p>
             </div>
             <button
@@ -150,7 +153,7 @@ export default function AdminTerminalPageClient() {
               disabled={loading}
               className="shrink-0 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-5 py-2.5 text-xs font-bold uppercase tracking-wider text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40 transition-colors"
             >
-              {loading ? 'Syncing…' : 'Re-sync stream'}
+              {loading ? 'מסנכרן…' : 'סנכרן מחדש'}
             </button>
           </div>
         </header>
@@ -169,7 +172,7 @@ export default function AdminTerminalPageClient() {
             <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
               <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
                 <Target className="h-4 w-4 text-emerald-400" aria-hidden />
-                Sovereign readiness score
+                מדד מוכנות ריבונית
               </div>
               <div
                 className={`text-4xl font-black tabular-nums ${
@@ -180,8 +183,8 @@ export default function AdminTerminalPageClient() {
               </div>
             </div>
             <p className="text-xs text-zinc-500 mb-3">
-              Driven by DB health, <span className="text-zinc-300">text-embedding-004</span> probe (768-dim), Pinecone,
-              CI TypeScript flag <code className="text-cyan-600/90">TYPECHECK_PASSED</code>, and core path stability.
+              מבוסס על תקינות מסד הנתונים, בדיקת <span className="text-zinc-300">text-embedding-004</span> (768 ממדים),
+              Pinecone, דגל CI <code className="text-cyan-600/90">TYPECHECK_PASSED</code> ויציבות נתיבי ליבה.
             </p>
             <ul className="space-y-2">
               {readiness.factors.map((f) => (
@@ -206,11 +209,11 @@ export default function AdminTerminalPageClient() {
         <div className={`${FROST_PANEL} p-5 sm:p-6`}>
           <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3 flex items-center gap-2">
             <Lock className="h-3.5 w-3.5" aria-hidden />
-            GO LIVE gate
+            שער מעבר ל-LIVE
           </h2>
           <p className="text-xs text-zinc-500 mb-4">
-            Real exchange keys are injected via environment — this toggle only arms LIVE after institutional safety checks
-            pass. The API still enforces the same rules.
+            מפתחות הבורסה מוזרקים דרך סביבת הריצה — המתג מאשר LIVE רק לאחר מעבר בדיקות בטיחות מוסדיות. ה-API אוכף את אותם
+            כללים.
           </p>
           {goLiveSafety && (
             <ul className="space-y-2 mb-5">
@@ -237,7 +240,7 @@ export default function AdminTerminalPageClient() {
               onClick={() => void handleGoLiveToggle(true)}
               className="rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-xs font-bold uppercase tracking-wider text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-35 disabled:pointer-events-none transition-colors"
             >
-              {goBusy && !isLive ? 'Arming…' : 'GO LIVE'}
+              {goBusy && !isLive ? 'מכין…' : 'מעבר ל-LIVE'}
             </button>
             <button
               type="button"
@@ -245,15 +248,15 @@ export default function AdminTerminalPageClient() {
               onClick={() => void handleGoLiveToggle(false)}
               className="rounded-xl border border-zinc-600/50 bg-zinc-900/60 px-4 py-2 text-xs font-bold uppercase tracking-wider text-zinc-300 hover:bg-zinc-800 disabled:opacity-35 disabled:pointer-events-none transition-colors"
             >
-              PAPER
+              נייר
             </button>
             {!canArmLive && !isLive ? (
-              <span className="text-[11px] text-amber-400/90">Safety checks must be green to arm LIVE.</span>
+              <span className="text-[11px] text-amber-400/90">כל בדיקות הבטיחות חייבות להיות ירוקות כדי לאשר LIVE.</span>
             ) : null}
             {snap?.liveLocked ? (
               <span className="text-[11px] text-cyan-400/90 flex items-center gap-1">
                 <Lock className="h-3 w-3" aria-hidden />
-                liveLocked: configure validated exchange keys to unlock true LIVE execution.
+                נעילת LIVE: יש להגדיר מפתחות בורסה מאומתים לביצוע LIVE אמיתי.
               </span>
             ) : null}
           </div>
@@ -263,7 +266,7 @@ export default function AdminTerminalPageClient() {
           <div className={`${FROST_PANEL} p-5`}>
             <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">
               <Cpu className="h-3.5 w-3.5" aria-hidden />
-              Virtual balance
+              יתרה וירטואלית
             </div>
             <div className="text-2xl font-mono font-bold text-cyan-300 tabular-nums">
               {loading ? '—' : snap?.virtualBalanceUsd != null ? `$${Number(snap.virtualBalanceUsd).toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}
@@ -272,14 +275,14 @@ export default function AdminTerminalPageClient() {
           <div className={`${FROST_PANEL} p-5`}>
             <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">
               <Activity className="h-3.5 w-3.5" aria-hidden />
-              Win rate
+              אחוז ניצחונות
             </div>
             <div className="text-2xl font-mono font-bold text-lime-300 tabular-nums">
               {loading ? '—' : snap?.winRatePct != null ? `${Number(snap.winRatePct).toFixed(1)}%` : '—'}
             </div>
           </div>
           <div className={`${FROST_PANEL} p-5`}>
-            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">Active book</div>
+            <div className="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">ספר פעיל</div>
             <div className="text-2xl font-mono font-bold text-white tabular-nums">
               {loading ? '—' : snap?.activeTradesCount ?? '—'}
             </div>
@@ -287,19 +290,19 @@ export default function AdminTerminalPageClient() {
           <div className={`${FROST_PANEL} p-5`}>
             <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-2">
               <Shield className="h-3.5 w-3.5" aria-hidden />
-              Mode
+              מצב
             </div>
             <div className="text-2xl font-mono font-bold text-zinc-200">{loading ? '—' : snap?.mode ?? '—'}</div>
           </div>
         </div>
 
         <div className={`${FROST_PANEL} p-5 sm:p-6`}>
-          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3">Raw feed (JSON)</h2>
+          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500 mb-3">פיד גולמי (JSON)</h2>
           <pre
             className="text-[11px] sm:text-xs font-mono text-zinc-400 overflow-x-auto max-h-[420px] overflow-y-auto rounded-xl bg-black/40 p-4 border border-white/5"
             dir="ltr"
           >
-            {loading ? 'Awaiting secure channel…' : JSON.stringify(payload, null, 2)}
+            {loading ? 'ממתין לערוץ מאובטח…' : JSON.stringify(payload, null, 2)}
           </pre>
         </div>
       </div>

@@ -15,7 +15,6 @@ import {
 import TelegramStatus from '@/components/TelegramStatus';
 import ForexTicker from '@/components/ForexTicker';
 import LogoutButton from '@/components/LogoutButton';
-import LanguageToggle from '@/components/LanguageToggle';
 import { useLocale } from '@/hooks/use-locale';
 import { useSimulationOptional } from '@/context/SimulationContext';
 import { useMarketState } from '@/context/MarketStateContext';
@@ -37,7 +36,7 @@ function magnetReset(e: MouseEvent<HTMLElement>) {
 }
 
 export default function AppHeader() {
-  const { t, locale, isRtl } = useLocale();
+  const { t } = useLocale();
   const pathname = usePathname();
   const sim = useSimulationOptional();
   const { isDefcon1 } = useMarketState();
@@ -81,26 +80,26 @@ export default function AppHeader() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, type: 'spring', stiffness: 100, damping: 20 }}
-        className={`hidden md:flex fixed top-3 ${isRtl ? 'end-3' : 'start-3'} bottom-3 z-50 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 transition-[width,transform,box-shadow] duration-300 rounded-[2rem] ${marketModeClass} ${
-          sidebarCollapsed ? 'w-[92px]' : 'w-[280px]'
+        className={`hidden md:flex fixed top-0 right-3 z-50 h-screen min-h-[100dvh] w-[280px] max-w-[280px] shrink-0 shadow-2xl overflow-x-hidden overflow-y-auto bg-[var(--app-surface)]/40 transition-[width,transform,box-shadow] duration-300 rounded-e-[2rem] ${marketModeClass} ${
+          sidebarCollapsed ? '!w-[92px] !max-w-[92px]' : ''
         } frosted-obsidian aside-sovereign-diamond`}
         style={{ boxShadow: '0 32px 60px rgba(0,0,0,0.58), 0 0 30px rgba(var(--market-border-rgb),0.24)' }}
-        dir={isRtl ? 'rtl' : 'ltr'}
-        aria-label={locale === 'he' ? 'ניווט צדדי' : 'Sidebar navigation'}
+        dir="rtl"
+        aria-label="ניווט צדדי"
       >
         <div className="flex flex-col h-full">
           <div className="h-16 px-4 flex items-center justify-between gap-3 border-b border-white/10 bg-[var(--app-surface)]/70">
             <Link
               href="/"
               className="flex items-center gap-3 min-w-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 rounded-lg"
-              aria-label={locale === 'he' ? 'דף הבית' : 'Home'}
+              aria-label="דף הבית"
             >
               <div className="w-9 h-9 bg-emerald-500/20 border border-emerald-500/30 rounded-xl flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)] shrink-0">
                 <Activity className="w-5 h-5" aria-hidden />
               </div>
               {!sidebarCollapsed && (
                 <h1 className="text-sm font-bold text-gray-100 tracking-tight truncate max-w-[180px] whitespace-nowrap">
-                  Quantum Crypto | Mon Chéri
+                  מסוף קוונטום · מון שרי
                 </h1>
               )}
             </Link>
@@ -109,7 +108,7 @@ export default function AppHeader() {
               type="button"
               onClick={() => setSidebarCollapsed((v) => !v)}
               className="flex items-center justify-center w-10 h-10 rounded-xl text-zinc-400 hover:bg-white/5 hover:text-amber-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-              aria-label={sidebarCollapsed ? (locale === 'he' ? 'הרחב סרגל ניווט' : 'Expand sidebar') : (locale === 'he' ? 'כווץ סרגל ניווט' : 'Collapse sidebar')}
+              aria-label={sidebarCollapsed ? 'הרחב סרגל ניווט' : 'כווץ סרגל ניווט'}
             >
               {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
             </button>
@@ -119,7 +118,7 @@ export default function AppHeader() {
             <ForexTicker collapsed={sidebarCollapsed} />
           </div>
 
-          <nav className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1" aria-label={locale === 'he' ? 'ניווט ראשי' : 'Primary navigation'}>
+          <nav className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1" aria-label="ניווט ראשי">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const label = getNavLabel(item, t as Record<string, string>);
@@ -160,7 +159,7 @@ export default function AppHeader() {
               prefetch={true}
               onMouseMove={magnetMove}
               onMouseLeave={magnetReset}
-              title={sidebarCollapsed ? (locale === 'he' ? 'מדריך למשתמש' : 'User Guide') : undefined}
+              title={sidebarCollapsed ? 'מדריך למשתמש' : undefined}
               className={`magnet-link relative group flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold min-h-[44px] transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 ${
                 isDefcon1 ? 'opacity-[0.2] pointer-events-none saturate-[0.35] blur-[0.3px]' : ''
               } ${
@@ -175,19 +174,19 @@ export default function AppHeader() {
               aria-current={isGuideActive ? 'page' : undefined}
             >
               <BookOpen className="w-5 h-5 shrink-0" aria-hidden />
-              {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'מדריך למשתמש' : 'User Guide'}</span>}
+              {!sidebarCollapsed && <span className="truncate">מדריך למשתמש</span>}
             </Link>
           </nav>
 
           <div className="p-4 border-t border-white/10 space-y-3">
             <div className={`flex items-center gap-3 ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
               {!sidebarCollapsed && (
-                <span className="text-xs text-zinc-500 font-medium">{locale === 'he' ? 'חשיפה' : 'Exposure'}</span>
+                <span className="text-xs text-zinc-500 font-medium">חשיפה</span>
               )}
               <span
                 className="w-3.5 h-3.5 rounded-full shrink-0"
-                title={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
-                aria-label={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
+                title={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
+                aria-label={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
                 style={{
                   backgroundColor: riskPulse === 'red' ? '#ef4444' : riskPulse === 'amber' ? '#f59e0b' : '#22c55e',
                   boxShadow:
@@ -217,14 +216,11 @@ export default function AppHeader() {
                     ? 'justify-center'
                     : 'text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/15 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50'
                 } ${sidebarCollapsed ? 'text-cyan-300 hover:bg-cyan-500/10 hover:text-cyan-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50' : ''}`}
-                aria-label={locale === 'he' ? 'פרופיל' : 'Profile'}
+                aria-label="פרופיל"
               >
                 <UserCircle2 className="w-5 h-5 shrink-0" aria-hidden />
-                {!sidebarCollapsed && <span className="truncate">{locale === 'he' ? 'פרופיל' : 'Profile'}</span>}
+                {!sidebarCollapsed && <span className="truncate">פרופיל</span>}
               </Link>
-              <div className={sidebarCollapsed ? 'px-1' : ''}>
-                <LanguageToggle />
-              </div>
             </div>
 
             {isOpsArea && !sidebarCollapsed && (
@@ -252,7 +248,7 @@ export default function AppHeader() {
       {/* Mobile header */}
       <header
         className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian panel-sovereign-diamond z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden overflow-x-hidden"
-        dir={isRtl ? 'rtl' : 'ltr'}
+        dir="rtl"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 lg:gap-6 min-w-0">
           {/* Logo */}
@@ -260,7 +256,7 @@ export default function AppHeader() {
             <Link
               href="/"
               className="flex items-center gap-2 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-              aria-label={locale === 'he' ? 'דף הבית' : 'Home'}
+              aria-label="דף הבית"
             >
               <div className="w-8 h-8 bg-emerald-500/20 border border-emerald-500/30 rounded-lg flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(34,197,94,0.3)] shrink-0">
                 <Activity className="w-4 h-4" aria-hidden />
@@ -271,8 +267,8 @@ export default function AppHeader() {
           <div className="flex items-center gap-2 shrink-0">
             <span
               className="hidden sm:flex w-3 h-3 rounded-full shrink-0"
-              title={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
-              aria-label={riskPulse === 'red' ? (locale === 'he' ? 'חשיפה קריטית' : 'Critical exposure') : riskPulse === 'amber' ? (locale === 'he' ? 'זהירות חשיפה' : 'Exposure caution') : (locale === 'he' ? 'סיכון תקין' : 'Risk stable')}
+              title={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
+              aria-label={riskPulse === 'red' ? 'חשיפה קריטית' : riskPulse === 'amber' ? 'זהירות חשיפה' : 'סיכון תקין'}
               style={{
                 backgroundColor: riskPulse === 'red' ? '#ef4444' : riskPulse === 'amber' ? '#f59e0b' : '#22c55e',
                 boxShadow:
@@ -284,16 +280,12 @@ export default function AppHeader() {
               }}
             />
 
-            <div className="shrink-0">
-              <LanguageToggle />
-            </div>
-
             <button
               type="button"
               onClick={() => setMenuOpen((o) => !o)}
               className="flex items-center justify-center w-10 h-10 rounded-lg text-zinc-400 hover:bg-zinc-800/80 hover:text-amber-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
               aria-expanded={menuOpen}
-              aria-label={menuOpen ? (locale === 'he' ? 'סגור תפריט' : 'Close menu') : (locale === 'he' ? 'פתח תפריט' : 'Open menu')}
+              aria-label={menuOpen ? 'סגור תפריט' : 'פתח תפריט'}
             >
               {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -309,18 +301,19 @@ export default function AppHeader() {
               onClick={() => setMenuOpen(false)}
             />
             <div
-              className={`fixed top-0 ${isRtl ? 'end-0 border-s' : 'start-0 border-e'} bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col`}
+              className="fixed top-0 right-0 bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-s border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col"
               role="dialog"
               aria-modal="true"
-              aria-label={locale === 'he' ? 'תפריט ניווט' : 'Navigation menu'}
+              aria-label="תפריט ניווט"
+              dir="rtl"
             >
               <div className="sticky top-0 flex items-center justify-between p-4 border-b border-white/10 bg-[#0f0f0f]/98 backdrop-blur shrink-0">
-                <span className="text-sm font-semibold text-zinc-300">{locale === 'he' ? 'תפריט' : 'Menu'}</span>
+                <span className="text-sm font-semibold text-zinc-300">תפריט</span>
                 <button
                   type="button"
                   onClick={() => setMenuOpen(false)}
                   className="p-2 rounded-lg text-zinc-400 hover:bg-white/10 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
-                  aria-label={locale === 'he' ? 'סגור תפריט' : 'Close menu'}
+                  aria-label="סגור תפריט"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -360,7 +353,7 @@ export default function AppHeader() {
                   aria-current={isGuideActive ? 'page' : undefined}
                 >
                   <BookOpen className="w-5 h-5 shrink-0" aria-hidden />
-                  {locale === 'he' ? 'מדריך למשתמש' : 'User Guide'}
+                  מדריך למשתמש
                 </Link>
                 {sim && (
                   <div className="flex items-center gap-2 px-4 py-3 mt-2 rounded-xl bg-zinc-800/80 border border-zinc-700/50 text-amber-300/90 text-sm font-medium">
@@ -377,14 +370,13 @@ export default function AppHeader() {
                   href="/profile"
                   onClick={() => setMenuOpen(false)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 min-h-[48px] mt-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
-                  aria-label={locale === 'he' ? 'פרופיל' : 'Profile'}
+                  aria-label="פרופיל"
                 >
                   <UserCircle2 className="w-5 h-5 shrink-0" aria-hidden />
-                  {locale === 'he' ? 'פרופיל' : 'Profile'}
+                  פרופיל
                 </Link>
                 <div className="flex items-center justify-between px-4 py-3 mt-4 pt-4 border-t border-white/5">
-                  <span className="text-xs text-zinc-500">{locale === 'he' ? 'גרסה v1.3' : 'Version v1.3'}</span>
-                  <LanguageToggle />
+                  <span className="text-xs text-zinc-500">גרסה 1.3</span>
                 </div>
                 {isOpsArea && (
                   <div className="flex flex-col gap-3 px-4 py-4 mt-2 border-t border-white/10">

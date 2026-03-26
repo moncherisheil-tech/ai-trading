@@ -8,17 +8,15 @@ import ConsultationChat from '@/components/ConsultationChat';
 import { SimulationProvider } from '@/context/SimulationContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { MarketStateProvider } from '@/context/MarketStateContext';
-import { useLocale } from '@/hooks/use-locale';
 
 const LOGIN_PATH = '/login';
 
 /**
  * Global shell: sidebar (AppHeader) on every authenticated route including /ops.
- * Main content offset uses --app-sidebar-width (updated by AppHeader when collapsed).
+ * Main content uses physical padding-right for a fixed right sidebar under global RTL.
  */
 export default function GlobalAppChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { isRtl } = useLocale();
   const isLoginPage = pathname === LOGIN_PATH;
 
   if (isLoginPage) {
@@ -29,7 +27,7 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
     <MarketStateProvider>
       <AppHeader />
       <div
-        className={`sovereign-shell relative z-[1] flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden pt-20 md:pt-0 transition-[padding] duration-200 ${isRtl ? 'md:pe-[var(--app-main-inline-offset)]' : 'md:ps-[var(--app-main-inline-offset)]'}`}
+        className="sovereign-shell relative z-[1] flex flex-1 min-h-0 min-w-0 max-w-full flex-col overflow-x-hidden pt-20 md:pt-0 transition-[padding] duration-200 md:pr-[var(--app-main-inline-offset)]"
       >
         <CryptoTicker />
         <main className="flex-1 flex flex-col min-h-0 min-w-0 max-w-full pb-20 md:pb-0">

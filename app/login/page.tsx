@@ -4,7 +4,6 @@ import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, Lock, Loader2, ShieldCheck } from 'lucide-react';
 import { loginWithPassword } from '@/app/actions';
-import LanguageToggle from '@/components/LanguageToggle';
 import { useLocale } from '@/hooks/use-locale';
 
 function sanitizeRedirectTarget(from: string | null): string {
@@ -148,9 +147,6 @@ export default function LoginPage() {
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_5%_0%,rgba(6,182,212,0.16),transparent_60%)]" aria-hidden />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_70%_60%_at_100%_100%,rgba(16,185,129,0.15),transparent_60%)]" aria-hidden />
-      <div className="absolute top-4 end-4 z-10">
-        <LanguageToggle />
-      </div>
       <div className="relative w-full max-w-full flex-shrink-0 sm:max-w-md">
         <Suspense fallback={<LoginFallback />}>
           <LoginForm />

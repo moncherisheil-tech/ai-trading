@@ -1,22 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { messages, type Locale } from '@/lib/i18n';
-import { normalizeLocale } from '@/lib/locale';
+import { LOCALE_COOKIE_KEY, LOCALE_STORAGE_KEY } from '@/lib/locale';
 
+/** Product UI is Hebrew-only (RTL). Document lang/dir are locked on mount. */
 export function useLocale() {
-  const [locale, setLocale] = useState<Locale>('he');
-
   useEffect(() => {
-    const sync = () => {
-      setLocale(normalizeLocale(document.documentElement.lang, 'he'));
-    };
-
-    sync();
-    window.addEventListener('locale-change', sync as EventListener);
-    return () => window.removeEventListener('locale-change', sync as EventListener);
+    document.documentElement.lang = 'he';
+    document.documentElement.dir = 'rtl';
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, 'he');
+      document.cookie = `${LOCALE_COOKIE_KEY}=he; path=/; max-age=31536000; samesite=lax`;
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  const t = useMemo(() => messages[locale], [locale]);
-  return { locale, isRtl: locale === 'he', t };
+  const t = useMemo(() => messages.he, []);
+  return { locale: 'he' as const satisfies Locale, isRtl: true, t };
 }

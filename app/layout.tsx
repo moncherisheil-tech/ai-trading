@@ -35,11 +35,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="he" dir="rtl" className="overflow-x-hidden" data-theme="dark" suppressHydrationWarning>
       <body
+        dir="rtl"
         className="font-sans bg-[var(--background)] text-[var(--app-text)] antialiased min-h-screen min-h-[100dvh] overflow-x-hidden max-w-[100vw] flex flex-col"
         suppressHydrationWarning
       >
         <Script id="locale-init" strategy="beforeInteractive">
-          {`(function(){try{var k='app-locale';var m=localStorage.getItem(k);var c=document.cookie.match(/(?:^|; )app-locale=([^;]+)/);var l=(m==='he'||m==='en')?m:(c&&decodeURIComponent(c[1]));if(l!=='he'&&l!=='en'){l='he';}document.documentElement.lang=l;document.documentElement.dir=(l==='he'?'rtl':'ltr');}catch(e){}})();`}
+          {`(function(){try{document.documentElement.lang='he';document.documentElement.dir='rtl';}catch(e){}})();`}
         </Script>
         <PwaMeta />
         <RegisterServiceWorker />
