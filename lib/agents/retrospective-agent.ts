@@ -3,6 +3,7 @@ import { getGeminiApiKey } from '@/lib/env';
 import { queryAcademyKnowledge } from '@/lib/vector-db';
 import type { TradeExecutionRow } from '@/lib/db/execution-learning';
 import { insertLearnedInsight } from '@/lib/db/execution-learning';
+import { generateSafeId } from '@/lib/utils';
 
 export interface AlphaSignalLike {
   id?: string;
@@ -74,7 +75,7 @@ ${academyContext || 'No academy matches found.'}
     if (parsed.failureReason?.trim()) failureReason = parsed.failureReason.trim();
     if (parsed.academyReference?.trim()) academyReference = parsed.academyReference.trim();
     const saved = await insertLearnedInsight({
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       tradeId: trade.id,
       failureReason,
       academyReference,
@@ -84,7 +85,7 @@ ${academyContext || 'No academy matches found.'}
   } catch (err) {
     console.error('[retrospective-agent] failed:', err);
     const saved = await insertLearnedInsight({
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       tradeId: trade.id,
       failureReason,
       academyReference,

@@ -1,4 +1,5 @@
 import { getAppSettings } from '@/lib/db/app-settings';
+import { generateSafeId } from '@/lib/utils';
 import { listOpenVirtualTrades, listClosedVirtualTrades, closeVirtualTrade, type VirtualPortfolioRow } from '@/lib/db/virtual-portfolio';
 import {
   insertVirtualTradeHistory,
@@ -787,7 +788,7 @@ export class LiveExecutionEngine {
     const amountUsd = signal.amountUsd ?? settings.trading.defaultTradeSizeUsd ?? 100;
 
     const execution = await insertTradeExecution({
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       symbol,
       alphaSignalId: signal.id ?? null,
       type: mode,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDbAsync, saveDbAsync, type PredictionRecord } from '@/lib/db';
+import { generateSafeId } from '@/lib/utils';
 import { runConsensusEngine } from '@/lib/consensus-engine';
 import {
   SANDBOX_CONSENSUS_INPUT,
@@ -27,7 +28,7 @@ export async function POST(): Promise<NextResponse> {
 
     const now = new Date().toISOString();
     const alphaSignal: PredictionRecord = {
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       symbol: input.symbol,
       prediction_date: now,
       predicted_direction: 'Bullish',

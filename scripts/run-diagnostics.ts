@@ -1,5 +1,6 @@
 import { loadEnvConfig } from '@next/env';
 import { APP_CONFIG } from '../lib/config';
+import { generateSafeId } from '../lib/utils';
 import {
   CcxtBrokerAdapter,
   createBrokerAdapter,
@@ -163,7 +164,7 @@ function createDryRunBroker(): IBrokerAdapter {
     },
     async createMarketOrder(symbol: string, side: 'buy' | 'sell', amount: number): Promise<BrokerOrderResult> {
       return {
-        id: `dryrun-${crypto.randomUUID()}`,
+        id: `dryrun-${generateSafeId()}`,
         symbol,
         side,
         amount,

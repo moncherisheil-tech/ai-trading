@@ -54,3 +54,12 @@ model LearnedInsight {
 
   @@index([tradeId, createdAt(sort: Desc)])
 }
+
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("settings")
+}

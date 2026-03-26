@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { StrategyInsight } from '@/lib/schemas/strategy-insight';
+import { generateSafeId } from '@/lib/utils';
 import { appendStrategyInsights } from '@/lib/db/strategy-repository';
 import type { BacktestLogEntry } from '@/lib/db/backtest-repository';
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
@@ -156,7 +157,7 @@ ${JSON.stringify(compactCases, null, 2)}
         typeof i.confidence_score === 'number',
     )
     .map((i) => ({
-      id: crypto.randomUUID(),
+      id: generateSafeId(),
       pattern_summary: i.pattern_summary,
       actionable_rule: i.actionable_rule,
       confidence_score: i.confidence_score,

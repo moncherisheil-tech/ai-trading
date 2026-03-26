@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
 import { generateBacktestSummary, performanceTierFromAccuracy, runBacktest, type BacktestReport } from '@/lib/ops/backtest-engine';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
+import { generateSafeId } from '@/lib/utils';
 
 /**
  * Persist bestExpertKey per symbol to Deep Memory (app_settings.neural.bestExpertBySymbol) so runConsensusEngine can boost that expert's weight.
@@ -36,7 +37,7 @@ async function persistBestExpertFromReports(reports: BacktestReport[]): Promise<
  */
 
 export async function GET(req: NextRequest) {
-  const timerName = `backtest-get-${crypto.randomUUID()}`;
+  const timerName = `backtest-get-${generateSafeId()}`;
   console.time(timerName);
   
   try {
@@ -130,7 +131,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const timerName = `backtest-post-${crypto.randomUUID()}`;
+  const timerName = `backtest-post-${generateSafeId()}`;
   console.time(timerName);
 
   try {

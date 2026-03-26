@@ -42,6 +42,7 @@ import { getRequestLocale } from '@/lib/locale.server';
 import type { Locale } from '@/lib/i18n';
 import type { Ticker24h, SignalStrength } from '@/lib/gem-finder';
 import type { AppSettings } from '@/lib/db/app-settings';
+import { generateSafeId } from '@/lib/utils';
 
 interface BinanceTickerPrice {
   symbol?: string;
@@ -195,7 +196,7 @@ export async function runCryptoAnalysisCore(
     const requestLocale = options?.locale ?? await getRequestLocale();
     return await doAnalysisCore(cleanSymbol, Date.now(), !options?.skipCache, { locale: requestLocale });
   } catch (error: unknown) {
-    const requestId = crypto.randomUUID();
+    const requestId = generateSafeId();
     const isZod = error instanceof z.ZodError;
     if (isZod) logZodError(error as z.ZodError);
     const err = error instanceof Error ? error.message : 'Analysis failed.';
@@ -270,7 +271,7 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
       }
       return { success: false, error: 'Unauthorized request.' };
     }
-    const requestId = crypto.randomUUID();
+    const requestId = generateSafeId();
     const errorType = error instanceof Error ? error.constructor?.name : 'UnknownError';
     const isQuota = msg === 'QUOTA_EXHAUSTED_429' || /429|RESOURCE_EXHAUSTED|quota/i.test(msg);
     const userMessage = isQuota

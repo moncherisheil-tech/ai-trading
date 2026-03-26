@@ -21,6 +21,7 @@ import { fetchWithBackoff, fetchBinanceOrderBookDepth, summarizeOrderBookDepth, 
 import type { BinanceKline } from '@/lib/actions-types';
 import { getSuccessFailureFeedback } from '@/lib/smart-agent';
 import { ema, atr } from '@/lib/indicators';
+import { generateSafeId } from '@/lib/utils';
 import {
   runConsensusEngine,
   computeMacdSignal,
@@ -1000,7 +1001,7 @@ RULES:
     tradeDirection != null ? calculateTradeLevels(currentPrice, marketVolatilityPct, tradeDirection) : null;
 
   const newRecord: PredictionRecord = {
-    id: crypto.randomUUID(),
+    id: generateSafeId(),
     symbol: cleanSymbol,
     prediction_date: new Date().toISOString(),
     predicted_direction: result.direction,
