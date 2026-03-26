@@ -137,11 +137,24 @@ async function runAudit(): Promise<NextResponse> {
       },
       ...(probe.error ? { error: probe.error } : {}),
     };
+    if (!passed && probe.error) {
+      console.error('[ops.audit-check] Vector Storage self-test failed', {
+        symbol: MOCK_SYMBOL,
+        error: probe.error,
+        index: probe.index,
+        details: report.vectorStorage.details,
+      });
+    }
   } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
     report.vectorStorage = {
       passed: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMsg,
     };
+    console.error('[ops.audit-check] Vector Storage exception', {
+      error: errorMsg,
+      errorType: err instanceof Error ? err.constructor.name : typeof err,
+    });
   }
 
   const allPassed = report.analysis.passed && report.db.passed && report.vectorStorage.passed;
