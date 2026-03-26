@@ -1,6 +1,6 @@
 type GeminiRequestOptions = {
-  /** Use v1beta for broad SDK compatibility. */
-  apiVersion: 'v1beta';
+  /** Use stable v1 endpoint for production reliability. */
+  apiVersion: 'v1';
 };
 
 export function resolveGeminiModel(modelName: string): {
@@ -8,11 +8,11 @@ export function resolveGeminiModel(modelName: string): {
   requestOptions: GeminiRequestOptions;
 } {
   void modelName;
-  const model = 'models/gemini-1.5-flash-latest';
+  const model = 'models/gemini-2.0-flash';
 
   return {
     model,
-    requestOptions: { apiVersion: 'v1beta' },
+    requestOptions: { apiVersion: 'v1' },
   };
 }
 

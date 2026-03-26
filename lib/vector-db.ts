@@ -53,9 +53,9 @@ export const GEMINI_EMBEDDING_DIMENSION = 768;
 
 function getEmbeddingModelCandidates(): string[] {
   const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
-  const fallback = ['text-embedding-004', 'gemini-embedding-001', 'text-embedding-005'];
-  if (env) return [env, ...fallback.filter((m) => m !== env)];
-  return fallback;
+  const stable = 'text-embedding-004';
+  if (env) return [env, stable].filter((m, i, arr) => arr.indexOf(m) === i);
+  return [stable];
 }
 
 function getExpectedEmbeddingDim(): number {
@@ -67,8 +67,7 @@ function getExpectedEmbeddingDim(): number {
 }
 
 /**
- * v1beta REST :embedContent. Tries `GEMINI_EMBEDDING_MODEL_ID` then 004 → gemini-embedding-001 → 005 so live stacks
- * keep working when Google drops a model id for a given API key.
+ * v1 REST :embedContent. Uses stable `text-embedding-004`.
  */
 async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<number[]> {
   const dim = getExpectedEmbeddingDim();

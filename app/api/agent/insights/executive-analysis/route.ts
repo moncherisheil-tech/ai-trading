@@ -118,9 +118,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ].join('\n');
 
       analysis_he = await generateLiveText({
-        systemInstruction:
-          'אתה אנליסט ביצועים בכיר בקרן גידור. כתוב בעברית רשמית ותמציתית, טון מקצועי מוסדי.',
-        prompt: livePrompt,
+        prompt:
+          'אתה אנליסט ביצועים בכיר בקרן גידור. כתוב בעברית רשמית ותמציתית, טון מקצועי מוסדי.\n\n' +
+          livePrompt,
         maxOutputTokens: 350,
         temperature: 0.2,
         locale: 'he',

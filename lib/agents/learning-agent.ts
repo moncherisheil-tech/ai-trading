@@ -132,17 +132,15 @@ ${JSON.stringify(compactCases, null, 2)}
   if (rawInsights.length === 0) {
     try {
       const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-      const selected = resolveGeminiModel('gemini-1.5-flash-latest');
+      const selected = resolveGeminiModel('gemini-2.0-flash');
       const model = genAI.getGenerativeModel(
         {
           model: selected.model,
-          systemInstruction:
-            'You are a disciplined quantitative trading research assistant. Always respond with strict JSON, no prose.',
         },
         selected.requestOptions
       );
       const response = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+        contents: [{ role: 'user', parts: [{ text: `You are a disciplined quantitative trading research assistant. Always respond with strict JSON, no prose.\n\n${userPrompt}` }] }],
         generationConfig: { temperature: 0.1, maxOutputTokens: 1024, responseMimeType: 'application/json' },
       });
       const text = response.response.text()?.trim() ?? '';

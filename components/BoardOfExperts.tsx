@@ -67,10 +67,6 @@ function ExpertCard({
   isDefcon1: boolean;
 }) {
   const sigGradId = useId().replace(/:/g, '');
-  const glow = useMemo(
-    () => `${expert.neon}${expert.status === 'פעיל' || expert.status === 'פעיל (סריקה)' ? '66' : '2a'}`,
-    [expert.neon, expert.status]
-  );
   const isLeviathan = expert.alias.includes('לווייתן');
   const isShield = expert.alias.includes('מגן');
   const scoreDecrypt = useCyberDecryptNumber(expert.score, { decimals: 1 });
@@ -85,13 +81,12 @@ function ExpertCard({
   return (
     <div>
       <motion.article
-        whileHover={{ y: -2 }}
         style={{
           background: `radial-gradient(120% 110% at 50% 0%, ${expert.neon}22 0%, rgba(255,255,255,0.02) 58%)`,
-          boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.06), 0 22px 40px rgba(0,0,0,0.5), 0 0 32px ${glow}`,
+          boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.06)`,
           borderColor: `${expert.neon}33`,
         }}
-        className="spotlight-card frosted-obsidian panel-sovereign-diamond z-depth-2 relative z-0 rounded-2xl p-4 overflow-hidden transition-transform duration-200 backdrop-blur-[60px] border border-white/10 hover:border-white/20"
+        className="spotlight-card frosted-obsidian panel-sovereign-diamond z-depth-2 relative z-0 rounded-2xl p-4 overflow-hidden transition-colors duration-200 backdrop-blur-[60px] border border-white/10 hover:border-cyan-300/70"
       >
         {isLeviathan ? <div className="leviathan-wave" aria-hidden /> : null}
         <div

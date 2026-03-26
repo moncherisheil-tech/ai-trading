@@ -19,7 +19,7 @@ import { toDecimal } from '@/lib/decimal';
 import { resolveGeminiModel } from '@/lib/gemini-model';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
-const GEMINI_FALLBACK_MODEL = 'models/gemini-1.5-flash-latest';
+const GEMINI_FALLBACK_MODEL = 'models/gemini-2.0-flash';
 const POST_MORTEM_LLM_TIMEOUT_MS = 12_000;
 
 /** Extract JSON string from model text (handles markdown fences and trailing text). Same logic for Groq and Gemini for consistent parsing. */
@@ -233,13 +233,15 @@ export async function generatePostMortem(
     const model = genAI.getGenerativeModel(
       {
         model: selectedGeminiModel.model,
-        systemInstruction: 'You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).',
       },
       selectedGeminiModel.requestOptions
     );
     const res = await Promise.race([
       model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        contents: [{
+          role: 'user',
+          parts: [{ text: `You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).\n\n${prompt}` }],
+        }],
         generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
       }),
       new Promise<never>((_, rej) =>

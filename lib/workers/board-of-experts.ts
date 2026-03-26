@@ -391,11 +391,11 @@ async function callExpert(
 ): Promise<ExpertOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest',
-    systemInstruction:
-      'Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.',
+    model: APP_CONFIG.primaryModel || 'gemini-2.0-flash',
   });
-  const prompt = `Role: ${expertName}
+  const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
+
+Role: ${expertName}
 Scope lock: ${domainGuardrail}
 
 Dataset (JSON):
@@ -445,11 +445,11 @@ Output strictly as JSON with these keys exactly:
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest',
-    systemInstruction:
-      'You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.',
+    model: APP_CONFIG.primaryModel || 'gemini-2.0-flash',
   });
-  const prompt = `You are the Overseer (CEO). You must only consume the 6 expert JSON outputs below.
+  const prompt = `System instruction: You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.
+
+You are the Overseer (CEO). You must only consume the 6 expert JSON outputs below.
 
 Experts JSON:
 ${JSON.stringify(experts, null, 2)}

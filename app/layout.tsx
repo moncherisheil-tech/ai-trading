@@ -39,7 +39,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         suppressHydrationWarning
       >
         <Script id="locale-init" strategy="beforeInteractive">
-          {`(function(){try{document.documentElement.lang='he';document.documentElement.dir='rtl';}catch(e){}})();`}
+          {`(function(){try{document.documentElement.lang='he';}catch(e){}})();`}
         </Script>
         <PwaMeta />
         <RegisterServiceWorker />

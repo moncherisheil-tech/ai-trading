@@ -238,10 +238,10 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
   const genAI = new GoogleGenerativeAI(apiKey);
   const timeoutMs = Math.min(15_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
-  const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest', systemInstruction });
+  const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-2.0-flash' });
   const res = await Promise.race([
     model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: `Message from CEO: ${userMessage}` }] }],
+      contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nMessage from CEO: ${userMessage}` }] }],
       generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
     }),
     new Promise<never>((_, rej) =>
@@ -294,13 +294,12 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
   const timeoutMs = Math.min(10_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
   const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest',
-    systemInstruction,
+    model: APP_CONFIG.primaryModel || 'gemini-2.0-flash',
   });
 
   const res = await Promise.race([
     model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: 'Provide today’s CIO summary.' }] }],
+      contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nProvide today’s CIO summary.` }] }],
       generationConfig: { temperature: 0.4, maxOutputTokens: 80 },
     }),
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Overseer CIO timeout')), timeoutMs)),

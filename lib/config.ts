@@ -59,10 +59,10 @@ export const APP_CONFIG = {
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
   /** Primary Gemini model. */
-  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-1.5-flash-latest',
-  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-1.5-flash-latest',
+  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.0-flash',
+  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-2.0-flash',
   /** Model used when primary returns 429 (quota exhausted). */
-  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-1.5-flash-latest',
+  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-2.0-flash',
   authToken: process.env.APP_AUTH_TOKEN || '',
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
   dbDriver: process.env.DB_DRIVER || 'file',

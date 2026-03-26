@@ -158,16 +158,15 @@ async function runSentimentViaGemini(prompt: string): Promise<SentimentResult | 
   try {
     const apiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(apiKey);
-    const selected = resolveGeminiModel('gemini-1.5-flash-latest');
+    const selected = resolveGeminiModel('gemini-2.0-flash');
     const model = genAI.getGenerativeModel(
       {
         model: selected.model,
-        systemInstruction: 'You output only valid JSON. No explanation, no code block wrapper.',
       },
       selected.requestOptions
     );
     const response = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [{ text: `You output only valid JSON. No explanation, no code block wrapper.\n\n${prompt}` }] }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 256, responseMimeType: 'application/json' },
     });
     const text = response.response.text()?.trim();

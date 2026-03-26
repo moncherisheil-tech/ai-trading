@@ -393,7 +393,7 @@ export async function doAnalysisCore(
     outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
   const hardLocaleDirective =
     outputLocale === 'he' ? '\nCRITICAL: You MUST answer in Hebrew. Do not use English.' : '';
-  let activeModel = APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest';
+  let activeModel = APP_CONFIG.primaryModel || 'gemini-2.0-flash';
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
   }
@@ -789,13 +789,13 @@ RULES:
   try {
     const selectedModel = resolveGeminiModel(activeModel);
     const model = genAI.getGenerativeModel(
-      { model: selectedModel.model, systemInstruction },
+      { model: selectedModel.model },
       selectedModel.requestOptions
     );
     apiResult = await withGeminiRateLimitRetry(() =>
       withGeminiTimeout(
         model.generateContent({
-          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${promptText}` }] }],
           generationConfig,
         }),
         geminiTimeoutMs
@@ -826,13 +826,13 @@ RULES:
       try {
         const selectedFallback = resolveGeminiModel(activeModel);
         const fallbackModel = genAI.getGenerativeModel(
-          { model: selectedFallback.model, systemInstruction },
+          { model: selectedFallback.model },
           selectedFallback.requestOptions
         );
         apiResult = await withGeminiRateLimitRetry(() =>
           withGeminiTimeout(
             fallbackModel.generateContent({
-              contents: [{ role: 'user', parts: [{ text: promptText }] }],
+              contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${promptText}` }] }],
               generationConfig,
             }),
             geminiTimeoutMs
@@ -872,13 +872,13 @@ RULES:
     );
     const selectedRetryModel = resolveGeminiModel(activeModel);
     const emptyRetryModel = genAI.getGenerativeModel(
-      { model: selectedRetryModel.model, systemInstruction },
+      { model: selectedRetryModel.model },
       selectedRetryModel.requestOptions
     );
     apiResult = await withGeminiRateLimitRetry(() =>
       withGeminiTimeout(
         emptyRetryModel.generateContent({
-          contents: [{ role: 'user', parts: [{ text: promptText }] }],
+          contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\n${promptText}` }] }],
           generationConfig,
         }),
         geminiTimeoutMs
@@ -926,13 +926,13 @@ RULES:
     const repairSystemInstruction = 'You return only valid JSON. No markdown code fences, no extra text. Fix the prediction object so direction and target_percentage are consistent.';
     const selectedRepairModel = resolveGeminiModel(activeModel);
     const repairModel = genAI.getGenerativeModel(
-      { model: selectedRepairModel.model, systemInstruction: repairSystemInstruction },
+      { model: selectedRepairModel.model },
       selectedRepairModel.requestOptions
     );
     const repairResponse = await withGeminiRateLimitRetry(() =>
       withGeminiTimeout(
         repairModel.generateContent({
-          contents: [{ role: 'user', parts: [{ text: JSON.stringify(repairPrompt) }] }],
+          contents: [{ role: 'user', parts: [{ text: `${repairSystemInstruction}\n\n${JSON.stringify(repairPrompt)}` }] }],
           generationConfig: { temperature: 0, maxOutputTokens: 4096, responseMimeType: 'application/json' as const },
         }),
         geminiTimeoutMs
