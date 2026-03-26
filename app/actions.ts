@@ -408,7 +408,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           `;
 
           const model = genAI.getGenerativeModel(
-            { model: APP_CONFIG.primaryModel || 'gemini-1.5-flash' },
+            { model: APP_CONFIG.primaryModel || 'gemini-2.5-flash' },
             { apiVersion: 'v1beta' }
           );
           const geminiPromise = model.generateContent({

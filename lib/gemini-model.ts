@@ -8,7 +8,7 @@ export function resolveGeminiModel(modelName: string): {
   requestOptions: GeminiRequestOptions;
 } {
   void modelName;
-  const model = 'models/gemini-1.5-flash';
+  const model = 'models/gemini-2.5-flash';
 
   return {
     model,

@@ -10,7 +10,7 @@
 ### עדכון מודל
 - **משתנה דינמי:** הוחלף השימוש הקבוע ב-`models/gemini-2.5-flash` (ומודלים קשיחים אחרים) במשתנה סביבה: `NEXT_PUBLIC_GEMINI_MODEL` או `GEMINI_MODEL_PRIMARY`.
 - **מיקום:** `lib/config.ts` — `primaryModel` ו-`fallbackModel` נגזרים כעת מ-env עם ברירת מחדל יציבה.
-- **ברירת מחדל:** `gemini-1.5-flash` (מודל ראשי), `gemini-2.5-flash-latest` (מודל גיבוי).
+- **ברירת מחדל:** `gemini-2.5-flash` (מודל ראשי), `gemini-2.5-flash-latest` (מודל גיבוי).
 
 ### גרסת API
 - **מעבר מ-v1 ל-v1beta:** בכל יצירת הלקוח של Gemini (`GoogleGenAI`) נוסף `apiVersion: 'v1beta'` — תואם דגמי Flash החדשים.
@@ -63,7 +63,7 @@
 
 | קובץ | שינוי |
 |------|--------|
-| `lib/config.ts` | מודל דינמי מ-env, ברירת מחדל `gemini-1.5-flash` / `gemini-2.5-flash-latest` |
+| `lib/config.ts` | מודל דינמי מ-env, ברירת מחדל `gemini-2.5-flash` / `gemini-2.5-flash-latest` |
 | `lib/analysis-core.ts` | `apiVersion: 'v1beta'`, `is404Or500Error`, רישום `AI_ENGINE_ERROR` ב-audit_logs, זריקת `AI_ENGINE_ERROR` |
 | `lib/deep-analysis-service.ts` | `apiVersion: 'v1beta'` ב-GoogleGenAI |
 | `app/actions.ts` | `apiVersion: 'v1beta'`, שימוש ב-`APP_CONFIG.primaryModel`, החזרת `aiEngineDown` + הודעת תחזוקה |

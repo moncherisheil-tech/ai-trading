@@ -47,7 +47,7 @@ export async function runRetrospectiveAgent(input: {
 
   try {
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' }, { apiVersion: 'v1beta' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }, { apiVersion: 'v1beta' });
     const prompt = `
 You are a quantitative trading retrospective analyst.
 Given a closed trade and alpha signal context, infer the most likely failure reason.

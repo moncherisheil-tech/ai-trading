@@ -19,7 +19,7 @@ import { toDecimal } from '@/lib/decimal';
 import { resolveGeminiModel } from '@/lib/gemini-model';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
-const GEMINI_FALLBACK_MODEL = 'models/gemini-1.5-flash';
+const GEMINI_FALLBACK_MODEL = 'models/gemini-2.5-flash';
 const POST_MORTEM_LLM_TIMEOUT_MS = 12_000;
 
 /** Extract JSON string from model text (handles markdown fences and trailing text). Same logic for Groq and Gemini for consistent parsing. */

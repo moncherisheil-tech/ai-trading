@@ -45,7 +45,7 @@ const WEIGHT_MACRO = WEIGHT_PER_EXPERT;
 const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
-const SAFE_GEMINI_FALLBACK_MODEL = 'gemini-1.5-flash';
+const SAFE_GEMINI_FALLBACK_MODEL = 'gemini-2.5-flash';
 /** Fallback when options.moeConfidenceThreshold not provided; otherwise read from getAppSettings(). */
 export const CONSENSUS_THRESHOLD = 75;
 
@@ -688,7 +688,7 @@ function parseMacroJson(raw: string): ExpertMacroOutput {
 }
 
 /** Gemini model used when Groq Macro agent hits 429 rate limit; keeps all 6 experts active. */
-const GEMINI_MACRO_FALLBACK_MODEL = 'gemini-1.5-flash';
+const GEMINI_MACRO_FALLBACK_MODEL = 'gemini-2.5-flash';
 
 /**
  * Run the Macro Expert once with global context only (DXY, Fear & Greed). Used by the scanner to pre-fetch
