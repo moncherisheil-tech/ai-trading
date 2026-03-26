@@ -109,7 +109,7 @@ export const messages = {
     alphaSignalsEmptyStateEn: 'No active signals. Awaiting full analysis from the AI council.',
   },
   he: {
-    title: 'Quantum Crypto | Mon Chéri',
+    title: 'קוונטום קריפטו | מון שרי',
     newAnalysis: 'ניתוח חדש',
     assetSymbol: 'סימול נכס',
     runAnalysis: 'הרץ ניתוח כמותי',
@@ -164,7 +164,7 @@ export const messages = {
     analysisResultFor: 'תוצאת ניתוח עבור',
     extremeSentiment: 'סנטימנט קיצוני',
     performanceTrends: 'מגמות ביצוע',
-    quantumAi: 'קוונטום AI',
+    quantumAi: 'קוונטום בינה מלאכותית',
     alphaSignals: 'אותות אלפא',
     diagnostics: 'אבחון',
     alphaSignalsAdvisory: 'ייעוץ אותות אלפא',
@@ -213,7 +213,7 @@ export const messages = {
     systemCalibration: 'כיול מערכת אוטונומי',
     applyCalibration: 'החל סכימת כיול',
     alphaSignalsEmptyStateHe: 'אין איתותים פעילים כרגע. המערכת ממתינה לסיום הניתוח המלא של מועצת הבינה המלאכותית.',
-    alphaSignalsEmptyStateEn: 'No active signals. Awaiting full analysis from the AI council.',
+    alphaSignalsEmptyStateEn: 'אין איתותים פעילים. ממתין לניתוח מלא ממועצת הבינה המלאכותית.',
   },
 } as const;
 
