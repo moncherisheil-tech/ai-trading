@@ -1,6 +1,6 @@
 import { getExecutionDashboardSnapshot } from '@/lib/trading/execution-engine';
 import { getAppSettings } from '@/lib/db/app-settings';
-import { probeGeminiTextEmbedding004 } from '@/lib/vector-db';
+import { probeGeminiEmbedding } from '@/lib/vector-db';
 import { computeSovereignReadiness, resolveTypecheckStatus } from '@/lib/sovereign-readiness';
 import { evaluateGoLiveSafety } from '@/lib/go-live-safety';
 
@@ -17,14 +17,14 @@ export async function buildAdminTerminalFeedPayload(): Promise<AdminTerminalFeed
   const [snapshot, settings, embedProbe] = await Promise.all([
     getExecutionDashboardSnapshot(),
     getAppSettings(),
-    probeGeminiTextEmbedding004(),
+    probeGeminiEmbedding(),
   ]);
 
   const readiness = await computeSovereignReadiness({
     settingsLoadOk: true,
     embeddingProbeOk: embedProbe.ok,
     embeddingDetail: embedProbe.ok
-      ? `text-embedding-004 dim=${embedProbe.dimension}`
+      ? `embedding-001 dim=${embedProbe.dimension}`
       : embedProbe.error,
     tsClean: resolveTypecheckStatus(),
   });

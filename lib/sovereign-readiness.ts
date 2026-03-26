@@ -19,7 +19,7 @@ function clampScore(n: number): number {
 }
 
 /**
- * CEO Terminal readiness: infra + text-embedding-004 probe + optional TS CI flag.
+ * CEO Terminal readiness: infra + embedding-001 probe + optional TS CI flag.
  */
 export async function computeSovereignReadiness(params: {
   settingsLoadOk: boolean;
@@ -64,7 +64,7 @@ export async function computeSovereignReadiness(params: {
     },
     {
       id: 'embedding004',
-      label: 'Embeddings (text-embedding-004)',
+      label: 'Embeddings (embedding-001)',
       weight: 25,
       score: params.embeddingProbeOk ? 25 : 0,
       ok: params.embeddingProbeOk,

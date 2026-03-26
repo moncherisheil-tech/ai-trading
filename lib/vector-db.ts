@@ -46,8 +46,8 @@ async function setLastUpsertNow(): Promise<void> {
   }
 }
 
-/** Primary id for docs / env override; runtime tries fallbacks on 404 (004 retired for many AI Studio keys). */
-export const GEMINI_EMBEDDING_MODEL_ID = 'text-embedding-004';
+/** Primary id for docs / env override. */
+export const GEMINI_EMBEDDING_MODEL_ID = 'embedding-001';
 
 /** Default vector size when Pinecone env dim unset (Matryoshka / reduced dim for gemini-embedding-001). */
 export const GEMINI_EMBEDDING_DIMENSION = 768;
@@ -55,7 +55,7 @@ const EMBEDDING_FAILFAST_TIMEOUT_MS = 8_000;
 
 function getEmbeddingModelCandidates(): string[] {
   const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
-  const stable = 'text-embedding-004';
+  const stable = 'embedding-001';
   if (env) return [env, stable].filter((m, i, arr) => arr.indexOf(m) === i);
   return [stable];
 }
@@ -69,14 +69,14 @@ function getExpectedEmbeddingDim(): number {
 }
 
 /**
- * v1beta REST :embedContent for `text-embedding-004`.
+ * v1 REST :embedContent for `embedding-001`.
  */
 async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<number[]> {
   const dim = getExpectedEmbeddingDim();
   const candidates = getEmbeddingModelCandidates();
   let lastBody = '';
   for (const modelId of candidates) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
     const bodyWithDim = JSON.stringify({
       model: `models/${modelId}`,
       content: { parts: [{ text }] },
@@ -153,7 +153,7 @@ function withFailFastTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /** Lightweight health check for CEO readiness (no Pinecone write). */
-export async function probeGeminiTextEmbedding004(): Promise<{
+export async function probeGeminiEmbedding(): Promise<{
   ok: boolean;
   dimension?: number;
   error?: string;
@@ -256,7 +256,7 @@ export async function storePostMortem(
       dimension: getExpectedEmbeddingDim(),
       error: message,
       hint: isDimError
-        ? 'Pinecone index must be 768 dims for text-embedding-004 unless PINECONE_EMBEDDING_DIM overrides.'
+        ? 'Pinecone index must be 768 dims for embedding-001 unless PINECONE_EMBEDDING_DIM overrides.'
         : undefined,
     });
   }
@@ -328,7 +328,7 @@ export async function querySimilarTrades(
       dimension: getExpectedEmbeddingDim(),
       error: message,
       hint: isDimError
-        ? 'Pinecone index must be 768 dims for text-embedding-004 unless PINECONE_EMBEDDING_DIM overrides.'
+        ? 'Pinecone index must be 768 dims for embedding-001 unless PINECONE_EMBEDDING_DIM overrides.'
         : undefined,
     });
     return [];
