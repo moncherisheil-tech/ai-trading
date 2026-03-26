@@ -10,16 +10,16 @@
 
 ### גרסת SDK וסטנדרטיזציה
 - **הוסר:** אין שימוש ב-SDK ניסיוני; הפרויקט משתמש **רק** ב-`@google/generative-ai` (גרסה ^0.24.1).
-- **אנדפוינט יציב:** כל אתחולי ה-API עודכנו לשימוש מפורש ב-**v1** (אנדפוינט יציב 2026). לא נשאר שימוש ב-`v1beta` בקוד.
+- **אנדפוינט תואם Flash:** כל אתחולי ה-API עודכנו לשימוש מפורש ב-**v1beta** עבור תמיכה בדגמי Flash החדשים.
 
-### אתרים שעודכנו עם `apiVersion: 'v1'`
+### אתרים שעודכנו עם `apiVersion: 'v1beta'`
 | קובץ | שינוי |
 |------|--------|
-| `lib/analysis-core.ts` | `getGenerativeModel(..., { apiVersion: 'v1' })` — מודל ראשי, fallback, empty-retry, repair (4 קריאות). |
-| `lib/consensus-engine.ts` | `getGenerativeModel({ model }, { apiVersion: 'v1' })` ב-`callGeminiJson`. |
-| `lib/deep-analysis-service.ts` | `getGenerativeModel(..., { apiVersion: 'v1' })`. |
-| `lib/system-overseer.ts` | `getGenerativeModel(..., { apiVersion: 'v1' })` ב-`getOverseerChatReply`. |
-| `app/actions.ts` | `getGenerativeModel(..., { apiVersion: 'v1' })` ב-`evaluatePendingPredictions`. |
+| `lib/analysis-core.ts` | `getGenerativeModel(..., { apiVersion: 'v1beta' })` — מודל ראשי, fallback, empty-retry, repair (4 קריאות). |
+| `lib/consensus-engine.ts` | `getGenerativeModel({ model }, { apiVersion: 'v1beta' })` ב-`callGeminiJson`. |
+| `lib/deep-analysis-service.ts` | `getGenerativeModel(..., { apiVersion: 'v1beta' })`. |
+| `lib/system-overseer.ts` | `getGenerativeModel(..., { apiVersion: 'v1beta' })` ב-`getOverseerChatReply`. |
+| `app/actions.ts` | `getGenerativeModel(..., { apiVersion: 'v1beta' })` ב-`evaluatePendingPredictions`. |
 
 ### סינטקס 2026
 - **getGenerativeModel** — משמש להגדרת המודל ו-`systemInstruction`.
@@ -31,11 +31,11 @@
 ## 2. אישור פתרון 404 (Not Found)
 
 - **סיבה ל-404:** שימוש במודלים או אנדפוינטים לא נתמכים (למשל v1beta או שמות מודל ישנים).
-- **פתרון:** מעבר ל-**אנדפוינט /v1/** ולדגמי Evergreen יציבים:
+- **פתרון:** מעבר ל-**אנדפוינט /v1beta/** ולדגמי Flash נתמכים:
   - **מודל ראשי:** `gemini-2.5-flash-latest`
   - **מודל גיבוי:** `gemini-2.5-flash`
   - **מודל גיבוי למכסה (429):** `gemini-2.5-flash`
-- **אישור:** כל קריאות ה-Gemini עוברות כעת דרך אנדפוינט יציב v1; צפוי שהשגיאות 404 ייפתרו.
+- **אישור:** כל קריאות ה-Gemini עוברות כעת דרך אנדפוינט v1beta; צפוי שהשגיאות 404 ייפתרו.
 
 ---
 
@@ -92,7 +92,7 @@
 ## פסק דין סופי
 
 **המערכת מאושרת כ-Production-Ready ל-2026** לאחר:
-- סטנדרטיזציה מלאה של SDK ו-API ל-v1.
+- סטנדרטיזציה מלאה של SDK ו-API ל-v1beta.
 - יישור מודלים וסביבה עם דגמי Evergreen יציבים.
 - חיזוק MoE (timeout 20s, Promise.allSettled).
 - ולידציית סכמה ו-Overseer על נתונים אמיתיים.

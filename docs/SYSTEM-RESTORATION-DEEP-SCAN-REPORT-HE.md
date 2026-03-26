@@ -13,7 +13,7 @@
 - **ברירת מחדל:** `gemini-1.5-flash` (מודל ראשי), `gemini-2.5-flash-latest` (מודל גיבוי).
 
 ### גרסת API
-- **מעבר מ-v1beta ל-v1:** בכל יצירת הלקוח של Gemini (`GoogleGenAI`) נוסף `apiVersion: 'v1'` — אנדפוינט יציב 2026.
+- **מעבר מ-v1 ל-v1beta:** בכל יצירת הלקוח של Gemini (`GoogleGenAI`) נוסף `apiVersion: 'v1beta'` — תואם דגמי Flash החדשים.
 - **קבצים שעודכנו:** `lib/analysis-core.ts`, `lib/deep-analysis-service.ts`, `app/actions.ts`.
 
 ### כשל מבוקר (Graceful Failure)
@@ -64,9 +64,9 @@
 | קובץ | שינוי |
 |------|--------|
 | `lib/config.ts` | מודל דינמי מ-env, ברירת מחדל `gemini-1.5-flash` / `gemini-2.5-flash-latest` |
-| `lib/analysis-core.ts` | `apiVersion: 'v1'`, `is404Or500Error`, רישום `AI_ENGINE_ERROR` ב-audit_logs, זריקת `AI_ENGINE_ERROR` |
-| `lib/deep-analysis-service.ts` | `apiVersion: 'v1'` ב-GoogleGenAI |
-| `app/actions.ts` | `apiVersion: 'v1'`, שימוש ב-`APP_CONFIG.primaryModel`, החזרת `aiEngineDown` + הודעת תחזוקה |
+| `lib/analysis-core.ts` | `apiVersion: 'v1beta'`, `is404Or500Error`, רישום `AI_ENGINE_ERROR` ב-audit_logs, זריקת `AI_ENGINE_ERROR` |
+| `lib/deep-analysis-service.ts` | `apiVersion: 'v1beta'` ב-GoogleGenAI |
+| `app/actions.ts` | `apiVersion: 'v1beta'`, שימוש ב-`APP_CONFIG.primaryModel`, החזרת `aiEngineDown` + הודעת תחזוקה |
 | `app/api/health/ready/route.ts` | ולידציית env (Gemini + אופציונליים) |
 | `lib/rate-limit-distributed.ts` | `.catch(() => {})` על fetch ל-expire |
 | `components/CryptoAnalyzer.tsx` | state `aiEngineDown`, באנר תחזוקה בעברית |
@@ -82,4 +82,4 @@
 
 ---
 
-**מערכת מוכנה להמשך עבודה עם מנוע Gemini יציב (v1) ומצב תחזוקה ברור למשתמש.**
+**מערכת מוכנה להמשך עבודה עם מנוע Gemini (v1beta) ומצב תחזוקה ברור למשתמש.**

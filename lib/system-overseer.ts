@@ -240,7 +240,7 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
 
   const model = genAI.getGenerativeModel(
     { model: APP_CONFIG.primaryModel || 'gemini-1.5-flash' },
-    { apiVersion: 'v1' }
+    { apiVersion: 'v1beta' }
   );
   const res = await Promise.race([
     model.generateContent({
@@ -300,7 +300,7 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
     {
       model: APP_CONFIG.primaryModel || 'gemini-1.5-flash',
     },
-    { apiVersion: 'v1' }
+    { apiVersion: 'v1beta' }
   );
 
   const res = await Promise.race([
