@@ -30,9 +30,8 @@ import {
 } from '@/lib/agents/psych-agent';
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
-/** Absolute upper-bound fail-safe (90s) only if external APIs (Groq/Gemini) become completely unresponsive. Experts run without aggressive per-expert cutoff. */
-/** Wall-clock cap for one MoE round (parallel experts + 503 retry chains can approach 3× per-expert timeout). */
-const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 420_000;
+/** Wall-clock cap for one MoE round; fail fast to avoid UI hangs. */
+const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 120_000;
 /** Neutral fallback message when an expert times out or fails — never show raw error to UI. */
 const NEUTRAL_FALLBACK_LOGIC = 'הנתונים אינם זמינים כרגע. ממשיכים במשקל ניטרלי.';
 

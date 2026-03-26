@@ -9,9 +9,11 @@ const { loadEnvConfig } = nextEnv;
 // Standalone Node script: ensure `.env` is loaded before reading DATABASE_URL.
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production');
 
-const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  console.error('DATABASE_URL or POSTGRES_URL is required for migrate-postgres.');
+  console.error(
+    'DATABASE_URL is required for migrate-postgres. Refusing to fall back to local postgres defaults.'
+  );
   process.exit(1);
 }
 

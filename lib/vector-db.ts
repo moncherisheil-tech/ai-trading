@@ -12,6 +12,7 @@ const POST_MORTEMS_NAMESPACE = 'post-mortems';
 const BOARD_MEETINGS_NAMESPACE = 'board-meetings';
 const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
 const DEFAULT_TOP_K = 3;
+const PINECONE_QUERY_TIMEOUT_MS = 12_000;
 type PineconeRecordMetadata = Record<string, unknown>;
 
 function getPineconeApiKey(): string | undefined {
@@ -50,6 +51,7 @@ export const GEMINI_EMBEDDING_MODEL_ID = 'text-embedding-004';
 
 /** Default vector size when Pinecone env dim unset (Matryoshka / reduced dim for gemini-embedding-001). */
 export const GEMINI_EMBEDDING_DIMENSION = 768;
+const EMBEDDING_FAILFAST_TIMEOUT_MS = 8_000;
 
 function getEmbeddingModelCandidates(): string[] {
   const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
@@ -67,14 +69,14 @@ function getExpectedEmbeddingDim(): number {
 }
 
 /**
- * v1 REST :embedContent. Uses stable `text-embedding-004`.
+ * v1beta REST :embedContent. `text-embedding-004` is served on v1beta for many keys.
  */
 async function embedTextWithGeminiRest(text: string, apiKey: string): Promise<number[]> {
   const dim = getExpectedEmbeddingDim();
   const candidates = getEmbeddingModelCandidates();
   let lastBody = '';
   for (const modelId of candidates) {
-    const url = `https://generativelanguage.googleapis.com/v1/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:embedContent?key=${encodeURIComponent(apiKey)}`;
     const bodyWithDim = JSON.stringify({
       model: `models/${modelId}`,
       content: { parts: [{ text }] },
@@ -139,6 +141,15 @@ async function embedTextWithGemini(text: string): Promise<number[]> {
     );
   }
   return values;
+}
+
+function withFailFastTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Embedding timeout after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 /** Lightweight health check for CEO readiness (no Pinecone write). */
@@ -277,7 +288,10 @@ export async function querySimilarTrades(
     /** Pinecone client has no hard deadline; hung queries blocked the full MoE round. */
     const result = await Promise.race([
       (async () => {
-        const queryVector = await embedTextWithGemini(`symbol ${symbol} trade post-mortem`);
+        const queryVector = await withFailFastTimeout(
+          embedTextWithGemini(`symbol ${symbol} trade post-mortem`),
+          EMBEDDING_FAILFAST_TIMEOUT_MS
+        );
         return index.namespace(POST_MORTEMS_NAMESPACE).query({
           vector: queryVector,
           topK: Math.min(topK, 10),
@@ -285,7 +299,10 @@ export async function querySimilarTrades(
         });
       })(),
       new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error('Pinecone similar-trades query timeout (30s)')), 30_000)
+        setTimeout(
+          () => rej(new Error(`Pinecone similar-trades query timeout (${PINECONE_QUERY_TIMEOUT_MS}ms)`)),
+          PINECONE_QUERY_TIMEOUT_MS
+        )
       ),
     ]);
     // Empty index or no matches returns []; do not throw.
