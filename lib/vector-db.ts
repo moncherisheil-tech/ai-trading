@@ -1,5 +1,6 @@
 import { getGeminiApiKey } from '@/lib/env';
 import { withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { sql } from '@/lib/db/sql';
 
 /**
  * Vector DB (Pinecone) for Agent Deep Memory / RAG.
@@ -13,7 +14,12 @@ const BOARD_MEETINGS_NAMESPACE = 'board-meetings';
 const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
 const DEFAULT_TOP_K = 3;
 const PINECONE_QUERY_TIMEOUT_MS = 12_000;
+const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = 10_000;
 type PineconeRecordMetadata = Record<string, unknown>;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function getPineconeApiKey(): string | undefined {
   const key = process.env.PINECONE_API_KEY;
@@ -444,6 +450,7 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     const probeId = `probe-${symbol}-${Date.now()}`;
     const text = `Integration probe for ${symbol} at ${new Date().toISOString()}`;
     const vector = await embedTextWithGemini(text);
+    const upsertStartTime = Date.now();
     await index.namespace(DIAGNOSTICS_NAMESPACE).upsert({
       records: [
         {
@@ -458,6 +465,9 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
         },
       ],
     });
+    
+    await sleep(PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS);
+    
     const query = await index.namespace(DIAGNOSTICS_NAMESPACE).query({
       vector,
       topK: 5,
@@ -467,13 +477,42 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
       const metadata = m.metadata as Record<string, unknown> | undefined;
       return String(metadata?.probe_id ?? '') === probeId;
     });
+    
     await setLastUpsertNow();
+    
+    if (verifiedByQuery) {
+      try {
+        const totalDuration = Date.now() - upsertStartTime;
+        const settingValue = JSON.stringify({
+          symbol,
+          probeId,
+          verifiedAt: new Date().toISOString(),
+          duration_ms: totalDuration,
+          consistency_delay_ms: PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS,
+        });
+        await sql`
+          INSERT INTO settings (id, key, value, "updatedAt")
+          VALUES (
+            gen_random_uuid()::text,
+            'pinecone_probe_success',
+            ${settingValue}::jsonb,
+            NOW()
+          )
+          ON CONFLICT (key) DO UPDATE SET
+            value = ${settingValue}::jsonb,
+            "updatedAt" = NOW();
+        `;
+      } catch (settingErr) {
+        console.warn('[vector-db] Failed to log probe success to settings table:', settingErr);
+      }
+    }
+    
     return {
       ok: true,
       probeId,
       verifiedByQuery,
       index: resolvedIndexName,
-      ...(verifiedByQuery ? {} : { error: 'Probe upsert succeeded but verification query did not return probe_id.' }),
+      ...(verifiedByQuery ? {} : { error: 'Probe upsert succeeded but verification query did not return probe_id after 10-second eventual consistency delay.' }),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
