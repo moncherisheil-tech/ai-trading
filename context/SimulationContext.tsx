@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { round2, round4, toDecimal, D, roundToSymbolDecimals } from '@/lib/decimal';
+import { generateSafeId } from '@/lib/utils';
 
 export const SIMULATION_FEE_PCT = 0.1;
 /** Single source of truth: must match lib/decimal.ts D.startingBalance (used by simulation API and PnL). */
@@ -164,7 +165,7 @@ export function SimulationProvider({ children }: { children: ReactNode }) {
 
       const timestamp = Date.now();
       const trade: SimulationTrade = {
-        id: `sim-${crypto.randomUUID()}`,
+        id: `sim-${generateSafeId()}`,
         symbol: normalizedSymbol,
         side,
         price,

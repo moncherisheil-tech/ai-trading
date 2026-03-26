@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { CheckCircle2, AlertCircle, Radio } from 'lucide-react';
+import { generateSafeId } from '@/lib/utils';
 
 export type ToastType = 'success' | 'error' | 'cyber' | 'critical_cyber';
 
@@ -32,7 +33,7 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 const TOAST_DURATION_MS = 4500;
 const CYBER_TOAST_DURATION_MS = 7000;
 const CRITICAL_CYBER_TOAST_DURATION_MS = 14_000;
-const createToastId = (): string => `toast-${crypto.randomUUID()}`;
+const createToastId = (): string => `toast-${generateSafeId()}`;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);

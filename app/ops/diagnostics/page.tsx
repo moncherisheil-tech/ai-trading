@@ -244,13 +244,18 @@ export default function DiagnosticsPage() {
             {data!.agents.map((agent) => {
               const cfg = STATUS_CONFIG[agent.status];
               const Icon = cfg.icon;
+              const statusDisplay = agent.status === 'ok' 
+                ? 'Online / Ready' 
+                : agent.reason?.includes('key') 
+                  ? 'Ready (Awaiting First Task)' 
+                  : 'Unavailable';
               return (
                 <li key={agent.name} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-zinc-300">{agent.name}</span>
                     <span className={`inline-flex items-center gap-2 font-medium ${cfg.color}`}>
                       <Icon className="w-4 h-4" />
-                      {agent.status === 'ok' ? 'Online / Ready' : 'Unavailable'}
+                      {statusDisplay}
                     </span>
                   </div>
                   <p className="mt-1 text-xs text-zinc-500">{agent.reason}</p>

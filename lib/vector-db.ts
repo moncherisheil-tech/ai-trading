@@ -142,7 +142,7 @@ async function embedTextWithGemini(text: string): Promise<number[]> {
   const expectedDim = getExpectedEmbeddingDim();
   if (values.length !== expectedDim) {
     throw new Error(
-      `Embedding dimension mismatch (${values.length} !== ${expectedDim}). Set PINECONE_EMBEDDING_DIM to match the model output or your Pinecone index.`
+      `Embedding dimension mismatch: generated ${values.length} dimensions, but Pinecone index expects ${expectedDim}. Set PINECONE_EMBEDDING_DIM to match the model output or your Pinecone index configuration.`
     );
   }
   return values;
@@ -257,16 +257,21 @@ export async function storePostMortem(
     const isDimError = /dimension/i.test(message);
     const expectedDim = getExpectedEmbeddingDim();
     const isIndexError = /1002|index/i.test(message);
+    const fullErrorMsg = isDimError
+      ? `Pinecone index 1002 ERROR: Dimension mismatch detected. Generated vectors have a different dimension than the index expects. Expected: ${expectedDim}. ${message}`
+      : isIndexError
+        ? `Pinecone index 1002 ERROR: ${message}. This typically indicates dimension mismatch (generated vs index expected: ${expectedDim}). Verify PINECONE_INDEX_NAME and PINECONE_EMBEDDING_DIM configuration.`
+        : message;
     console.error('[vector-db] Pinecone upsert failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
       expectedDimension: expectedDim,
-      error: message,
+      error: fullErrorMsg,
       errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
         ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
         : isIndexError
-          ? 'Pinecone index 1002 error typically indicates dimension mismatch or misconfiguration. Check that the index supports the embedding dimension.'
+          ? `Pinecone index 1002 error indicates dimension mismatch or misconfiguration. Check that the index supports ${expectedDim}-dimensional vectors.`
           : undefined,
     });
   }
@@ -333,17 +338,22 @@ export async function querySimilarTrades(
     const isDimError = /dimension/i.test(message);
     const expectedDim = getExpectedEmbeddingDim();
     const isIndexError = /1002|index/i.test(message);
+    const fullErrorMsg = isDimError
+      ? `Pinecone query failed: Dimension mismatch detected. Expected: ${expectedDim}. ${message}`
+      : isIndexError
+        ? `Pinecone index 1002 ERROR during query: ${message}. This typically indicates dimension mismatch (generated vs index expected: ${expectedDim}). Verify PINECONE_INDEX_NAME and PINECONE_EMBEDDING_DIM configuration.`
+        : message;
 
     console.error('[vector-db] Pinecone query failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
       expectedDimension: expectedDim,
-      error: message,
+      error: fullErrorMsg,
       errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
         ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
         : isIndexError
-          ? 'Pinecone index 1002 error typically indicates dimension mismatch or misconfiguration. Check that the index supports the embedding dimension.'
+          ? `Pinecone index 1002 error indicates dimension mismatch or misconfiguration. Check that the index supports ${expectedDim}-dimensional vectors.`
           : undefined,
     });
     return [];
@@ -467,12 +477,18 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const expectedDim = getExpectedEmbeddingDim();
+    const isDimError = /dimension/i.test(message);
+    const isIndexError = /1002|index/i.test(message);
+    const enhancedError = isDimError || isIndexError
+      ? `${message} [Expected dimension: ${expectedDim}]`
+      : message;
     return {
       ok: false,
       probeId: null,
       verifiedByQuery: false,
       index: indexName,
-      error: message,
+      error: enhancedError,
     };
   }
 }
