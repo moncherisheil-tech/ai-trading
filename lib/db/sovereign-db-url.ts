@@ -4,11 +4,12 @@
  * Build-phase immunity allows Next/Prisma config to load without failing CI.
  */
 
+/** True during Next/Prisma generate — no URL inspection; build does not run DB queries. */
 export function isDbConfigBuildPhaseImmune(): boolean {
-  if (process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE === 'phase-production-build') {
+  if (process.env.IS_BUILD_PROCESS === 'true') {
     return true;
   }
-  if (process.env.IS_BUILD_PROCESS === 'true') {
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
     return true;
   }
   return false;
@@ -21,12 +22,14 @@ export function isPm2ManagedProcess(): boolean {
 
 /**
  * Enforces runtime DB URL policy. During build immunity, skips all checks (no-op).
+ * Build immunity is evaluated before any string analysis on the URL.
  * @throws Error with message Security Breach when policy is violated.
  */
 export function assertAuthorizedDatabaseUrl(url: string): void {
   if (isDbConfigBuildPhaseImmune()) {
     return;
   }
+
   const trimmed = (url || '').trim();
   if (!trimmed || !trimmed.includes('quantum_admin')) {
     throw new Error('Security Breach: Unauthorized DB User Attempted');
@@ -40,9 +43,15 @@ export function assertAuthorizedDatabaseUrl(url: string): void {
     );
   }
   const dbUser = decodeURIComponent(parsed.username || '');
-  if (dbUser === 'root' && !isPm2ManagedProcess()) {
+  // Root forbidden in production runtime only (build phase returns above; dev may use root locally).
+  if (
+    process.env.NODE_ENV === 'production' &&
+    dbUser === 'root' &&
+    !isPm2ManagedProcess()
+  ) {
     throw new Error('Security Breach: Unauthorized DB User Attempted');
   }
+
   if (!parsed.hostname || parsed.hostname === 'base') {
     throw new Error('invalid database host');
   }

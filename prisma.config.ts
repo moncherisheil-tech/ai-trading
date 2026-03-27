@@ -1,9 +1,14 @@
 import 'dotenv/config';
 import { defineConfig, env } from 'prisma/config';
-import { assertAuthorizedDatabaseUrl } from './lib/db/sovereign-db-url';
+import {
+  assertAuthorizedDatabaseUrl,
+  isDbConfigBuildPhaseImmune,
+} from './lib/db/sovereign-db-url';
 
 const databaseUrl = process.env.DATABASE_URL?.trim() || '';
-assertAuthorizedDatabaseUrl(databaseUrl);
+if (!isDbConfigBuildPhaseImmune()) {
+  assertAuthorizedDatabaseUrl(databaseUrl);
+}
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
