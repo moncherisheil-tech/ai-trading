@@ -29,6 +29,7 @@ import {
   buildTechnicalLiquidityAugmentation,
 } from '@/lib/agents/psych-agent';
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { createHash } from 'crypto';
 
 /** Wall-clock cap for one MoE round; fail fast to avoid UI hangs. */
 const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 45_000;
@@ -45,6 +46,8 @@ const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SAFE_GEMINI_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview';
+const HAWKEYE_HOT_SWAP_LATENCY_MS = 1_500;
+const WATCHDOG_WINDOW = 20;
 /** Fallback when options.moeConfidenceThreshold not provided; otherwise read from getAppSettings(). */
 export const CONSENSUS_THRESHOLD = 75;
 
@@ -54,6 +57,105 @@ interface RetryContext {
   symbol?: string;
   expert?: string;
   provider?: string;
+}
+
+type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory';
+type ModelProvider = 'gemini' | 'groq';
+type ModelHealthStatus = 'healthy' | 'degraded' | 'unstable';
+type MarketRegime = 'trending' | 'high-volatility' | 'range';
+
+interface ProviderSample {
+  ok: boolean;
+  latencyMs: number;
+}
+
+const providerHealthWindow: Record<ModelProvider, ProviderSample[]> = {
+  gemini: [],
+  groq: [],
+};
+
+const shadowPredictions = new Map<
+  string,
+  { symbol: string; priceAtPrediction: number; predictedDirection: 'bullish' | 'bearish' | 'neutral'; confidence: number }
+>();
+const shadowReliabilityWindow: Record<BoardExpertKey, Array<{ correct: boolean; confidence: number }>> = {
+  technician: [],
+  risk: [],
+  psych: [],
+  macro: [],
+  onchain: [],
+  deepMemory: [],
+};
+
+function buildDeterministicId(prefix: string, parts: Array<string | number>): string {
+  const digest = createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 16);
+  return `${prefix}_${digest}`;
+}
+
+function recordProviderSample(provider: ModelProvider, sample: ProviderSample): void {
+  const buf = providerHealthWindow[provider];
+  buf.push(sample);
+  if (buf.length > WATCHDOG_WINDOW) buf.shift();
+}
+
+function getProviderHealth(provider: ModelProvider): {
+  status: ModelHealthStatus;
+  failureRatePct: number;
+  p95LatencyMs: number;
+} {
+  const samples = providerHealthWindow[provider];
+  if (samples.length === 0) return { status: 'healthy', failureRatePct: 0, p95LatencyMs: 0 };
+  const failures = samples.filter((s) => !s.ok).length;
+  const failureRate = (failures / samples.length) * 100;
+  const latencies = [...samples].map((s) => s.latencyMs).sort((a, b) => a - b);
+  const p95 = latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * 0.95))] ?? 0;
+  const status: ModelHealthStatus =
+    failureRate >= 35 || p95 >= 2_500 ? 'unstable' : failureRate >= 18 || p95 >= 1_800 ? 'degraded' : 'healthy';
+  return { status, failureRatePct: Math.round(failureRate * 10) / 10, p95LatencyMs: Math.round(p95) };
+}
+
+function detectMarketRegime(input: Omit<ConsensusEngineInput, 'deep_memory_context'>): MarketRegime {
+  const v = Number.isFinite(input.volatility_pct) ? input.volatility_pct : 0;
+  const momentum = (input.asset_momentum ?? '').toLowerCase();
+  if (v >= 4.2) return 'high-volatility';
+  if (/bull|bear|trend|up|down|breakout|momentum/.test(momentum)) return 'trending';
+  return 'range';
+}
+
+function scoreToDirection(score: number): 'bullish' | 'bearish' | 'neutral' {
+  if (score >= 55) return 'bullish';
+  if (score <= 45) return 'bearish';
+  return 'neutral';
+}
+
+function shadowReliabilityBoost(expert: BoardExpertKey): number {
+  const window = shadowReliabilityWindow[expert];
+  if (window.length < 4) return 0;
+  const correct = window.filter((w) => w.correct).length;
+  const weighted = window.reduce((sum, row) => sum + (row.correct ? row.confidence : 0), 0);
+  const confidenceLift = weighted / Math.max(1, window.length * 100);
+  const hitRate = correct / window.length;
+  return Math.max(-0.18, Math.min(0.24, (hitRate - 0.5) * 0.4 + confidenceLift * 0.2));
+}
+
+function settleAndRecordShadow(symbol: string, currentPrice: number): void {
+  const prefix = `${symbol}:`;
+  const keys = [...shadowPredictions.keys()].filter((k) => k.startsWith(prefix));
+  for (const key of keys) {
+    const pending = shadowPredictions.get(key);
+    if (!pending) continue;
+    const move = currentPrice - pending.priceAtPrediction;
+    const actualDir = move > 0 ? 'bullish' : move < 0 ? 'bearish' : 'neutral';
+    const [, expertRaw] = key.split(':');
+    const expert = expertRaw as BoardExpertKey;
+    const row = shadowReliabilityWindow[expert];
+    row.push({
+      correct: pending.predictedDirection === actualDir,
+      confidence: pending.confidence,
+    });
+    if (row.length > WATCHDOG_WINDOW) row.shift();
+    shadowPredictions.delete(key);
+  }
 }
 
 function isRetryableAiError(err: unknown): boolean {
@@ -200,6 +302,14 @@ export interface ConsensusResult {
   consensus_approved: boolean;
   /** When the board is polarized, Overseer synthesizes opposing camps. */
   debate_resolution?: string;
+  decision_id?: string;
+  vote_ids?: Partial<Record<BoardExpertKey, string>>;
+  market_regime?: MarketRegime;
+  active_board_weights?: Partial<Record<BoardExpertKey, number>>;
+  model_watchdog?: {
+    gemini: { status: ModelHealthStatus; failureRatePct: number; p95LatencyMs: number };
+    groq: { status: ModelHealthStatus; failureRatePct: number; p95LatencyMs: number };
+  };
 }
 
 export interface ConsensusMockPayload {
@@ -454,35 +564,60 @@ async function callGeminiJson<T>(
   const schemaDesc = fieldNames.map((k) => `"${k}"`).join(', ');
   let fullPrompt = `${prompt}\n\nחובה: החזר רק אובייקט JSON גולמי עם השדות: ${schemaDesc}. אסור markdown (למשל \`\`\`json). אסור טקסט מקדים או מסביר.`;
   fullPrompt += "\n\nCRITICAL JSON FORMATTING RULES:\n1. Output strictly valid JSON.\n2. DO NOT use unescaped double quotes (\") inside string values. If you need to quote a word inside the text, use single quotes (') instead.\n3. Ensure all properties and string values are properly closed.";
-  const selectedModel = resolveGeminiModel(SAFE_GEMINI_FALLBACK_MODEL);
-  const generativeModel = genAI.getGenerativeModel(
-    {
-      model: selectedModel.model,
-    },
-    selectedModel.requestOptions
-  );
+  const generateWithModel = async (modelName: string): Promise<string> => {
+    const selectedModel = resolveGeminiModel(modelName);
+    const generativeModel = genAI.getGenerativeModel(
+      {
+        model: selectedModel.model,
+      },
+      selectedModel.requestOptions
+    );
+    const started = Date.now();
+    try {
+      const res = await withRetry(
+        () =>
+          withGeminiRateLimitRetry(() =>
+            withTimeout(
+              generativeModel.generateContent({
+                contents: [
+                  { role: 'user', parts: [{ text: CONSENSUS_SYSTEM_INSTRUCTION }] },
+                  { role: 'user', parts: [{ text: fullPrompt }] },
+                ],
+                generationConfig: {
+                  temperature: 0.25,
+                  maxOutputTokens: 8192,
+                },
+              }),
+              timeoutMs
+            )
+          ),
+        { ...retryMeta, provider: `Gemini(${selectedModel.model})` }
+      );
+      recordProviderSample('gemini', { ok: true, latencyMs: Date.now() - started });
+      return res.response.text()?.trim() ?? '';
+    } catch (err) {
+      recordProviderSample('gemini', { ok: false, latencyMs: Date.now() - started });
+      throw err;
+    }
+  };
 
-  const res = await withRetry(
-    () =>
-      withGeminiRateLimitRetry(() =>
-        withTimeout(
-          generativeModel.generateContent({
-            contents: [
-              { role: 'user', parts: [{ text: CONSENSUS_SYSTEM_INSTRUCTION }] },
-              { role: 'user', parts: [{ text: fullPrompt }] },
-            ],
-            generationConfig: {
-              temperature: 0.25,
-              maxOutputTokens: 8192,
-            },
-          }),
-          timeoutMs
-        )
+  const primaryModel = _model || SAFE_GEMINI_FALLBACK_MODEL;
+  const secondaryModel = SAFE_GEMINI_FALLBACK_MODEL;
+  let raw = '';
+  try {
+    raw = await Promise.race([
+      generateWithModel(primaryModel),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`HAWKEYE_LATENCY_THRESHOLD:${HAWKEYE_HOT_SWAP_LATENCY_MS}`)), HAWKEYE_HOT_SWAP_LATENCY_MS)
       ),
-    { ...retryMeta, provider: 'Gemini' }
-  );
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const shouldSwap = /HAWKEYE_LATENCY_THRESHOLD/i.test(msg) || /timeout|rate|unavailable|503|429/i.test(msg);
+    if (!shouldSwap) throw err;
+    raw = await generateWithModel(secondaryModel);
+  }
 
-  const raw = res.response.text()?.trim() ?? '';
   let jsonStr = raw;
 
   // Strip markdown code fences (```json ... ``` or ``` ... ```)
@@ -767,6 +902,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
   const groq = new Groq({ apiKey });
 
   try {
+    const started = Date.now();
     // Single attempt only: on 429 do NOT retry — switch to Gemini immediately (see catch below).
     const completion = await Promise.race([
       groq.chat.completions.create({
@@ -784,17 +920,19 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
         response_format: { type: 'json_object' },
       }),
       new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error('Groq macro timeout')), timeoutMs)
+        setTimeout(() => rej(new Error('Groq macro timeout')), Math.min(timeoutMs, HAWKEYE_HOT_SWAP_LATENCY_MS))
       ),
     ]);
+    recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
     const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
     if (!raw) throw new Error('Empty Groq response');
     return parseMacroJson(raw);
   } catch (err) {
+    recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
     const msg = err instanceof Error ? err.message : String(err);
     const is429 =
       (err as { status?: number })?.status === 429 ||
-      /rate limit|429|too many requests/i.test(msg);
+      /rate limit|429|too many requests|timeout/i.test(msg);
     if (is429) {
       const fallbackModel = geminiFallbackModel ?? GEMINI_MACRO_FALLBACK_MODEL;
       console.warn(
@@ -1131,6 +1269,8 @@ export async function runConsensusEngine(
     deep_memory_context,
     twitter_realtime_tweets: twitterSentiment.summary ? twitterSentiment.summary : null,
   };
+  settleAndRecordShadow(input.symbol, input.current_price);
+  const marketRegime = detectMarketRegime(input);
 
   // Deep Execution: stagger expert calls to reduce concurrent load on providers.
   const expertsPromise = (async () => {
@@ -1302,20 +1442,77 @@ export async function runConsensusEngine(
     const x = Math.max(0.38, Math.min(0.92, pct / 100));
     return x ** 1.35;
   };
-  const wTech = hitToWeight(hitRates.technician);
-  const wRisk = hitToWeight(hitRates.risk);
-  const wPsych = hitToWeight(hitRates.psych);
-  const wMacro = hitToWeight(hitRates.macro);
-  const wOnchain = hitToWeight(hitRates.onchain);
-  const wDeep = hitToWeight(hitRates.deepMemory);
+  const regimeBase: Record<BoardExpertKey, number> =
+    marketRegime === 'high-volatility'
+      ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9 }
+      : marketRegime === 'trending'
+        ? { technician: 1.25, risk: 0.85, psych: 1.0, macro: 1.15, onchain: 1.1, deepMemory: 0.95 }
+        : { technician: 1.0, risk: 1.05, psych: 1.1, macro: 1.1, onchain: 0.95, deepMemory: 1.0 };
+
+  const watchdog = {
+    gemini: getProviderHealth('gemini'),
+    groq: getProviderHealth('groq'),
+  };
+  const providerHealthFactor = (provider: ModelProvider): number => {
+    const status = provider === 'gemini' ? watchdog.gemini.status : watchdog.groq.status;
+    if (status === 'unstable') return 0;
+    if (status === 'degraded') return 0.65;
+    return 1;
+  };
+
+  const weightByExpert: Record<BoardExpertKey, number> = {
+    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('gemini'),
+    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini'),
+    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini'),
+    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('groq'),
+    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini'),
+    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini'),
+  };
+
+  shadowPredictions.set(`${input.symbol}:technician`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert1.tech_score),
+    confidence: expert1.tech_score,
+  });
+  shadowPredictions.set(`${input.symbol}:risk`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert2.risk_score),
+    confidence: expert2.risk_score,
+  });
+  shadowPredictions.set(`${input.symbol}:psych`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert3.psych_score),
+    confidence: expert3.psych_score,
+  });
+  shadowPredictions.set(`${input.symbol}:macro`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert4.macro_score),
+    confidence: expert4.macro_score,
+  });
+  shadowPredictions.set(`${input.symbol}:onchain`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert5.onchain_score),
+    confidence: expert5.onchain_score,
+  });
+  shadowPredictions.set(`${input.symbol}:deepMemory`, {
+    symbol: input.symbol,
+    priceAtPrediction: input.current_price,
+    predictedDirection: scoreToDirection(expert6.deep_memory_score),
+    confidence: expert6.deep_memory_score,
+  });
 
   const weightedExperts = [
-    { score: expert1.tech_score, weight: wTech, failed: techFailed },
-    { score: expert2.risk_score, weight: wRisk, failed: riskFailed },
-    { score: expert3.psych_score, weight: wPsych, failed: psychFailed },
-    { score: expert4.macro_score, weight: wMacro, failed: macroFailed },
-    { score: expert5.onchain_score, weight: wOnchain, failed: onchainFailed },
-    { score: expert6.deep_memory_score, weight: wDeep, failed: deepMemoryFailed },
+    { score: expert1.tech_score, weight: weightByExpert.technician, failed: techFailed },
+    { score: expert2.risk_score, weight: weightByExpert.risk, failed: riskFailed },
+    { score: expert3.psych_score, weight: weightByExpert.psych, failed: psychFailed },
+    { score: expert4.macro_score, weight: weightByExpert.macro, failed: macroFailed },
+    { score: expert5.onchain_score, weight: weightByExpert.onchain, failed: onchainFailed },
+    { score: expert6.deep_memory_score, weight: weightByExpert.deepMemory, failed: deepMemoryFailed },
   ];
   const availableWeight = weightedExperts
     .filter((item) => !item.failed)
@@ -1327,6 +1524,44 @@ export async function runConsensusEngine(
           .reduce((sum, item) => sum + item.score * item.weight, 0) / availableWeight
       : FALLBACK_EXPERT_SCORE;
   const consensus_approved = final_confidence >= effectiveThreshold;
+  const votes = {
+    technician: scoreToDirection(expert1.tech_score),
+    risk: scoreToDirection(expert2.risk_score),
+    psych: scoreToDirection(expert3.psych_score),
+    macro: scoreToDirection(expert4.macro_score),
+    onchain: scoreToDirection(expert5.onchain_score),
+    deepMemory: scoreToDirection(expert6.deep_memory_score),
+  } as const;
+  const voteIds: Partial<Record<BoardExpertKey, string>> = {
+    technician: buildDeterministicId('vote', [input.symbol, 'technician', input.current_price, expert1.tech_score, votes.technician]),
+    risk: buildDeterministicId('vote', [input.symbol, 'risk', input.current_price, expert2.risk_score, votes.risk]),
+    psych: buildDeterministicId('vote', [input.symbol, 'psych', input.current_price, expert3.psych_score, votes.psych]),
+    macro: buildDeterministicId('vote', [input.symbol, 'macro', input.current_price, expert4.macro_score, votes.macro]),
+    onchain: buildDeterministicId('vote', [input.symbol, 'onchain', input.current_price, expert5.onchain_score, votes.onchain]),
+    deepMemory: buildDeterministicId('vote', [input.symbol, 'deepMemory', input.current_price, expert6.deep_memory_score, votes.deepMemory]),
+  };
+  const decisionId = buildDeterministicId('decision', [
+    input.symbol,
+    input.current_price,
+    expert1.tech_score,
+    expert2.risk_score,
+    expert3.psych_score,
+    expert4.macro_score,
+    expert5.onchain_score,
+    expert6.deep_memory_score,
+    Math.round(final_confidence * 10),
+  ]);
+  const rawWeightSum = Object.values(weightByExpert).reduce((sum, w) => sum + Math.max(0, w), 0);
+  const activeBoardWeights: Partial<Record<BoardExpertKey, number>> = rawWeightSum > 0
+    ? {
+        technician: Math.round((Math.max(0, weightByExpert.technician) / rawWeightSum) * 1000) / 10,
+        risk: Math.round((Math.max(0, weightByExpert.risk) / rawWeightSum) * 1000) / 10,
+        psych: Math.round((Math.max(0, weightByExpert.psych) / rawWeightSum) * 1000) / 10,
+        macro: Math.round((Math.max(0, weightByExpert.macro) / rawWeightSum) * 1000) / 10,
+        onchain: Math.round((Math.max(0, weightByExpert.onchain) / rawWeightSum) * 1000) / 10,
+        deepMemory: Math.round((Math.max(0, weightByExpert.deepMemory) / rawWeightSum) * 1000) / 10,
+      }
+    : {};
 
   return {
     tech_score: expert1.tech_score,
@@ -1348,6 +1583,11 @@ export async function runConsensusEngine(
     reasoning_path: judgeResult.reasoning_path,
     final_confidence: Math.round(final_confidence * 10) / 10,
     consensus_approved,
+    decision_id: decisionId,
+    vote_ids: voteIds,
+    market_regime: marketRegime,
+    active_board_weights: activeBoardWeights,
+    model_watchdog: watchdog,
     ...(judgeResult.debate_resolution?.trim()
       ? { debate_resolution: judgeResult.debate_resolution.trim() }
       : {}),

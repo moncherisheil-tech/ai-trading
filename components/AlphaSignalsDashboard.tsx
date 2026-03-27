@@ -133,9 +133,20 @@ function MtfMatrix({
   t: Record<string, string | undefined>;
 }) {
   const macro = buildMacroOutlook(item);
+  const flash = item.flashOutlook ?? {
+    ...item.shortTermOutlook,
+    timeframe: '⚡ FLASH',
+  };
   const rows: { emoji: string; title: string; subtitle: string; o: AssetOutlook; horizonLine?: string }[] = [
     {
       emoji: '⚡',
+      title: locale === 'he' ? 'FLASH' : 'FLASH',
+      subtitle: locale === 'he' ? 'M1/M5 Hawk-Eye' : 'M1/M5 Hawk-Eye',
+      o: flash,
+      horizonLine: locale === 'he' ? 'High-velocity consensus' : 'High-velocity consensus',
+    },
+    {
+      emoji: '🧠',
       title: locale === 'he' ? 'סקאלפ' : 'Scalp',
       subtitle: locale === 'he' ? 'תוך-יומי' : 'Intraday',
       o: item.shortTermOutlook,

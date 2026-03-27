@@ -1060,6 +1060,7 @@ RULES:
   if (consensusResult) {
     void executeAutonomousConsensusSignal({
       predictionId: newRecord.id,
+      decisionId: consensusResult.decision_id,
       symbol: cleanSymbol,
       predictedDirection: newRecord.predicted_direction,
       finalConfidence: consensusResult.final_confidence,
@@ -1069,6 +1070,13 @@ RULES:
         overseerSummary: consensusResult.master_insight_he,
         overseerReasoningPath: consensusResult.reasoning_path,
         expertBreakdown: {
+          olympus: {
+            decisionId: consensusResult.decision_id ?? null,
+            voteIds: consensusResult.vote_ids ?? {},
+            marketRegime: consensusResult.market_regime ?? null,
+            activeBoardWeights: consensusResult.active_board_weights ?? {},
+            modelWatchdog: consensusResult.model_watchdog ?? null,
+          },
           technician: {
             score: consensusResult.tech_score,
             logic: consensusResult.tech_logic,

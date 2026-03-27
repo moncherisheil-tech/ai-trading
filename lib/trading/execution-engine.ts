@@ -37,6 +37,7 @@ const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
 
 export interface AutonomousExecutionInput {
   predictionId: string;
+  decisionId?: string;
   symbol: string;
   predictedDirection: 'Bullish' | 'Bearish' | 'Neutral';
   finalConfidence: number;
@@ -197,7 +198,7 @@ export async function executeAutonomousConsensusSignal(
 ): Promise<AutonomousExecutionResult> {
   const signal = mapDirectionToSignal(input.predictedDirection);
   const symbol = normalizeSymbol(input.symbol);
-  const eventId = `${input.predictionId}:${signal ?? 'NONE'}`;
+  const eventId = `${input.predictionId}:${signal ?? 'NONE'}:${input.decisionId ?? 'no-decision-id'}`;
   const settings = await getAppSettings();
   const execution = settings.execution;
   const mode = execution.mode ?? 'PAPER';

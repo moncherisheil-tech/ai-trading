@@ -530,6 +530,10 @@ a[href]:active,
   letter-spacing: 0;
 }
 
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
 .financial-token {
   direction: ltr;
   unicode-bidi: isolate;

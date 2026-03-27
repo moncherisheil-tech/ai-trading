@@ -22,7 +22,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { useSimulationOptional } from '@/context/SimulationContext';
 import { useToastOptional } from '@/context/ToastContext';
 import { round2, toDecimal, D, formatPriceForSymbol, formatAmountForSymbol, formatFiat } from '@/lib/decimal';
-import { getPortfolioVirtualAction, getSimulationSummaryAction } from '@/app/actions';
+import { getExecutionDashboardSnapshotAction, getPortfolioVirtualAction, getSimulationSummaryAction } from '@/app/actions';
 import { formatDateTimeLocal } from '@/lib/i18n';
 import { REPORT_BRANDING, REPORT_LEGAL_DISCLAIMER } from '@/lib/print-report';
 
@@ -81,6 +81,15 @@ type SimulationSummary = {
   simulationRoundTripsCount?: number;
 };
 
+type OlympusBoardTelemetry = {
+  marketRegime: string;
+  activeBoardWeights: Record<string, number>;
+  modelWatchdog: {
+    gemini?: { status?: string };
+    groq?: { status?: string };
+  } | null;
+};
+
 /** Virtual portfolio closed trade with reason for closing (SL/TP/Liquidation). entry_date = ISO-8601 purchase time. Fee structure: 0.1% entry + 0.1% exit. */
 type VirtualClosedTrade = {
   id: number;
@@ -125,6 +134,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
   const [tradeSort, setTradeSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'date', dir: 'desc' });
   const [tradePage, setTradePage] = useState(0);
   const [simSummaryLoading, setSimSummaryLoading] = useState(true);
+  const [olympusBoard, setOlympusBoard] = useState<OlympusBoardTelemetry | null>(null);
 
   const tradesSignature = useMemo(() => {
     const trades = simContext?.trades ?? [];
@@ -140,6 +150,27 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
     setClientTimeLabel(new Date().toLocaleString('he-IL'));
     const t = setInterval(() => setClientTimeLabel(new Date().toLocaleString('he-IL')), 1000);
     return () => clearInterval(t);
+  }, [mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const out = (await getExecutionDashboardSnapshotAction()) as {
+          recentExecutions?: Array<{ expertBreakdown?: Record<string, unknown> | null }>;
+        };
+        const latest = out?.recentExecutions?.find((x) => x?.expertBreakdown)?.expertBreakdown as
+          | { olympus?: OlympusBoardTelemetry }
+          | undefined;
+        if (!cancelled && latest?.olympus?.activeBoardWeights) {
+          setOlympusBoard(latest.olympus);
+        }
+      } catch {
+        // keep UI silent
+      }
+    })();
+    return () => { cancelled = true; };
   }, [mounted]);
 
   useEffect(() => {
@@ -686,6 +717,53 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0" dir="rtl">
+        {olympusBoard && (
+          <section className="rounded-xl border border-slate-800 bg-slate-900 p-4 xl:col-span-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-100">Olympus Neural Board Weights</h3>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="rounded border border-slate-700 px-2 py-0.5 tabular-nums">
+                  Regime: {olympusBoard.marketRegime || 'n/a'}
+                </span>
+                <span className={`rounded border px-2 py-0.5 tabular-nums ${
+                  olympusBoard.modelWatchdog?.gemini?.status === 'unstable'
+                    ? 'border-rose-500/40 text-rose-300'
+                    : 'border-emerald-500/35 text-emerald-300'
+                }`}>
+                  Gemini {olympusBoard.modelWatchdog?.gemini?.status ?? 'healthy'}
+                </span>
+                <span className={`rounded border px-2 py-0.5 tabular-nums ${
+                  olympusBoard.modelWatchdog?.groq?.status === 'unstable'
+                    ? 'border-rose-500/40 text-rose-300'
+                    : 'border-emerald-500/35 text-emerald-300'
+                }`}>
+                  Groq {olympusBoard.modelWatchdog?.groq?.status ?? 'healthy'}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Object.entries(olympusBoard.activeBoardWeights)
+                .sort((a, b) => b[1] - a[1])
+                .map(([key, weight]) => (
+                  <div key={key} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-200">{key}</span>
+                      <span className={`tabular-nums font-semibold ${weight >= 20 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                        {weight.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${weight >= 20 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400 animate-pulse'}`}
+                        style={{ width: `${Math.max(2, Math.min(100, weight))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </section>
+        )}
+
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-slate-100">Neural Attribution Dashboard</h3>

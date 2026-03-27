@@ -5,7 +5,7 @@ import { runConsensusEngine } from '@/lib/consensus-engine';
 import type { ConsensusResult } from '@/lib/consensus-engine';
 
 export type AdvisorySignal = 'BUY' | 'SELL' | 'HOLD';
-export type ForecastTimeframe = '1-4 Hours' | '1-3 Days';
+export type ForecastTimeframe = '⚡ FLASH' | '1-4 Hours' | '1-3 Days';
 
 export interface AssetOutlook {
   signal: AdvisorySignal;
@@ -16,6 +16,7 @@ export interface AssetOutlook {
 
 export interface AssetForecast {
   asset: string;
+  flashOutlook?: AssetOutlook;
   shortTermOutlook: AssetOutlook;
   swingOutlook: AssetOutlook;
 }
@@ -131,13 +132,22 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
 
   const shortBias = consensus.tech_score * 0.45 + consensus.psych_score * 0.25 + consensus.onchain_score * 0.3 - 50;
   const swingBias = consensus.macro_score * 0.35 + consensus.risk_score * 0.25 + consensus.deep_memory_score * 0.4 - 50;
+  const flashBias = consensus.tech_score * 0.42 + consensus.onchain_score * 0.38 + consensus.psych_score * 0.2 - 50;
   const shortSignal = toAdvisorySignal(shortBias);
   const swingSignal = toAdvisorySignal(swingBias);
+  const flashSignal = toAdvisorySignal(flashBias, 3);
   const shortProbability = clampProbability(Math.abs(shortBias) + 60);
   const swingProbability = clampProbability(Math.abs(swingBias) + 58);
+  const flashProbability = clampProbability(Math.abs(flashBias) + 64 + (consensus.final_confidence >= 80 ? 3 : 0));
 
   return {
     asset: normalizeAsset(symbol),
+    flashOutlook: {
+      signal: flashSignal,
+      probability: flashProbability,
+      timeframe: '⚡ FLASH',
+      rationale: buildRationale([consensus.onchain_logic, consensus.tech_logic]),
+    },
     shortTermOutlook: {
       signal: shortSignal,
       probability: shortProbability,
