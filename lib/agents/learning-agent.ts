@@ -7,7 +7,8 @@ import type { BacktestLogEntry } from '@/lib/db/backtest-repository';
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getRequiredAnthropicApiKey, getGeminiApiKey } from '@/lib/env';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { APP_CONFIG } from '@/lib/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 
 const BACKTEST_LOG_PATH = path.join(process.cwd(), 'backtests.jsonl');
 
@@ -129,7 +130,7 @@ ${JSON.stringify(compactCases, null, 2)}
   if (rawInsights.length === 0) {
     try {
       const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-      const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview');
+      const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
       const model = genAI.getGenerativeModel(
         {
           model: selected.model,

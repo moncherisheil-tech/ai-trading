@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { querySimilarTrades } from '@/lib/vector-db';
 import { getGeminiApiKey } from '@/lib/env';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { APP_CONFIG } from '@/lib/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .join('\n');
 
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-    const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview');
+    const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
     const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
     const response = await model.generateContent({
       contents: [

@@ -19,6 +19,7 @@ import { isChatIdActiveAdmin } from '@/lib/db/telegram-subscribers';
 import { recordAuditLog } from '@/lib/db/audit-logs';
 import { editTelegramMessage } from '@/lib/telegram';
 import { DEFAULT_WEIGHTS, setWeights } from '@/lib/db/prediction-weights';
+import { getLiveInfraHealth, type DatabaseProbeStatus } from '@/lib/infra-health-probes';
 
 export const INSTITUTIONAL_FLOOR_CB_PREFIX = 'ifl:';
 
@@ -188,8 +189,23 @@ async function auditTerminalAction(payload: Record<string, unknown>): Promise<vo
   }
 }
 
+function databaseProbeLabel(s: DatabaseProbeStatus): string {
+  switch (s) {
+    case 'ok':
+      return 'OK';
+    case 'absent':
+      return 'ABSENT';
+    case 'misconfigured':
+      return 'BAD_URL';
+    case 'unreachable':
+      return 'DOWN';
+    default:
+      return 'UNKNOWN';
+  }
+}
+
 async function buildMainText(): Promise<string> {
-  const settings = await getAppSettings();
+  const [settings, health] = await Promise.all([getAppSettings(), getLiveInfraHealth()]);
   const mode = settings.execution.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
   const lines = [
     '*INSTITUTIONAL FLOOR 1000*',
@@ -199,6 +215,9 @@ async function buildMainText(): Promise<string> {
       'Session'.padEnd(16) + 'OK',
       'Exec Mode'.padEnd(16) + mode.padEnd(8),
       'Master Switch'.padEnd(16) + (settings.execution.masterSwitchEnabled ? 'ON ' : 'OFF'),
+      'PostgreSQL'.padEnd(16) + databaseProbeLabel(health.database),
+      'Gemini API'.padEnd(16) + (health.gemini ? 'OK' : 'DOWN'),
+      'Groq API'.padEnd(16) + (health.groq ? 'OK' : 'DOWN'),
     ]),
   ];
   return lines.join('\n');

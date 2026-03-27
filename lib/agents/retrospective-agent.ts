@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { APP_CONFIG } from '@/lib/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 import { getGeminiApiKey } from '@/lib/env';
 import { queryAcademyKnowledge } from '@/lib/vector-db';
 import type { TradeExecutionRow } from '@/lib/db/execution-learning';
@@ -49,7 +50,7 @@ export async function runRetrospectiveAgent(input: {
 
   try {
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-    const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview');
+    const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
     const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
     const prompt = `
 You are a quantitative trading retrospective analyst.

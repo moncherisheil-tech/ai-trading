@@ -15,6 +15,19 @@ const RETIRED_GEMINI_MODEL_IDS: Record<string, string> = {
   'gemini-1.5-flash-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-1.5-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-1.5-pro-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash-thinking-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash-lite': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-pro-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-pro-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-3-pro-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-exp-1206': GEMINI_DEFAULT_FLASH_MODEL_ID,
 };
 
 export function normalizeGeminiModelId(modelName: string): string {

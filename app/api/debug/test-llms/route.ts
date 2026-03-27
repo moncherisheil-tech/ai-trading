@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import Groq from 'groq-sdk';
 import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 
 export const dynamic = 'force-dynamic';
 
@@ -90,8 +91,11 @@ async function callGemini(): Promise<{ ok: boolean; rawText: string }> {
     return { ok: false, rawText: 'GEMINI_API_KEY missing' };
   }
 
+  const modelId = resolveGeminiModel(
+    process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID
+  ).model.replace(/^models\//, '');
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

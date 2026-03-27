@@ -1,4 +1,5 @@
 import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
+import { getLiveInfraHealth } from '@/lib/infra-health-probes';
 
 const HEARTBEAT_MS = 8_000;
 
@@ -44,25 +45,6 @@ async function pingAnthropic(): Promise<boolean> {
   return true;
 }
 
-async function pingGemini(): Promise<boolean> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey || apiKey.includes('TODO')) return false;
-
-  const model = 'gemini-3-flash-preview';
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Reply: GEMINI_OK' }] }],
-      }),
-      cache: 'no-store',
-    }
-  );
-  return res.ok;
-}
-
 export type AiProvidersHeartbeat = {
   gemini: boolean;
   anthropic: boolean;
@@ -84,16 +66,17 @@ export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
     return Boolean(v && v.length >= 8 && !/todo|changeme|example/i.test(v));
   };
   const adminSecretValid = Boolean((process.env.ADMIN_SECRET || '').trim());
-  const databaseUrl = (process.env.DATABASE_URL || '').trim();
-  const dbConnected = Boolean(databaseUrl && databaseUrl.includes('quantum_admin'));
-  const grok = Boolean((process.env.GROQ_API_KEY || process.env.GROK_API_KEY || process.env.XAI_API_KEY || '').trim());
   const cryptoQuant = validKey(process.env.CRYPTOQUANT_API_KEY);
   const coinMarketCap = validKey(process.env.CMC_API_KEY);
-  const [g, a] = await Promise.all([
-    withTimeout(pingGemini(), HEARTBEAT_MS),
+  const [infra, a] = await Promise.all([
+    getLiveInfraHealth(),
     withTimeout(pingAnthropic(), HEARTBEAT_MS),
   ]);
-  const gemini = g === true;
+  const gemini = infra.gemini;
+  const dbConnected = infra.database === 'ok';
+  const grok =
+    infra.groq ||
+    Boolean((process.env.GROK_API_KEY || process.env.XAI_API_KEY || '').trim());
   const anthropic = a === true;
   const anyProviderWithKey = gemini || anthropic || grok;
   return {

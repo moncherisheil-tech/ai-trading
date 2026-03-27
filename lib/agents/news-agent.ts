@@ -7,7 +7,8 @@
 import { ANTHROPIC_HAIKU_MODEL } from '@/lib/anthropic-model';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getGeminiApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { APP_CONFIG } from '@/lib/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 import { TRUTH_MATRIX_RULES } from '@/lib/agents/psych-agent';
 
 const CRYPTOCOMPARE_NEWS_URL = 'https://min-api.cryptocompare.com/data/v2/news/';
@@ -156,7 +157,7 @@ async function runSentimentViaGemini(prompt: string): Promise<SentimentResult | 
   try {
     const apiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(apiKey);
-    const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview');
+    const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
     const model = genAI.getGenerativeModel(
       {
         model: selected.model,

@@ -1,9 +1,13 @@
 /**
  * Startup system diagnostics for Mon Chéri Quant.
- * Run on server init to confirm Technical Context, OI, Deep Memory, throttling, and Vercel readiness.
+ * Runs on server init (see `instrumentation.ts`).
  */
 
+import { runProductionDatabaseUrlGate } from '@/lib/db/sovereign-db-url';
+
 export function runSystemDiagnostics(): void {
+  runProductionDatabaseUrlGate();
+
   const line = '─'.repeat(52);
   const header = '╔══════════════════════════════════════════════════════╗';
   const footer = '╚══════════════════════════════════════════════════════╝';

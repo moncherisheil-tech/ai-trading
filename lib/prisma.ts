@@ -1,6 +1,9 @@
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
-import { assertAuthorizedDatabaseUrl } from '@/lib/db/sovereign-db-url';
+import {
+  assertAuthorizedDatabaseUrl,
+  normalizeDatabaseUrlEnv,
+} from '@/lib/db/sovereign-db-url';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -10,7 +13,7 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefi
  * Sovereign DB policy is enforced here before any PrismaClient is constructed.
  */
 export function getPrisma(): PrismaClient | null {
-  const url = process.env.DATABASE_URL?.trim();
+  const url = normalizeDatabaseUrlEnv(process.env.DATABASE_URL);
   if (!url) return null;
   assertAuthorizedDatabaseUrl(url);
   if (!globalForPrisma.prisma) {

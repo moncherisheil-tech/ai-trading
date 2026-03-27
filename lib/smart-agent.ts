@@ -16,10 +16,9 @@ import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { rsi, ema20, ema50 } from '@/lib/indicators';
 import { toDecimal } from '@/lib/decimal';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
-const GEMINI_FALLBACK_MODEL = `models/${process.env.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview'}`;
 const POST_MORTEM_LLM_TIMEOUT_MS = 12_000;
 
 /** Extract JSON string from model text (handles markdown fences and trailing text). Same logic for Groq and Gemini for consistent parsing. */
@@ -232,7 +231,9 @@ export async function generatePostMortem(
   try {
     const geminiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(geminiKey);
-    const selectedGeminiModel = resolveGeminiModel(GEMINI_FALLBACK_MODEL);
+    const selectedGeminiModel = resolveGeminiModel(
+      APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+    );
     const model = genAI.getGenerativeModel(
       {
         model: selectedGeminiModel.model,

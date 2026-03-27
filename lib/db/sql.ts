@@ -1,20 +1,11 @@
 import 'dotenv/config';
 import { Pool, type QueryResult } from 'pg';
-import { assertAuthorizedDatabaseUrl } from '@/lib/db/sovereign-db-url';
+import {
+  assertAuthorizedDatabaseUrl,
+  normalizeDatabaseUrlEnv,
+} from '@/lib/db/sovereign-db-url';
 
 let pool: Pool | null = null;
-
-function normalizeEnvValue(raw: string | undefined): string {
-  const value = (raw || '').trim();
-  if (!value) return '';
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1).trim();
-  }
-  return value;
-}
 
 /** Last DATABASE_URL string that passed sovereign policy (avoids re-parsing on hot paths). */
 let cachedAuthorizedDatabaseUrl: string | null = null;
@@ -24,7 +15,7 @@ let cachedAuthorizedDatabaseUrl: string | null = null;
  * Runs before `getPool()` so workers never open a socket until authorization succeeds.
  */
 function ensureDatabaseAuthorizedForQuery(): string {
-  const url = normalizeEnvValue(process.env.DATABASE_URL);
+  const url = normalizeDatabaseUrlEnv(process.env.DATABASE_URL);
   if (!url) {
     throw new Error('Security Breach: Unauthorized DB User Attempted');
   }

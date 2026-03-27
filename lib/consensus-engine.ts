@@ -30,7 +30,6 @@ import {
 } from '@/lib/agents/psych-agent';
 import {
   GEMINI_DEFAULT_FLASH_MODEL_ID,
-  normalizeGeminiModelId,
   resolveGeminiModel,
   withGeminiRateLimitRetry,
 } from '@/lib/gemini-model';
@@ -50,9 +49,9 @@ const WEIGHT_MACRO = WEIGHT_PER_EXPERT;
 const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
-const SAFE_GEMINI_FALLBACK_MODEL = normalizeGeminiModelId(
-  process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID
-);
+const SAFE_GEMINI_FALLBACK_MODEL = resolveGeminiModel(
+  APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+).model.replace(/^models\//, '');
 const HAWKEYE_HOT_SWAP_LATENCY_MS = 1_500;
 const WATCHDOG_WINDOW = 20;
 /** Fallback when options.moeConfidenceThreshold not provided; otherwise read from getAppSettings(). */
@@ -902,9 +901,9 @@ function parseMacroJson(raw: string): ExpertMacroOutput {
 }
 
 /** Gemini model used when Groq Macro agent hits 429 rate limit; keeps all 6 experts active. */
-const GEMINI_MACRO_FALLBACK_MODEL = normalizeGeminiModelId(
-  process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID
-);
+const GEMINI_MACRO_FALLBACK_MODEL = resolveGeminiModel(
+  APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+).model.replace(/^models\//, '');
 
 /**
  * Run the Macro Expert once with global context only (DXY, Fear & Greed). Used by the scanner to pre-fetch
@@ -1274,14 +1273,15 @@ export async function runConsensusEngine(
     mockPayload?: ConsensusMockPayload;
   }
 ): Promise<ConsensusResult> {
-  const requestedModel = options?.model ?? APP_CONFIG.primaryModel ?? SAFE_GEMINI_FALLBACK_MODEL;
-  const model =
-    /gemini/i.test(requestedModel) || requestedModel.startsWith('models/gemini')
-      ? requestedModel
-      : SAFE_GEMINI_FALLBACK_MODEL;
-  if (model !== requestedModel) {
+  const requestedRaw = options?.model ?? APP_CONFIG.primaryModel ?? GEMINI_DEFAULT_FLASH_MODEL_ID;
+  const isGeminiLike =
+    /gemini/i.test(String(requestedRaw)) || String(requestedRaw).startsWith('models/gemini');
+  const model = isGeminiLike
+    ? resolveGeminiModel(requestedRaw).model.replace(/^models\//, '')
+    : SAFE_GEMINI_FALLBACK_MODEL;
+  if (!isGeminiLike) {
     console.warn(
-      `[ConsensusEngine] Non-Gemini model "${requestedModel}" cannot run Gemini experts. Using "${model}" and continuing with Groq + Gemini providers.`
+      `[ConsensusEngine] Non-Gemini model "${requestedRaw}" cannot run Gemini experts. Using "${model}" and continuing with Groq + Gemini providers.`
     );
   }
   const rawTimeout = options?.timeoutMs ?? Math.min(60_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
