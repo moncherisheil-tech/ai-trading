@@ -1,5 +1,9 @@
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
+import {
+  assertAuthorizedDatabaseUrl,
+  isDbConfigBuildPhaseImmune,
+} from '@/lib/db/sovereign-db-url';
 
 // --- 1. הגדרות טיפוסים (חובה עבור שאר האתר) ---
 export interface SourceCitation {
@@ -82,9 +86,10 @@ export interface PredictionRecord {
 
 function hasPostgres(): boolean {
   const url = APP_CONFIG.postgresUrl?.trim() || '';
-  if (!url || !url.includes('quantum_admin')) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
+  if (isDbConfigBuildPhaseImmune()) {
+    return Boolean(url);
   }
+  assertAuthorizedDatabaseUrl(url);
   return true;
 }
 

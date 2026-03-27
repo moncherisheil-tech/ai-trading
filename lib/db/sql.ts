@@ -1,5 +1,9 @@
 import 'dotenv/config';
 import { Pool, type QueryResult } from 'pg';
+import {
+  assertAuthorizedDatabaseUrl,
+  isDbConfigBuildPhaseImmune,
+} from '@/lib/db/sovereign-db-url';
 
 let pool: Pool | null = null;
 
@@ -17,20 +21,13 @@ function normalizeEnvValue(raw: string | undefined): string {
 
 function connectionString(): string {
   const url = normalizeEnvValue(process.env.DATABASE_URL);
-  if (!url) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
-  }
-  if (!url.includes('quantum_admin')) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
-  }
-  try {
-    const parsed = new URL(url);
-    if (!parsed.hostname || parsed.hostname === 'base') {
-      throw new Error('invalid database host');
+  if (isDbConfigBuildPhaseImmune()) {
+    if (!url) {
+      return 'postgresql://quantum_admin:build@127.0.0.1:5432/_build_placeholder';
     }
-  } catch {
-    throw new Error('DATABASE_URL is invalid. Use a full PostgreSQL URL (postgres://... or postgresql://...).');
+    return url;
   }
+  assertAuthorizedDatabaseUrl(url);
   return url;
 }
 

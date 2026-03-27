@@ -1,10 +1,9 @@
 import 'dotenv/config';
 import { defineConfig, env } from 'prisma/config';
+import { assertAuthorizedDatabaseUrl } from './lib/db/sovereign-db-url';
 
 const databaseUrl = process.env.DATABASE_URL?.trim() || '';
-if (!databaseUrl || !databaseUrl.includes('quantum_admin')) {
-  throw new Error('Security Breach: Unauthorized DB User Attempted');
-}
+assertAuthorizedDatabaseUrl(databaseUrl);
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
