@@ -26,7 +26,13 @@ export async function GET(request: Request): Promise<NextResponse> {
 
   const now = Date.now();
   try {
-    await runOneCycle();
+    try {
+      await runOneCycle();
+    } catch (firstErr) {
+      // Self-healing retry: one immediate second attempt for transient upstream failures.
+      console.warn('[Cron worker] First scan attempt failed, retrying once:', firstErr);
+      await runOneCycle();
+    }
     await setLastScanTimestamp(now);
     return NextResponse.json({ ok: true, message: 'סריקה הושלמה' });
   } catch (err) {

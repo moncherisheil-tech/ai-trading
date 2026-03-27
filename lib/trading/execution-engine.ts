@@ -38,6 +38,8 @@ const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
 export interface AutonomousExecutionInput {
   predictionId: string;
   decisionId?: string;
+  idempotencyKey?: string;
+  priority?: 'atomic' | 'standard';
   symbol: string;
   predictedDirection: 'Bullish' | 'Bearish' | 'Neutral';
   finalConfidence: number;
@@ -198,7 +200,10 @@ export async function executeAutonomousConsensusSignal(
 ): Promise<AutonomousExecutionResult> {
   const signal = mapDirectionToSignal(input.predictedDirection);
   const symbol = normalizeSymbol(input.symbol);
-  const eventId = `${input.predictionId}:${signal ?? 'NONE'}:${input.decisionId ?? 'no-decision-id'}`;
+  const eventId = input.idempotencyKey?.trim()
+    ? input.idempotencyKey.trim()
+    : `${input.predictionId}:${signal ?? 'NONE'}:${input.decisionId ?? 'no-decision-id'}`;
+  const priority = input.priority === 'atomic' ? 'atomic' : 'standard';
   const settings = await getAppSettings();
   const execution = settings.execution;
   const mode = execution.mode ?? 'PAPER';
@@ -533,7 +538,7 @@ export async function executeAutonomousConsensusSignal(
         executionStatus: 'executed',
         reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
           twapResult.intervalMs
-        )}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
+        )}. Priority=${priority}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
           2
         )}%, Kelly f=${kelly.kellyFraction.toFixed(4)}, volSizing=${sizing.riskFraction.toFixed(4)}.`,
         overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
@@ -556,7 +561,7 @@ export async function executeAutonomousConsensusSignal(
         status: 'executed',
         reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
           twapResult.intervalMs
-        )}. Tier=${scalpPlan.tier}, Kelly+TWAP institutional path.`,
+        )}. Priority=${priority}. Tier=${scalpPlan.tier}, Kelly+TWAP institutional path.`,
         virtualTradeId: opened.id,
       };
     }
@@ -615,7 +620,7 @@ export async function executeAutonomousConsensusSignal(
       mode: effectiveMode,
       executed: true,
       executionStatus: 'executed',
-      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}.`,
+      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}. Priority=${priority}.`,
       overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson: originalExpertBreakdownJson,

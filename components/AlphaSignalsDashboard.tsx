@@ -332,10 +332,23 @@ export default function AlphaSignalsDashboard() {
     setSubmittingExecution(true);
     setExecutionStateByAsset((prev) => ({ ...prev, [targetAsset]: { status: 'processing' } }));
     try {
+      const targetItem = items.find((x) => x.asset === targetAsset);
+      const highVelocityPriority = Boolean(targetItem?.hawkEye?.highVelocityPriority);
+      const gapStrengthPct = Number(targetItem?.hawkEye?.gapStrengthPct ?? 0);
+      const idempotencyKey = `hawkeye-${targetAsset}-${pendingExecution.side}-${Math.round(
+        pendingExecution.confidence
+      )}-${Math.floor(Date.now() / 15000)}`;
       const out = await executeTradingSignalAction({
         symbol: pendingExecution.asset,
         side: pendingExecution.side,
         confidence: pendingExecution.confidence,
+        priority: highVelocityPriority ? 'atomic' : 'standard',
+        hawkEye: {
+          highVelocityPriority,
+          liquidityGapDetected: Boolean(targetItem?.hawkEye?.liquidityGapDetected),
+          gapStrengthPct,
+        },
+        idempotencyKey,
       });
 
       if (!out.success) {
@@ -378,7 +391,7 @@ export default function AlphaSignalsDashboard() {
       setSubmittingExecution(false);
       setPendingExecution(null);
     }
-  }, [pendingExecution, toast, criticalCyber, t]);
+  }, [pendingExecution, toast, criticalCyber, t, items]);
 
   const tFlat = t as Record<string, string | undefined>;
 
@@ -501,6 +514,11 @@ export default function AlphaSignalsDashboard() {
                   {isProcessing ? <Loader2 className="relative h-4 w-4 animate-spin" /> : <Zap className="relative h-4 w-4" />}
                   <span className="relative">{isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}</span>
                 </button>
+              )}
+              {item.hawkEye?.highVelocityPriority && (
+                <div className="rounded border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] font-semibold text-cyan-200 tabular-nums text-center">
+                  ⚡ Hawk-Eye Priority Lane · Gap {item.hawkEye.gapStrengthPct.toFixed(2)}%
+                </div>
               )}
             </div>
           </article>

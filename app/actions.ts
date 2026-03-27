@@ -1009,7 +1009,18 @@ export async function getTradingSignalsAction(): Promise<AdminActionResult<unkno
   return adminApiRequest<unknown>('/api/trading/signals', { method: 'GET' }, { retries: 3 });
 }
 
-export async function executeTradingSignalAction(input: { symbol: string; side: 'BUY' | 'SELL' | null; confidence: number }): Promise<AdminActionResult<unknown>> {
+export async function executeTradingSignalAction(input: {
+  symbol: string;
+  side: 'BUY' | 'SELL' | null;
+  confidence: number;
+  priority?: 'atomic' | 'standard';
+  idempotencyKey?: string;
+  hawkEye?: {
+    highVelocityPriority?: boolean;
+    liquidityGapDetected?: boolean;
+    gapStrengthPct?: number;
+  };
+}): Promise<AdminActionResult<unknown>> {
   return adminApiRequest<unknown>(
     '/api/trading/execute-signal',
     {

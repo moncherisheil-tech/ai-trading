@@ -19,6 +19,11 @@ export interface AssetForecast {
   flashOutlook?: AssetOutlook;
   shortTermOutlook: AssetOutlook;
   swingOutlook: AssetOutlook;
+  hawkEye?: {
+    liquidityGapDetected: boolean;
+    highVelocityPriority: boolean;
+    gapStrengthPct: number;
+  };
 }
 
 export interface ForecastEngineOptions {
@@ -45,6 +50,18 @@ function buildRationale(parts: string[]): string {
 
 function normalizeAsset(symbol: string): string {
   return symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
+}
+
+function detectLiquidityGap(closes: number[]): { detected: boolean; strengthPct: number } {
+  if (closes.length < 8) return { detected: false, strengthPct: 0 };
+  const last = closes[closes.length - 1]!;
+  const prev = closes[closes.length - 2]!;
+  const baseline = closes.slice(-7, -2);
+  const avg = baseline.reduce((a, b) => a + b, 0) / Math.max(1, baseline.length);
+  const stepPct = prev > 0 ? Math.abs(((last - prev) / prev) * 100) : 0;
+  const baselinePct = avg > 0 ? Math.abs(((last - avg) / avg) * 100) : 0;
+  const strength = Math.max(stepPct, baselinePct);
+  return { detected: strength >= 1.1, strengthPct: Math.round(strength * 100) / 100 };
 }
 
 function hasFallbackConsensus(consensus: ConsensusResult): boolean {
@@ -103,6 +120,7 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
   const rsi1h = rsi(closes1h, 14);
   const atr1h = atr(highs1h, lows1h, closes1h, 14);
   const atrPct = atr1h != null ? (atr1h / currentPrice) * 100 : null;
+  const liquidityGap = detectLiquidityGap(closes1h);
 
   const consensus = await runConsensusEngine(
     {
@@ -127,7 +145,41 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
   );
 
   if (!consensus.consensus_approved || hasFallbackConsensus(consensus)) {
-    return null;
+    // Keep Hawk-Eye stream live with deterministic local fallback instead of dropping the card.
+    const fallbackBias = (Number.isFinite(rsi1h) ? (50 - rsi1h) : 0) + (liquidityGap.detected ? 6 : 0);
+    const fallbackFlashSignal = toAdvisorySignal(fallbackBias, 2);
+    const fallbackFlashProbability = clampProbability(Math.abs(fallbackBias) + 58 + (liquidityGap.detected ? 8 : 0));
+    const fallbackShortSignal = toAdvisorySignal(fallbackBias, 4);
+    const fallbackShortProbability = clampProbability(Math.abs(fallbackBias) + 55);
+    const fallbackSwingSignal = 'HOLD' as AdvisorySignal;
+    return {
+      asset: normalizeAsset(symbol),
+      hawkEye: {
+        liquidityGapDetected: liquidityGap.detected,
+        highVelocityPriority: liquidityGap.detected && fallbackFlashProbability >= 80 && fallbackFlashSignal !== 'HOLD',
+        gapStrengthPct: liquidityGap.strengthPct,
+      },
+      flashOutlook: {
+        signal: fallbackFlashSignal,
+        probability: fallbackFlashProbability,
+        timeframe: '⚡ FLASH',
+        rationale: liquidityGap.detected
+          ? `Hawk-Eye liquidity gap detected (${liquidityGap.strengthPct}%). Local fallback stream active.`
+          : 'Local fallback stream active while board consensus is recalibrating.',
+      },
+      shortTermOutlook: {
+        signal: fallbackShortSignal,
+        probability: fallbackShortProbability,
+        timeframe: '1-4 Hours',
+        rationale: 'Fallback projection based on intraday momentum proxy.',
+      },
+      swingOutlook: {
+        signal: fallbackSwingSignal,
+        probability: 56,
+        timeframe: '1-3 Days',
+        rationale: 'Awaiting full board consensus for swing horizon.',
+      },
+    };
   }
 
   const shortBias = consensus.tech_score * 0.45 + consensus.psych_score * 0.25 + consensus.onchain_score * 0.3 - 50;
@@ -138,15 +190,32 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
   const flashSignal = toAdvisorySignal(flashBias, 3);
   const shortProbability = clampProbability(Math.abs(shortBias) + 60);
   const swingProbability = clampProbability(Math.abs(swingBias) + 58);
-  const flashProbability = clampProbability(Math.abs(flashBias) + 64 + (consensus.final_confidence >= 80 ? 3 : 0));
+  const flashProbability = clampProbability(
+    Math.abs(flashBias) +
+      64 +
+      (consensus.final_confidence >= 80 ? 3 : 0) +
+      (liquidityGap.detected ? Math.min(8, Math.round(liquidityGap.strengthPct)) : 0)
+  );
 
   return {
     asset: normalizeAsset(symbol),
+    hawkEye: {
+      liquidityGapDetected: liquidityGap.detected,
+      highVelocityPriority:
+        liquidityGap.detected && flashProbability >= 84 && flashSignal !== 'HOLD' && consensus.consensus_approved,
+      gapStrengthPct: liquidityGap.strengthPct,
+    },
     flashOutlook: {
       signal: flashSignal,
       probability: flashProbability,
       timeframe: '⚡ FLASH',
-      rationale: buildRationale([consensus.onchain_logic, consensus.tech_logic]),
+      rationale: buildRationale([
+        liquidityGap.detected
+          ? `Hawk-Eye liquidity gap ${liquidityGap.strengthPct}% synchronized with FLASH lane.`
+          : '',
+        consensus.onchain_logic,
+        consensus.tech_logic,
+      ]),
     },
     shortTermOutlook: {
       signal: shortSignal,

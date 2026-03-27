@@ -17,6 +17,7 @@ import {
 import { ArrowLeft, FileText, Table, TrendingUp, TrendingDown, AlertTriangle, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import AgentLearningCenter from '@/components/AgentLearningCenter';
 import PortfolioAllocation from '@/components/PortfolioAllocation';
+import ActiveBoardWeightsPanel from '@/components/ActiveBoardWeightsPanel';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useSimulationOptional } from '@/context/SimulationContext';
@@ -447,8 +448,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 min-w-0 overflow-hidden" dir="rtl">
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">תיק כולל</div>
-          <div className="text-lg sm:text-2xl font-bold text-white truncate" suppressHydrationWarning><span dir="ltr" className="inline-block live-data-number">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
-          <div className="text-xs text-zinc-500 mt-0.5"><span dir="ltr" className="live-data-number">התחלה ${(data.startingBalance ?? D.startingBalance.toNumber()).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} · {L}x</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white truncate text-end tabular-nums" suppressHydrationWarning><span dir="ltr" className="inline-block live-data-number">${balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span></div>
+          <div className="text-xs text-zinc-500 mt-0.5 text-end tabular-nums"><span dir="ltr" className="live-data-number">התחלה ${(data.startingBalance ?? D.startingBalance.toNumber()).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} · {L}x</span></div>
         </div>
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden group relative">
           <div className="flex items-center gap-1.5 mb-1">
@@ -461,25 +462,25 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
               <Info className="w-3 h-3" />
             </span>
           </div>
-          <div className={`text-lg sm:text-2xl font-bold truncate ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+          <div className={`text-lg sm:text-2xl font-bold truncate text-end tabular-nums ${totalPnl >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
             <span dir="ltr" className="inline-block live-data-number">${totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} ({(totalPnlPct >= 0 ? '+' : '')}{totalPnlPct.toFixed(2)}%)</span>
           </div>
         </div>
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">אחוז הצלחה</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{winRatePct.toFixed(1)}%</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white text-end tabular-nums"><span dir="ltr" className="inline-block live-data-number">{winRatePct.toFixed(1)}%</span></div>
         </div>
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">מקדם רווח</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? profitFactorSafe.toFixed(2) : 'N/A'}</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white text-end tabular-nums"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? profitFactorSafe.toFixed(2) : 'N/A'}</span></div>
         </div>
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden" title="מדד יציבות (Sharpe) — תשואה ליחידת סיכון">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">מדד יציבות (שרפ)</div>
-          <div className="text-lg sm:text-2xl font-bold text-white"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-white text-end tabular-nums"><span dir="ltr" className="inline-block live-data-number">{data?.totalTrades ? sharpeRatioSafe.toFixed(2) : 'N/A'}</span></div>
         </div>
         <div className="rounded-xl bg-black/40 frosted-obsidian p-6 min-w-0 transition-all duration-300 ease-in-out hover:scale-[1.02] hover:bg-white/[0.02] active:scale-95 overflow-hidden">
           <div className="text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">משיכה מקסימלית</div>
-          <div className="text-lg sm:text-2xl font-bold text-rose-500 truncate"><span dir="ltr" className="inline-block live-data-number">${maxDrawdown.toFixed(2)} ({maxDrawdownPctSafe.toFixed(1)}%)</span></div>
+          <div className="text-lg sm:text-2xl font-bold text-rose-500 truncate text-end tabular-nums"><span dir="ltr" className="inline-block live-data-number">${maxDrawdown.toFixed(2)} ({maxDrawdownPctSafe.toFixed(1)}%)</span></div>
         </div>
       </div>
 
@@ -717,52 +718,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 min-w-0" dir="rtl">
-        {olympusBoard && (
-          <section className="rounded-xl border border-slate-800 bg-slate-900 p-4 xl:col-span-2">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-100">Olympus Neural Board Weights</h3>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="rounded border border-slate-700 px-2 py-0.5 tabular-nums">
-                  Regime: {olympusBoard.marketRegime || 'n/a'}
-                </span>
-                <span className={`rounded border px-2 py-0.5 tabular-nums ${
-                  olympusBoard.modelWatchdog?.gemini?.status === 'unstable'
-                    ? 'border-rose-500/40 text-rose-300'
-                    : 'border-emerald-500/35 text-emerald-300'
-                }`}>
-                  Gemini {olympusBoard.modelWatchdog?.gemini?.status ?? 'healthy'}
-                </span>
-                <span className={`rounded border px-2 py-0.5 tabular-nums ${
-                  olympusBoard.modelWatchdog?.groq?.status === 'unstable'
-                    ? 'border-rose-500/40 text-rose-300'
-                    : 'border-emerald-500/35 text-emerald-300'
-                }`}>
-                  Groq {olympusBoard.modelWatchdog?.groq?.status ?? 'healthy'}
-                </span>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {Object.entries(olympusBoard.activeBoardWeights)
-                .sort((a, b) => b[1] - a[1])
-                .map(([key, weight]) => (
-                  <div key={key} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-slate-200">{key}</span>
-                      <span className={`tabular-nums font-semibold ${weight >= 20 ? 'text-emerald-300' : 'text-rose-300'}`}>
-                        {weight.toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${weight >= 20 ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400 animate-pulse'}`}
-                        style={{ width: `${Math.max(2, Math.min(100, weight))}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </section>
-        )}
+        {olympusBoard && <ActiveBoardWeightsPanel olympusBoard={olympusBoard} />}
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="flex items-center justify-between mb-3">

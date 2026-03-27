@@ -6,6 +6,13 @@ type ExecuteSignalBody = {
   symbol?: string;
   side?: 'BUY' | 'SELL';
   confidence?: number;
+  priority?: 'atomic' | 'standard';
+  idempotencyKey?: string;
+  hawkEye?: {
+    highVelocityPriority?: boolean;
+    liquidityGapDetected?: boolean;
+    gapStrengthPct?: number;
+  };
 };
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +33,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const side = body.side;
     const confidence = Number(body.confidence);
     const symbol = normalizeSymbol(String(body.symbol ?? ''));
+    const priority = body.priority === 'atomic' ? 'atomic' : 'standard';
+    const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
+      ? body.idempotencyKey.trim()
+      : `manual-${symbol}-${side}-${Math.round(confidence)}-${Math.floor(Date.now() / 15000)}`;
+    const hawkEye = body.hawkEye ?? {};
 
     if (!symbol || !['BUY', 'SELL'].includes(String(side))) {
       return NextResponse.json(
@@ -43,17 +55,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const result = await executeAutonomousConsensusSignal({
       predictionId: `manual-${symbol}-${Date.now()}`,
+      idempotencyKey,
+      priority,
       symbol,
       predictedDirection: side === 'BUY' ? 'Bullish' : 'Bearish',
       finalConfidence: confidence,
       consensusApproved: true,
       consensusReasoning: {
-        overseerSummary: `Manual override approved by operator (${side}) via Alpha Signals dashboard.`,
+        overseerSummary: `Manual override approved by operator (${side}) via Alpha Signals dashboard${priority === 'atomic' ? ' · ATOMIC PRIORITY' : ''}.`,
         overseerReasoningPath: 'human_in_the_loop_override',
         expertBreakdown: {
           source: 'manual_alpha_signal',
           side,
           confidence,
+          priority,
+          hawkEye,
         },
       },
     });

@@ -69,6 +69,9 @@ interface ProviderSample {
   latencyMs: number;
 }
 
+const OPENAI_COMPAT_URL = (process.env.OPENAI_COMPAT_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+
 const providerHealthWindow: Record<ModelProvider, ProviderSample[]> = {
   gemini: [],
   groq: [],
@@ -544,6 +547,60 @@ function buildInvalidJsonError(context: string, raw: string, parseErr: unknown):
   return new Error(`${detail} (parse error: ${parseMessage})`);
 }
 
+function buildLocalFallbackObject<T>(fieldNames: string[], reason: string): T {
+  const out: Record<string, unknown> = {};
+  for (const key of fieldNames) {
+    if (/_score$/i.test(key)) out[key] = 50;
+    else if (/confidence/i.test(key)) out[key] = 50;
+    else if (/consensus_approved|executed/i.test(key)) out[key] = false;
+    else if (/status/i.test(key)) out[key] = 'fallback-local';
+    else out[key] = `Local fallback engaged: ${reason}`;
+  }
+  return out as T;
+}
+
+async function callOpenAiCompatJson<T>(
+  prompt: string,
+  fieldNames: string[],
+  timeoutMs: number
+): Promise<T> {
+  const apiKey = (process.env.OPENAI_API_KEY || '').trim();
+  if (!apiKey) throw new Error('OPENAI_MISSING_KEY');
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Math.min(timeoutMs, HAWKEYE_HOT_SWAP_LATENCY_MS));
+  try {
+    const started = Date.now();
+    const res = await fetch(`${OPENAI_COMPAT_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: OPENAI_MODEL,
+        temperature: 0.2,
+        messages: [
+          { role: 'system', content: CONSENSUS_SYSTEM_INSTRUCTION },
+          { role: 'user', content: prompt },
+        ],
+      }),
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+    const rawJson = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const raw = rawJson.choices?.[0]?.message?.content?.trim() ?? '';
+    if (!res.ok || !raw) throw new Error(`OPENAI_FAIL_${res.status}`);
+    recordProviderSample('gemini', { ok: true, latencyMs: Date.now() - started });
+    const sanitized = extractJson(raw).replace(/[\u0000-\u001F]+/g, ' ');
+    return JSON.parse(sanitized) as T;
+  } catch (err) {
+    recordProviderSample('gemini', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
+    throw buildInvalidJsonError('OpenAI fallback', String(err), err);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /** System instruction at model level: strict JSON-only output to avoid contradictory structures and hallucinated fields. */
 const CONSENSUS_SYSTEM_INSTRUCTION =
   'You must output ONLY a raw JSON object. Do not include markdown formatting like ```json or ```. Do not include any introductory text, explanation, or text after the JSON. Output exactly the requested keys and nothing else.';
@@ -605,17 +662,31 @@ async function callGeminiJson<T>(
   const secondaryModel = SAFE_GEMINI_FALLBACK_MODEL;
   let raw = '';
   try {
-    raw = await Promise.race([
-      generateWithModel(primaryModel),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`HAWKEYE_LATENCY_THRESHOLD:${HAWKEYE_HOT_SWAP_LATENCY_MS}`)), HAWKEYE_HOT_SWAP_LATENCY_MS)
-      ),
-    ]);
+    try {
+      raw = await Promise.race([
+        generateWithModel(primaryModel),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`HAWKEYE_LATENCY_THRESHOLD:${HAWKEYE_HOT_SWAP_LATENCY_MS}`)), HAWKEYE_HOT_SWAP_LATENCY_MS)
+        ),
+      ]);
+    } catch (firstErr) {
+      // Tier-0 failover chain: OpenAI -> Gemini fallback -> local deterministic fallback.
+      const openAiOut = await callOpenAiCompatJson<T>(fullPrompt, fieldNames, timeoutMs).catch(() => null);
+      if (openAiOut) return openAiOut;
+      throw firstErr;
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const shouldSwap = /HAWKEYE_LATENCY_THRESHOLD/i.test(msg) || /timeout|rate|unavailable|503|429/i.test(msg);
-    if (!shouldSwap) throw err;
-    raw = await generateWithModel(secondaryModel);
+    if (!shouldSwap) {
+      return buildLocalFallbackObject<T>(fieldNames, msg);
+    }
+    try {
+      raw = await generateWithModel(secondaryModel);
+    } catch (secondErr) {
+      const secondMsg = secondErr instanceof Error ? secondErr.message : String(secondErr);
+      return buildLocalFallbackObject<T>(fieldNames, secondMsg);
+    }
   }
 
   let jsonStr = raw;
