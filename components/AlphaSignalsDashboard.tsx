@@ -203,20 +203,20 @@ export default function AlphaSignalsDashboard() {
     <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-6 md:px-8">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-white drop-shadow-[0_0_24px_rgba(34,211,238,0.3)] md:text-4xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white md:text-4xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
           <p className="mt-2 text-sm text-zinc-300">
             {t.alphaSignalsSubtitle ?? 'Human-in-the-loop recommendations with short-horizon and swing forecasts.'}
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-200 backdrop-blur-xl shadow-[0_0_16px_rgba(34,211,238,0.15)]">
-            <span className="relative inline-block h-2 w-2 rounded-full bg-emerald-400 me-2 animate-pulse shadow-[0_0_8px_rgba(52,211,153,0.8)]" aria-hidden /> {t.dataMode ?? 'Data Mode'}: {t.liveAnalysis ?? 'Live Analysis'}
+          <span className="rounded-full border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-xs font-semibold text-cyan-200 backdrop-blur-xl">
+            <span className="relative inline-block h-2 w-2 rounded-full bg-emerald-400 me-2 animate-pulse" aria-hidden /> {t.dataMode ?? 'Data Mode'}: {t.liveAnalysis ?? 'Live Analysis'}
           </span>
           <button
             type="button"
             onClick={() => void loadSignals()}
             disabled={loading}
-            className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/50 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_24px_rgba(34,211,238,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition hover:shadow-[0_0_32px_rgba(34,211,238,0.55),0_0_60px_rgba(34,211,238,0.15)] hover:border-cyan-300/70 hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+            className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/50 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-[0_0_16px_rgba(34,211,238,0.25)] backdrop-blur-xl transition hover:shadow-[0_0_24px_rgba(34,211,238,0.4)] hover:border-cyan-300/70 hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
           >
             <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
             {loading ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <RefreshCw className="h-4 w-4 relative group-hover:rotate-180 transition-transform duration-500" />}
@@ -226,13 +226,13 @@ export default function AlphaSignalsDashboard() {
       </div>
 
       {topPick && (
-        <div className="relative mb-8 overflow-hidden rounded-3xl border border-cyan-400/50 bg-black/40 p-6 frosted-obsidian shadow-[0_0_60px_rgba(34,211,238,0.35)]">
-          <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-cyan-500/25 blur-3xl animate-pulse opacity-60" />
-          <div className="absolute -bottom-16 left-8 h-48 w-48 rounded-full bg-emerald-500/20 blur-3xl animate-pulse opacity-50" />
-          <div className="absolute top-1/3 right-1/4 h-64 w-64 rounded-full bg-violet-500/15 blur-3xl animate-pulse opacity-40" />
+        <div className="relative mb-8 overflow-hidden rounded-3xl border border-cyan-400/50 bg-black/40 p-6 frosted-obsidian shadow-[0_0_40px_rgba(34,211,238,0.2)]">
+          <div className="absolute -end-16 -top-16 h-56 w-56 rounded-full bg-cyan-500/25 blur-3xl animate-pulse opacity-60" />
+          <div className="absolute -bottom-16 start-8 h-48 w-48 rounded-full bg-emerald-500/20 blur-3xl animate-pulse opacity-50" />
+          <div className="absolute top-1/3 end-1/4 h-64 w-64 rounded-full bg-violet-500/15 blur-3xl animate-pulse opacity-40" />
           <div className="relative flex flex-wrap items-center justify-between gap-4">
             <div>
-              <p className="inline-flex items-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-100">
+              <p className="ui-label inline-flex items-center gap-2 rounded-full border border-cyan-300/40 bg-cyan-400/10 px-3 py-1 text-xs tracking-wide text-cyan-100" id="top-pick-label">
                 <Sparkles className="h-3.5 w-3.5" />
                 {t.topPickRightNow ?? 'Top Pick Right Now'}
               </p>
@@ -263,22 +263,22 @@ export default function AlphaSignalsDashboard() {
             return (
           <article
             key={item.asset}
-            className="signal-row group relative rounded-2xl border border-white/20 bg-black/40 p-5 frosted-obsidian shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_16px_50px_rgba(34,211,238,0.15),0_0_40px_rgba(34,211,238,0.2)] hover:border-cyan-400/60"
+            className="signal-row group relative rounded-2xl border border-white/20 bg-black/40 p-5 frosted-obsidian shadow-[0_8px_24px_rgba(0,0,0,0.2)] transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_32px_rgba(34,211,238,0.12)] hover:border-cyan-400/60"
             style={{ '--row-index': idx } as React.CSSProperties}
           >
             <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-500/10 via-transparent to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
             <div className="relative mb-5 flex items-center justify-between gap-3 z-10">
               <div>
-                <p className="text-2xl font-black text-white tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.3)]">{item.asset}</p>
-                <p className="text-xs uppercase tracking-[0.2em] text-zinc-400 font-semibold mt-1">AI Advisory Signal</p>
+                <p className="text-2xl font-black text-white tracking-tight">{item.asset}</p>
+                <p className="ui-label text-xs tracking-wide text-zinc-300 font-semibold mt-1">AI Advisory Signal</p>
               </div>
               <ProbabilityRing probability={item.shortTermOutlook.probability} signal={item.shortTermOutlook.signal} />
             </div>
 
             <div className="relative space-y-3 z-10">
-              <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 backdrop-blur-xl p-4 shadow-[0_0_20px_rgba(34,211,238,0.1)]">
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 backdrop-blur-xl p-4 shadow-[0_0_12px_rgba(34,211,238,0.05)]">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.2em] font-semibold text-cyan-300">{t.nextFewHours ?? 'Next Few Hours'}</p>
+                  <p className="ui-label text-xs tracking-wide font-semibold text-cyan-200">{t.nextFewHours ?? 'Next Few Hours'}</p>
                   <span className={`rounded-full border px-3 py-1 text-xs font-bold ${signalClass(item.shortTermOutlook.signal)}`}>
                     {getSignalLabel(item.shortTermOutlook.signal, locale)}
                   </span>
@@ -287,9 +287,9 @@ export default function AlphaSignalsDashboard() {
                 <p className="text-sm leading-relaxed text-zinc-100">{item.shortTermOutlook.rationale}</p>
               </div>
 
-              <div className="rounded-xl border border-violet-500/30 bg-violet-950/20 backdrop-blur-xl p-4 shadow-[0_0_20px_rgba(168,85,247,0.1)]">
+              <div className="rounded-xl border border-violet-500/30 bg-violet-950/20 backdrop-blur-xl p-4 shadow-[0_0_12px_rgba(168,85,247,0.05)]">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-[0.2em] font-semibold text-violet-300">{t.upcomingDays ?? 'Upcoming Days'}</p>
+                  <p className="ui-label text-xs tracking-wide font-semibold text-violet-200">{t.upcomingDays ?? 'Upcoming Days'}</p>
                   <span className={`rounded-full border px-3 py-1 text-xs font-bold ${signalClass(item.swingOutlook.signal)}`}>
                     {getSignalLabel(item.swingOutlook.signal, locale)}
                   </span>
@@ -309,6 +309,8 @@ export default function AlphaSignalsDashboard() {
               ) : (
                 <button
                   type="button"
+                  id={`execute-btn-${item.asset}`}
+                  name={`execute-signal-${item.asset}`}
                   onClick={() =>
                     openExecutionModal(
                       item.asset,
@@ -317,10 +319,10 @@ export default function AlphaSignalsDashboard() {
                     )
                   }
                   disabled={item.shortTermOutlook.signal === 'HOLD' || isProcessing}
-                  className="group relative mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-violet-400/60 bg-gradient-to-b from-violet-500/25 to-violet-950/40 px-4 py-3 text-sm font-bold text-violet-100 shadow-[0_0_28px_rgba(168,85,247,0.35),inset_0_1px_0_rgba(255,255,255,0.12)] backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_40px_rgba(168,85,247,0.55),0_0_80px_rgba(168,85,247,0.2)] hover:border-violet-300/70 hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:border-zinc-700/40 disabled:bg-zinc-900/30 disabled:text-zinc-500 disabled:shadow-none disabled:opacity-50"
+                  className="group relative mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-400/60 bg-slate-800 hover:bg-slate-700 px-4 py-3 text-sm font-bold text-white shadow-[0_0_16px_rgba(34,211,238,0.2)] backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_24px_rgba(34,211,238,0.3)] hover:border-cyan-300/70 active:scale-95 disabled:cursor-not-allowed disabled:border-zinc-700/40 disabled:bg-zinc-900/30 disabled:text-zinc-500 disabled:shadow-none disabled:opacity-50"
                 >
-                  <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
-                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative drop-shadow-[0_0_6px_rgba(168,85,247,0.6)]" />}
+                  <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                  {isProcessing ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative" />}
                   <span className="relative">{isProcessing ? (t.processing ?? 'Processing...') : (t.approveAndExecute ?? 'Approve & Execute')}</span>
                 </button>
               )}
@@ -348,11 +350,11 @@ export default function AlphaSignalsDashboard() {
             role="dialog"
             aria-modal="true"
             aria-label="Confirm manual override"
-            className="relative z-[91] w-full max-w-xl rounded-3xl border border-violet-400/60 bg-black/50 p-6 frosted-obsidian shadow-[0_24px_80px_rgba(0,0,0,0.55),0_0_60px_rgba(168,85,247,0.25)]"
+            className="relative z-[91] w-full max-w-xl rounded-3xl border border-cyan-400/60 bg-black/50 p-6 frosted-obsidian shadow-[0_24px_60px_rgba(0,0,0,0.4)]"
           >
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-violet-200/90">{t.manualOverride ?? 'Manual Override'}</p>
+                <p className="ui-label text-xs tracking-wide text-violet-200/90">{t.manualOverride ?? 'Manual Override'}</p>
                 <h3 className="mt-1 text-xl font-semibold text-zinc-100">{t.confirmDeploySignal ?? 'Confirm & Deploy Signal'}</h3>
               </div>
               <button
@@ -381,12 +383,14 @@ export default function AlphaSignalsDashboard() {
               </button>
               <button
                 type="button"
+                id="confirm-deploy-btn"
+                name="confirm-execution"
                 onClick={() => void confirmAndExecute()}
                 disabled={submittingExecution}
-                className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/60 bg-gradient-to-b from-cyan-500/25 to-cyan-950/40 px-5 py-2.5 text-sm font-bold text-cyan-100 shadow-[0_0_32px_rgba(34,211,238,0.4),inset_0_1px_0_rgba(255,255,255,0.12)] transition-all duration-300 hover:shadow-[0_0_48px_rgba(34,211,238,0.6),0_0_100px_rgba(34,211,238,0.25)] hover:border-cyan-300/80 hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                className="group relative inline-flex items-center gap-2 rounded-xl border border-cyan-400/60 bg-slate-800 hover:bg-slate-700 px-5 py-2.5 text-sm font-bold text-white shadow-[0_0_16px_rgba(34,211,238,0.25)] transition-all duration-300 hover:shadow-[0_0_24px_rgba(34,211,238,0.35)] hover:border-cyan-300/80 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
               >
-                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
-                {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]" />}
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin relative" /> : <Zap className="h-4 w-4 relative" />}
                 <span className="relative">{t.confirmAndDeploy ?? 'Confirm & Deploy'}</span>
               </button>
             </div>

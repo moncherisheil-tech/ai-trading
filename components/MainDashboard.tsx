@@ -79,7 +79,7 @@ function TerminalClock() {
   }, []);
   return (
     <div className="font-mono text-xs sm:text-sm text-cyan-400/90 tabular-nums tracking-tight text-end">
-      <span className="text-zinc-500 text-[10px] uppercase tracking-widest block sm:inline sm:me-3">שעון מקומי</span>
+      <span className="ui-label text-zinc-400 text-xs block sm:inline sm:me-3">שעון מקומי</span>
       {now}
     </div>
   );
@@ -139,23 +139,23 @@ export default function MainDashboard() {
         className="relative max-w-[1680px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10 w-full min-w-0"
       >
         {/* Command strip */}
-        <motion.header variants={staggerItem} className={`${GLASS} z-depth-3 mb-6 px-5 py-4 sm:px-6 flex flex-wrap items-center justify-between gap-4`}>
+        <motion.header variants={staggerItem} className={`${GLASS} z-depth-2 mb-6 px-5 py-4 sm:px-6 flex flex-wrap items-center justify-between gap-4`}>
           <div className="flex items-center gap-4 min-w-0">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-cyan-500/15 border border-cyan-500/30 shadow-[0_0_24px_rgba(6,182,212,0.2)]">
               <Activity className="h-5 w-5 text-cyan-300" aria-hidden />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-cyan-300/85">מועצת ה-AI</p>
+              <p className="ui-label text-xs font-semibold tracking-wide text-cyan-200">מועצת ה-AI</p>
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate">מסוף ריבונות</h1>
-              <p className="text-xs text-zinc-500 mt-0.5 hidden sm:block">סימולציה ולימוד בלבד · אין זה ייעוץ השקעות</p>
+              <p className="ui-label text-sm text-zinc-300 mt-0.5 hidden sm:block">סימולציה ולימוד בלבד · אין זה ייעוץ השקעות</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
-            <span className={`text-[10px] uppercase tracking-[0.24em] px-3 py-1 rounded-full border live-data-number tabular-nums tracking-tight ${marketMode === 'bull' ? 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10' : 'text-rose-300 border-rose-400/40 bg-rose-500/10'}`}>
+            <span className={`ui-label text-xs tracking-wide px-3 py-1 rounded-full border live-data-number tabular-nums tracking-tight ${marketMode === 'bull' ? 'text-emerald-300 border-emerald-400/40 bg-emerald-500/10' : 'text-rose-300 border-rose-400/40 bg-rose-500/10'}`}>
               {marketMode === 'bull' ? 'מצב שור' : 'מצב דוב'}
             </span>
             <span
-              className={`text-[10px] uppercase tracking-[0.24em] px-3 py-1 rounded-full border font-mono tabular-nums tracking-tight ${
+              className={`text-xs px-3 py-1 rounded-full border font-mono tabular-nums tracking-tight ${
                 isDefcon1
                   ? 'text-rose-200 border-rose-500/60 bg-rose-950/50 ring-1 ring-rose-500/30'
                   : defcon === 2
@@ -167,7 +167,7 @@ export default function MainDashboard() {
               DEFCON {defcon}
               {volatilityNormalized > 0.55 ? ' · תנודתיות גבוהה' : ''}
             </span>
-            <div className="hidden sm:flex items-center gap-2 text-[10px] uppercase tracking-widest text-zinc-500">
+            <div className="hidden sm:flex items-center gap-2 ui-label text-xs tracking-wide text-zinc-400">
               <Cpu className="h-3.5 w-3.5 text-cyan-500/70" />
               <span>קונצנזוס · זיכרון עמוק</span>
             </div>
@@ -184,14 +184,14 @@ export default function MainDashboard() {
           />
 
           <div
-            className={`${GLASS} neural-pulse-border sovereign-tilt z-depth-3 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-6 lg:row-span-2 shadow-[0_35px_80px_rgba(0,0,0,0.6)]`}
+            className={`${GLASS} neural-pulse-border sovereign-tilt z-depth-2 overflow-hidden flex flex-col lg:col-span-4 xl:col-span-6 lg:row-span-2 shadow-[0_20px_44px_rgba(0,0,0,0.45)]`}
           >
             <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-white/10 bg-black/20 shrink-0">
               <div className="flex items-center gap-2">
                 <BrainCircuit className="h-5 w-5 text-cyan-300" />
-                <span className="text-xs font-bold uppercase tracking-[0.24em] text-cyan-100/90">ליבת המפקח</span>
+                <span className="ui-label text-sm font-semibold text-cyan-100/90">ליבת המפקח</span>
               </div>
-              <span className="text-[11px] uppercase tracking-[0.18em] live-data-number tabular-nums text-zinc-400">
+              <span className="ui-label text-xs live-data-number tabular-nums text-zinc-300">
                 סריקה נוירלית
               </span>
             </div>
@@ -206,7 +206,7 @@ export default function MainDashboard() {
           >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5 bg-black/15">
               <Shield className="h-4 w-4 text-emerald-400/90" aria-hidden />
-              <span className="text-xs font-semibold text-zinc-200 uppercase tracking-wider">סטטוס שוק</span>
+              <span className="ui-label text-sm font-semibold text-zinc-100">סטטוס שוק</span>
             </div>
             <MarketSafetyBanner />
             <div className="border-t border-white/5 flex-1 min-h-0">
@@ -221,7 +221,7 @@ export default function MainDashboard() {
             <div className="flex items-start gap-3">
               <BarChart2 className="h-5 w-5 text-cyan-400/80 shrink-0 mt-0.5" aria-hidden />
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">אנליטיקה</p>
+                <p className="ui-label text-xs font-semibold text-zinc-300">אנליטיקה</p>
                 <p className="text-sm font-semibold text-zinc-200 leading-snug">דיוק AI ומגמות ביצועים בזמן אמת</p>
               </div>
             </div>
@@ -248,7 +248,7 @@ export default function MainDashboard() {
           >
             <div className="flex items-center gap-2 px-5 py-3 border-b border-white/5 bg-black/20">
               <Cpu className="h-4 w-4 text-amber-400/90" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-300">מנוע מודיעין ביצועים</span>
+              <span className="ui-label text-sm font-semibold text-zinc-200">מנוע מודיעין ביצועים</span>
             </div>
             <div className="p-4 sm:p-6 overflow-x-hidden">
               <div className="cyber-decrypt text-xs tracking-[0.24em] font-semibold mb-4" data-scramble="DATA-LINK-SECURE">

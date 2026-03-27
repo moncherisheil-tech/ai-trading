@@ -26,9 +26,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       {!isOpsArea && <AppHeader />}
-      <div className="flex flex-1 min-h-0 flex-col pt-20 md:pt-0 md:pe-[280px]">
+      <div className="flex flex-1 min-h-0 flex-col pt-[calc(var(--safe-area-top)+5rem)] md:pt-0 md:pe-[280px]">
         <CryptoTicker />
-        <main className="flex-1 flex flex-col min-h-0 pb-20 md:pb-0">
+        <main className="flex-1 flex flex-col min-h-0 pb-[calc(var(--safe-area-bottom)+5.5rem)] md:pb-0">
           <ToastProvider>
             <SimulationProvider>
               <PageTransition>{children}</PageTransition>

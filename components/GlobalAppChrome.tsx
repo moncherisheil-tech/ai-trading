@@ -26,9 +26,9 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
   return (
     <MarketStateProvider>
       <div className="min-h-screen w-full" style={{ display: 'grid', gridTemplateColumns: '1fr 280px' }}>
-        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-20 md:pt-0">
+        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-[calc(var(--safe-area-top)+5rem)] md:pt-0">
           <CryptoTicker />
-          <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-20 md:pb-0">
+          <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-[calc(var(--safe-area-bottom)+5.5rem)] md:pb-0">
             <ToastProvider>
               <SimulationProvider>
                 <PageTransition>{children}</PageTransition>

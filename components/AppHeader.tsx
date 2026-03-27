@@ -176,7 +176,7 @@ export default function AppHeader() {
                 <Wallet className="w-4 h-4 shrink-0" aria-hidden />
                 <span className="truncate">
                   {sim.selectedSymbol} •{' '}
-                  <span className="live-data-number tabular-nums">
+                  <span className="live-data-number tabular-nums financial-token">
                     ${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                   </span>
                 </span>
@@ -210,7 +210,7 @@ export default function AppHeader() {
 
       {/* Mobile header */}
       <header
-        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian panel-sovereign-diamond z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden overflow-x-hidden"
+        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian panel-sovereign-diamond z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden overflow-x-hidden pt-[var(--safe-area-top)]"
         dir="rtl"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 lg:gap-6 min-w-0">
@@ -264,14 +264,14 @@ export default function AppHeader() {
               onClick={() => setMenuOpen(false)}
             />
             <div
-              className="fixed top-0 right-0 bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-s border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col"
+              className="fixed top-0 end-0 bottom-0 w-full max-w-sm z-[var(--z-drawer)] bg-[#0f0f0f] border-s border-white/10 shadow-2xl overflow-y-auto md:hidden flex flex-col"
               role="dialog"
               aria-modal="true"
               aria-label="תפריט ניווט"
               dir="rtl"
             >
               <div className="sticky top-0 flex items-center justify-between p-4 border-b border-white/10 bg-[#0f0f0f]/98 backdrop-blur shrink-0">
-                <span className="text-sm font-semibold text-zinc-300">תפריט</span>
+                <span className="ui-label text-sm font-semibold text-zinc-200">תפריט</span>
                 <button
                   type="button"
                   onClick={() => setMenuOpen(false)}
@@ -281,7 +281,7 @@ export default function AppHeader() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-4 flex flex-col gap-1">
+              <div className="p-4 pb-[calc(var(--safe-area-bottom)+1rem)] flex flex-col gap-1">
                 {NAV_ITEMS.map((item) => {
                   const Icon = item.icon;
                   const label = getNavLabel(item, t as Record<string, string>);
@@ -323,7 +323,7 @@ export default function AppHeader() {
                     <Wallet className="w-4 h-4 shrink-0" aria-hidden />
                     <span className="truncate">
                       {sim.selectedSymbol} •{' '}
-                      <span className="live-data-number tabular-nums">
+                      <span className="live-data-number tabular-nums financial-token">
                         ${sim.walletUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                       </span>
                     </span>
@@ -339,7 +339,7 @@ export default function AppHeader() {
                   פרופיל
                 </Link>
                 <div className="flex items-center justify-between px-4 py-3 mt-4 pt-4 border-t border-white/5">
-                  <span className="text-xs text-zinc-500">גרסה 1.3</span>
+                  <span className="ui-label text-xs text-zinc-400">גרסה 1.3</span>
                 </div>
                 {isOpsArea && (
                   <div className="flex flex-col gap-3 px-4 py-4 mt-2 border-t border-white/10">
