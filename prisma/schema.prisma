@@ -6,6 +6,243 @@ datasource db {
   provider = "postgresql"
 }
 
+model TradeExecution {
+  id            String               @id @default(cuid())
+  symbol        String
+  alphaSignalId String?
+  type          TradeExecutionType
+  side          TradeSide
+  amount        Decimal              @db.Decimal(24, 8)
+  entryPrice    Decimal              @db.Decimal(24, 8)
+  exitPrice     Decimal?             @db.Decimal(24, 8)
+  pnl           Decimal?             @db.Decimal(24, 8)
+  status        TradeExecutionStatus @default(OPEN)
+  executedAt    DateTime             @default(now())
+  closedAt      DateTime?
+  insights      LearnedInsight[]
+
+  @@index([symbol, executedAt(sort: Desc)])
+  @@index([status, executedAt(sort: Desc)])
+}
+
+model LearnedInsight {
+  id                String         @id @default(cuid())
+  tradeId           String
+  failureReason     String
+  academyReference  String?
+  adjustmentApplied Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  trade             TradeExecution @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+
+  @@index([tradeId, createdAt(sort: Desc)])
+}
+
+model accuracy_snapshots {
+  id               Int     @id @default(autoincrement())
+  snapshot_date    String  @unique @db.VarChar(10)
+  success_rate_pct Decimal @db.Decimal(10, 4)
+  volume_weight    Decimal @db.Decimal(10, 6)
+  rsi_weight       Decimal @db.Decimal(10, 6)
+  sentiment_weight Decimal @db.Decimal(10, 6)
+}
+
+model agent_insights {
+  id               Int      @id @default(autoincrement())
+  symbol           String   @db.VarChar(32)
+  trade_id         Int
+  entry_conditions String?
+  outcome          String?
+  insight          String
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  tech_score       Int?
+  risk_score       Int?
+  psych_score      Int?
+  master_insight   String?
+  reasoning_path   String?
+  why_win_lose     String?
+  agent_verdict    String?
+
+  @@index([created_at(sort: Desc)], map: "idx_agent_insights_created_at")
+  @@index([symbol], map: "idx_agent_insights_symbol")
+}
+
+model audit_logs {
+  id           Int      @id @default(autoincrement())
+  timestamp    DateTime @default(now()) @db.Timestamptz(6)
+  action_type  String   @db.VarChar(128)
+  actor_ip     String?  @db.VarChar(64)
+  user_agent   String?
+  payload_diff Json?
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([action_type], map: "idx_audit_logs_action_type")
+  @@index([timestamp(sort: Desc)], map: "idx_audit_logs_timestamp")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model expert_weights {
+  id                  Int      @id
+  data_expert_weight  Decimal  @default(1.0) @db.Decimal(10, 6)
+  news_expert_weight  Decimal  @default(1.0) @db.Decimal(10, 6)
+  macro_expert_weight Decimal  @default(1.0) @db.Decimal(10, 6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_reason      String?
+}
+
+model historical_predictions {
+  id                     Int      @id @default(autoincrement())
+  prediction_id          String   @db.VarChar(255)
+  symbol                 String   @db.VarChar(32)
+  prediction_date        String   @db.VarChar(32)
+  predicted_direction    String   @db.VarChar(16)
+  entry_price            Decimal  @db.Decimal(24, 8)
+  actual_price           Decimal  @db.Decimal(24, 8)
+  price_diff_pct         Decimal  @db.Decimal(12, 6)
+  absolute_error_pct     Decimal  @db.Decimal(12, 6)
+  target_percentage      Decimal? @db.Decimal(12, 6)
+  probability            Decimal? @db.Decimal(8, 4)
+  outcome_label          String   @db.VarChar(64)
+  requires_deep_analysis Boolean
+  evaluated_at           DateTime @db.Timestamptz(6)
+  sentiment_score        Decimal? @db.Decimal(10, 4)
+  market_narrative       String?
+  bottom_line_he         String?
+  risk_level_he          String?
+  forecast_24h_he        String?
+
+  @@index([evaluated_at], map: "idx_historical_predictions_evaluated_at")
+  @@index([symbol], map: "idx_historical_predictions_symbol")
+}
+
+model prediction_records {
+  id              String   @id
+  symbol          String
+  status          String
+  prediction_date DateTime @db.Timestamptz(6)
+  payload         Json
+
+  @@index([prediction_date(sort: Desc)], map: "idx_prediction_records_prediction_date")
+  @@index([status], map: "idx_prediction_records_status")
+  @@index([symbol], map: "idx_prediction_records_symbol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model prediction_weights {
+  id               Int      @id
+  volume_weight    Decimal  @default(0.4) @db.Decimal(10, 6)
+  rsi_weight       Decimal  @default(0.3) @db.Decimal(10, 6)
+  sentiment_weight Decimal  @default(0.3) @db.Decimal(10, 6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  reason           String?
+}
+
+model scanner_alert_log {
+  id            Int      @id @default(autoincrement())
+  symbol        String   @db.VarChar(32)
+  prediction_id String   @db.VarChar(255)
+  probability   Float
+  entry_price   Float
+  alerted_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([alerted_at], map: "idx_scanner_alert_log_alerted_at")
+  @@index([symbol], map: "idx_scanner_alert_log_symbol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model simulation_trades {
+  id           String @id
+  symbol       String
+  side         String
+  price        Float
+  amount_usd   Float
+  amount_asset Float
+  fee_usd      Float
+  timestamp    BigInt
+  date_label   String
+
+  @@index([timestamp], map: "idx_simulation_trades_timestamp")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model system_configs {
+  id                    Int      @id
+  w_vol                 Decimal  @default(0.4) @db.Decimal(10, 6)
+  w_rsi                 Decimal  @default(0.3) @db.Decimal(10, 6)
+  w_sent                Decimal  @default(0.3) @db.Decimal(10, 6)
+  updated_at            DateTime @default(now()) @db.Timestamptz(6)
+  reason                String?
+  ai_threshold_override Int?
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model system_settings {
+  id                  Int       @id
+  scanner_is_active   Boolean   @default(true)
+  last_scan_timestamp BigInt?
+  updated_at          DateTime? @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model virtual_portfolio {
+  id                Int       @id @default(autoincrement())
+  symbol            String    @db.VarChar(32)
+  entry_price       Decimal   @db.Decimal(24, 8)
+  amount_usd        Decimal   @db.Decimal(24, 8)
+  entry_date        String    @db.VarChar(32)
+  status            String    @db.VarChar(16)
+  target_profit_pct Decimal   @default(2) @db.Decimal(10, 4)
+  stop_loss_pct     Decimal   @default(-1.5) @db.Decimal(10, 4)
+  closed_at         DateTime? @db.Timestamptz(6)
+  exit_price        Decimal?  @db.Decimal(24, 8)
+  pnl_pct           Decimal?  @db.Decimal(12, 6)
+  close_reason      String?   @db.VarChar(20)
+  source            String?   @default("manual") @db.VarChar(16)
+  entry_fee_usd     Decimal?  @db.Decimal(24, 8)
+  exit_fee_usd      Decimal?  @db.Decimal(24, 8)
+  pnl_net_usd       Decimal?  @db.Decimal(24, 8)
+  exec_state        Json?     @default("{}")
+
+  @@index([entry_date], map: "idx_virtual_portfolio_entry_date")
+  @@index([status], map: "idx_virtual_portfolio_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model virtual_trades_history {
+  id                      Int      @id @default(autoincrement())
+  event_id                String   @unique
+  prediction_id           String?
+  symbol                  String
+  signal_side             String   @db.VarChar(8)
+  confidence              Decimal  @db.Decimal(10, 4)
+  mode                    String   @db.VarChar(8)
+  executed                Boolean  @default(false)
+  execution_status        String   @db.VarChar(16)
+  reason                  String?
+  overseer_summary        String?
+  overseer_reasoning_path String?
+  expert_breakdown_json   Json?
+  execution_price         Decimal? @db.Decimal(24, 8)
+  amount_usd              Decimal? @db.Decimal(24, 8)
+  pnl_net_usd             Decimal? @db.Decimal(24, 8)
+  virtual_trade_id        Int?
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "idx_virtual_trades_history_created_at")
+  @@index([prediction_id], map: "idx_virtual_trades_history_prediction_id")
+  @@index([symbol], map: "idx_virtual_trades_history_symbol")
+}
+
+model weight_change_log {
+  id               Int      @id @default(autoincrement())
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  reason_he        String
+  volume_weight    Decimal  @db.Decimal(10, 6)
+  rsi_weight       Decimal  @db.Decimal(10, 6)
+  sentiment_weight Decimal  @db.Decimal(10, 6)
+
+  @@index([created_at], map: "idx_weight_change_log_created_at")
+}
+
 enum TradeExecutionType {
   PAPER
   LIVE
@@ -22,44 +259,10 @@ enum TradeExecutionStatus {
   FAILED
 }
 
-model TradeExecution {
-  id            String               @id @default(cuid())
-  symbol        String
-  alphaSignalId String?
-  type          TradeExecutionType
-  side          TradeSide
-  amount        Decimal              @db.Decimal(24, 8)
-  entryPrice    Decimal              @db.Decimal(24, 8)
-  exitPrice     Decimal?             @db.Decimal(24, 8)
-  pnl           Decimal?             @db.Decimal(24, 8)
-  status        TradeExecutionStatus @default(OPEN)
-  executedAt    DateTime             @default(now())
-  closedAt      DateTime?
-
-  insights      LearnedInsight[]
-
-  @@index([symbol, executedAt(sort: Desc)])
-  @@index([status, executedAt(sort: Desc)])
-}
-
-model LearnedInsight {
-  id                String   @id @default(cuid())
-  tradeId           String
-  failureReason     String
-  academyReference  String?
-  adjustmentApplied Boolean  @default(false)
-  createdAt         DateTime @default(now())
-
-  trade             TradeExecution @relation(fields: [tradeId], references: [id], onDelete: Cascade)
-
-  @@index([tradeId, createdAt(sort: Desc)])
-}
-
 model Setting {
   id        String   @id @default(cuid())
   key       String   @unique
   value     Json
   updatedAt DateTime @updatedAt
-
   @@map("settings")
 }
