@@ -1,9 +1,6 @@
 import 'dotenv/config';
 import { Pool, type QueryResult } from 'pg';
-import {
-  assertAuthorizedDatabaseUrl,
-  isDbConfigBuildPhaseImmune,
-} from '@/lib/db/sovereign-db-url';
+import { assertAuthorizedDatabaseUrl } from '@/lib/db/sovereign-db-url';
 
 let pool: Pool | null = null;
 
@@ -21,12 +18,6 @@ function normalizeEnvValue(raw: string | undefined): string {
 
 function connectionString(): string {
   const url = normalizeEnvValue(process.env.DATABASE_URL);
-  if (isDbConfigBuildPhaseImmune()) {
-    if (!url) {
-      return 'postgresql://quantum_admin:build@127.0.0.1:5432/_build_placeholder';
-    }
-    return url;
-  }
   assertAuthorizedDatabaseUrl(url);
   return url;
 }
