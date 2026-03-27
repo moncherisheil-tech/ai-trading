@@ -28,7 +28,12 @@ import {
   buildSentimentExpertAugmentation,
   buildTechnicalLiquidityAugmentation,
 } from '@/lib/agents/psych-agent';
-import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import {
+  GEMINI_DEFAULT_FLASH_MODEL_ID,
+  normalizeGeminiModelId,
+  resolveGeminiModel,
+  withGeminiRateLimitRetry,
+} from '@/lib/gemini-model';
 import { createHash } from 'crypto';
 
 /** Wall-clock cap for one MoE round; fail fast to avoid UI hangs. */
@@ -45,7 +50,9 @@ const WEIGHT_MACRO = WEIGHT_PER_EXPERT;
 const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
-const SAFE_GEMINI_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview';
+const SAFE_GEMINI_FALLBACK_MODEL = normalizeGeminiModelId(
+  process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID
+);
 const HAWKEYE_HOT_SWAP_LATENCY_MS = 1_500;
 const WATCHDOG_WINDOW = 20;
 /** Fallback when options.moeConfidenceThreshold not provided; otherwise read from getAppSettings(). */
@@ -677,7 +684,9 @@ async function callGeminiJson<T>(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const shouldSwap = /HAWKEYE_LATENCY_THRESHOLD/i.test(msg) || /timeout|rate|unavailable|503|429/i.test(msg);
+    const shouldSwap =
+      /HAWKEYE_LATENCY_THRESHOLD/i.test(msg) ||
+      /timeout|rate|unavailable|503|429|404|not found/i.test(msg);
     if (!shouldSwap) {
       return buildLocalFallbackObject<T>(fieldNames, msg);
     }
@@ -893,7 +902,9 @@ function parseMacroJson(raw: string): ExpertMacroOutput {
 }
 
 /** Gemini model used when Groq Macro agent hits 429 rate limit; keeps all 6 experts active. */
-const GEMINI_MACRO_FALLBACK_MODEL = process.env.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview';
+const GEMINI_MACRO_FALLBACK_MODEL = normalizeGeminiModelId(
+  process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID
+);
 
 /**
  * Run the Macro Expert once with global context only (DXY, Fear & Greed). Used by the scanner to pre-fetch

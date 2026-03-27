@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import { XMLParser } from 'fast-xml-parser';
 import { APP_CONFIG } from '@/lib/config';
 import { getGeminiApiKey } from '@/lib/env';
@@ -390,9 +390,8 @@ async function callExpert(
   dataset: Record<string, unknown>
 ): Promise<ExpertOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview',
-  });
+  const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const model = genAI.getGenerativeModel({ model: selectedExpert.model }, selectedExpert.requestOptions);
   const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
 
 Role: ${expertName}
@@ -443,9 +442,8 @@ Output strictly as JSON with these keys exactly:
 
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const model = genAI.getGenerativeModel({
-    model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview',
-  });
+  const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
   const prompt = `System instruction: You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.
 
 You are the Overseer (CEO). You must only consume the 6 expert JSON outputs below.

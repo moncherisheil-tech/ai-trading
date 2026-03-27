@@ -6,6 +6,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { resolveGeminiModel } from '@/lib/gemini-model';
 import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { fetchLatestCryptoNews } from '@/lib/agents/news-agent';
@@ -78,7 +79,8 @@ ${headlines.slice(0, 10).map((h, i) => `${i + 1}. ${h}`).join('\n')}
 החזר רק JSON תקין, בלי מרכאות או טקסט נוסף.`;
 
     const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
-    const model = genAI.getGenerativeModel({ model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview' }, { apiVersion: 'v1beta' });
+    const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+    const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
     const res = await Promise.race([
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],

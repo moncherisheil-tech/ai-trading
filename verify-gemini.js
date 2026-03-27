@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Zero-Touch Gemini API verification script.
- * Loads GEMINI_API_KEY from .env, calls gemini-2.5-flash with a simple JSON schema,
+ * Loads GEMINI_API_KEY from .env, calls gemini-3-flash-preview (v1beta) with a simple JSON schema,
  * prints success or the exact error for diagnostics.
  */
 
@@ -58,10 +58,13 @@ function extractJsonFromText(text) {
 async function main() {
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview',
-      systemInstruction: 'Reply with valid JSON only. No markdown, no explanation. Example: { "status": "ok" }',
-    });
+    const model = genAI.getGenerativeModel(
+      {
+        model: process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview',
+        systemInstruction: 'Reply with valid JSON only. No markdown, no explanation. Example: { "status": "ok" }',
+      },
+      { apiVersion: 'v1beta' }
+    );
     const result = await model.generateContent({
       contents: [{ role: 'user', parts: [{ text: 'Respond with a single JSON object containing exactly: { "status": "ok" }' }] }],
       generationConfig: {

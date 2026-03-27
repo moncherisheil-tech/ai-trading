@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, normalizeGeminiModelId } from './gemini-model';
 import { CRYPTO_SYMBOLS } from './symbols';
 
 /** Production base URL for absolute links and redirects. Set APP_URL in .env. */
@@ -61,11 +62,11 @@ export const APP_CONFIG = {
   tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
-  /** Primary Gemini model. */
-  primaryModel: process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview',
-  fallbackModel: process.env.GEMINI_MODEL_FALLBACK || 'gemini-3-flash-preview',
+  /** Primary Gemini model (retired env IDs like gemini-1.5-flash are normalized). */
+  primaryModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID),
+  fallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
   /** Model used when primary returns 429 (quota exhausted). */
-  quotaFallbackModel: process.env.GEMINI_MODEL_QUOTA_FALLBACK || 'gemini-3-flash-preview',
+  quotaFallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_QUOTA_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
   authToken: process.env.APP_AUTH_TOKEN || '',
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
   dbDriver: process.env.DB_DRIVER || 'file',

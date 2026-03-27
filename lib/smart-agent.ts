@@ -2,7 +2,7 @@
  * Smart Agent Trader: shadow portfolio, post-mortem (תחקיר פוסט-מורטם), and confidence (מדד ביטחון).
  * Elite Terminal v1.3: Success/Failure Feedback — compares agent_insights + virtual_portfolio to adjust confidence and emit Pattern Warnings.
  * MoE: Historical context from agent_insights is consumed by ConsensusEngine (getDeepMemoryContext in lib/consensus-engine.ts) for the Debate Room.
- * Learning Center: Post-mortem generation uses Groq (Llama 3.3) primary, Gemini 1.5 Flash fallback; same prompt for both for consistent Pinecone embeddings.
+ * Learning Center: Post-mortem generation uses Groq (Llama 3.3) primary, Gemini 3 Flash fallback; same prompt for both for consistent Pinecone embeddings.
  */
 
 import Decimal from 'decimal.js';
@@ -158,7 +158,7 @@ Respond with ONLY a single valid JSON object, no markdown, no explanation. Use e
 }
 
 /**
- * Generate post-mortem via LLM: Groq (Llama 3.3) primary, Gemini 1.5 Flash fallback.
+ * Generate post-mortem via LLM: Groq (Llama 3.3) primary, Gemini 3 Flash fallback.
  * Same prompt is sent to both for consistent Pinecone embeddings; output is parsed with extractJsonFromText.
  */
 export async function generatePostMortem(

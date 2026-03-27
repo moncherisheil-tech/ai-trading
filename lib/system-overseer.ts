@@ -213,6 +213,7 @@ export async function getOverseerChatReply(userMessage: string, locale?: Locale)
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const { getGeminiApiKey } = await import('@/lib/env');
   const { APP_CONFIG } = await import('@/lib/config');
+  const { resolveGeminiModel } = await import('@/lib/gemini-model');
 
   const context = await getSystemContextForChat();
   const dataBlob = JSON.stringify(
@@ -238,10 +239,8 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
   const genAI = new GoogleGenerativeAI(apiKey);
   const timeoutMs = Math.min(15_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
-  const model = genAI.getGenerativeModel(
-    { model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview' },
-    { apiVersion: 'v1beta' }
-  );
+  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
   const res = await Promise.race([
     model.generateContent({
       contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nMessage from CEO: ${userMessage}` }] }],
@@ -271,6 +270,7 @@ export async function getDailyCioSummary(locale?: Locale): Promise<string> {
   const { GoogleGenerativeAI } = await import('@google/generative-ai');
   const { getGeminiApiKey } = await import('@/lib/env');
   const { APP_CONFIG } = await import('@/lib/config');
+  const { resolveGeminiModel } = await import('@/lib/gemini-model');
 
   const context = await getSystemContextForChat();
   const dataBlob = JSON.stringify(
@@ -296,12 +296,8 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
   const genAI = new GoogleGenerativeAI(apiKey);
   const timeoutMs = Math.min(10_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
-  const model = genAI.getGenerativeModel(
-    {
-      model: APP_CONFIG.primaryModel || 'gemini-3-flash-preview',
-    },
-    { apiVersion: 'v1beta' }
-  );
+  const selectedCio = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const model = genAI.getGenerativeModel({ model: selectedCio.model }, selectedCio.requestOptions);
 
   const res = await Promise.race([
     model.generateContent({

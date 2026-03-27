@@ -3,12 +3,32 @@ type GeminiRequestOptions = {
   apiVersion: 'v1beta';
 };
 
+/** Default Flash model for `@google/generative-ai` v1beta (2026). */
+export const GEMINI_DEFAULT_FLASH_MODEL_ID = 'gemini-3-flash-preview';
+
+/**
+ * Retired / removed model IDs still seen in env (e.g. `GEMINI_MODEL_PRIMARY=gemini-1.5-flash`) → canonical Flash.
+ */
+const RETIRED_GEMINI_MODEL_IDS: Record<string, string> = {
+  'gemini-1.5-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-flash-8b': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-flash-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-pro-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
+};
+
+export function normalizeGeminiModelId(modelName: string): string {
+  const stripped = (modelName || '').replace(/^models\//, '').trim();
+  const id = stripped || GEMINI_DEFAULT_FLASH_MODEL_ID;
+  return RETIRED_GEMINI_MODEL_IDS[id] ?? id;
+}
+
 export function resolveGeminiModel(modelName: string): {
   model: string;
   requestOptions: GeminiRequestOptions;
 } {
-  const normalized = (modelName || 'gemini-3-flash-preview').replace(/^models\//, '').trim();
-  const model = `models/${normalized || 'gemini-3-flash-preview'}`;
+  const normalized = normalizeGeminiModelId(modelName || GEMINI_DEFAULT_FLASH_MODEL_ID);
+  const model = `models/${normalized}`;
 
   return {
     model,
