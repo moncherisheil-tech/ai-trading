@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- System settings (scanner on/off, last scan timestamp). Singleton row id=1.
@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   scanner_is_active BOOLEAN NOT NULL DEFAULT true,
   last_scan_timestamp BIGINT,
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  "updatedAt" TIMESTAMPTZ DEFAULT NOW()
 );
 INSERT INTO system_settings (id, scanner_is_active)
 VALUES (1, true)
