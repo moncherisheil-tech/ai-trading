@@ -16,10 +16,27 @@ function normalizeEnvValue(raw: string | undefined): string {
   return value;
 }
 
-function connectionString(): string {
+/** Last DATABASE_URL string that passed sovereign policy (avoids re-parsing on hot paths). */
+let cachedAuthorizedDatabaseUrl: string | null = null;
+
+/**
+ * Enforces sovereign DB policy before any query (including `ensureTable` DDL).
+ * Runs before `getPool()` so workers never open a socket until authorization succeeds.
+ */
+function ensureDatabaseAuthorizedForQuery(): string {
   const url = normalizeEnvValue(process.env.DATABASE_URL);
-  assertAuthorizedDatabaseUrl(url);
+  if (!url) {
+    throw new Error('Security Breach: Unauthorized DB User Attempted');
+  }
+  if (url !== cachedAuthorizedDatabaseUrl) {
+    assertAuthorizedDatabaseUrl(url);
+    cachedAuthorizedDatabaseUrl = url;
+  }
   return url;
+}
+
+function connectionString(): string {
+  return ensureDatabaseAuthorizedForQuery();
 }
 
 function getPool(): Pool {
@@ -41,6 +58,7 @@ export function sql(
   strings: TemplateStringsArray,
   ...values: unknown[]
 ): Promise<QueryResult> {
+  ensureDatabaseAuthorizedForQuery();
   let text = strings[0] ?? '';
   const params: unknown[] = [];
   for (let i = 0; i < values.length; i++) {
