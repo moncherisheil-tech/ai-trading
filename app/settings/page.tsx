@@ -3,7 +3,6 @@ import { redirect } from 'next/navigation';
 import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import Link from 'next/link';
 import { ArrowRight, Scale, TrendingUp, BookOpen, Zap, Globe } from 'lucide-react';
-import SettingsTelegramCard from '@/components/SettingsTelegramCard';
 import SettingsCommandCenter from '@/components/SettingsCommandCenter';
 import SystemOptimizationCard from '@/components/SystemOptimizationCard';
 import ConfidenceVsRealityChart from '@/components/ConfidenceVsRealityChart';
@@ -198,8 +197,6 @@ export default async function SettingsPage() {
             }}
           />
         )}
-
-        <SettingsTelegramCard />
       </main>
     </div>
   );

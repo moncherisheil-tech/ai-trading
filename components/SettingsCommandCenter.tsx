@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, type FormEvent, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Shield,
@@ -15,9 +15,10 @@ import {
   MessageSquare,
   Users,
   UserPlus,
-  Eye,
-  EyeOff,
   KeyRound,
+  Send,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 import { useAppSettings } from '@/context/AppSettingsContext';
@@ -25,6 +26,8 @@ import SystemAuditTable from '@/components/SystemAuditTable';
 import ExecutiveChat from '@/components/ExecutiveChat';
 import RiskCommandCenter from '@/components/RiskCommandCenter';
 import type { AppSettings } from '@/lib/db/app-settings';
+import SecureSecretInput from '@/components/SecureSecretInput';
+import { getTelegramStatusAction, testTelegramAction } from '@/app/actions';
 
 type TabId = 'trading' | 'risk' | 'neural' | 'notifications' | 'security' | 'chat' | 'subscribers';
 
@@ -58,6 +61,10 @@ const labelClass = 'flex items-center gap-1.5 text-sm font-medium text-cyan-100/
 const cardClass = 'rounded-xl border border-slate-700 bg-slate-900 overflow-hidden';
 const sectionClass = 'p-4 sm:p-5 border-b border-slate-700 bg-slate-800/90 flex items-center gap-2';
 const panelHeadClass = 'px-4 sm:px-5 py-3 border-b border-slate-700 bg-slate-800/80 flex items-center gap-2';
+const TOOLTIP_TOKEN =
+  'מתקבל מ־@BotFather בטלגרם: /newbot → העתק את ה־API Token.';
+const TOOLTIP_CHAT_ID =
+  'מזהה הצ\'אט: שלח הודעה לבוט ואז פתח: https://api.telegram.org/bot<TOKEN>/getUpdates וחפש את "chat":{"id":...}';
 
 function InstitutionalToggle({
   checked,
@@ -87,53 +94,6 @@ function InstitutionalToggle({
         }`}
       />
     </button>
-  );
-}
-
-function SecureSecretInput({
-  id,
-  value,
-  onChange,
-  placeholder,
-  disabled,
-  dir = 'ltr',
-  className = '',
-  inputMode,
-}: {
-  id: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  dir?: 'ltr' | 'rtl';
-  className?: string;
-  inputMode?: InputHTMLAttributes<HTMLInputElement>['inputMode'];
-}) {
-  const [show, setShow] = useState(false);
-  return (
-    <div className="relative">
-      <input
-        id={id}
-        type={show ? 'text' : 'password'}
-        autoComplete="off"
-        disabled={disabled}
-        dir={dir}
-        inputMode={inputMode}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`${inputClass} pe-11 font-mono ${className}`}
-      />
-      <button
-        type="button"
-        tabIndex={-1}
-        className="absolute inset-y-0 end-0 flex items-center justify-center px-2 text-slate-400 transition hover:text-cyan-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500 rounded-e-xl"
-        onClick={() => setShow((s) => !s)}
-        aria-label={show ? 'הסתר ערך' : 'חשוף ערך'}
-      >
-        {show ? <EyeOff className="h-4 w-4 shrink-0" /> : <Eye className="h-4 w-4 shrink-0" />}
-      </button>
-    </div>
   );
 }
 
@@ -354,6 +314,11 @@ export default function SettingsCommandCenter() {
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('trading');
   const [initialSettings, setInitialSettings] = useState<AppSettings | null>(null);
+  const [telegramConnected, setTelegramConnected] = useState<boolean | null>(null);
+  const [telegramToken, setTelegramToken] = useState('');
+  const [telegramChatId, setTelegramChatId] = useState('');
+  const [telegramTesting, setTelegramTesting] = useState(false);
+  const [telegramTestResult, setTelegramTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   const form = useForm<AppSettings>({
     defaultValues: {} as AppSettings,
@@ -376,6 +341,22 @@ export default function SettingsCommandCenter() {
       });
     return () => { cancelled = true; };
   }, [reset]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const out = await getTelegramStatusAction();
+      if (cancelled) return;
+      if (!out.success) {
+        setTelegramConnected(false);
+        return;
+      }
+      setTelegramConnected(Boolean((out.data as { connected?: boolean } | null)?.connected));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const trySetTab = useCallback(
     (tab: TabId) => {
@@ -426,6 +407,22 @@ export default function SettingsCommandCenter() {
       toast.error('שגיאת רשת');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTelegramTest = async (
+    variant: 'connection' | 'system' | 'trade' | 'integration' = 'integration'
+  ) => {
+    setTelegramTesting(true);
+    setTelegramTestResult(null);
+    try {
+      const out = await testTelegramAction({ variant, token: telegramToken, chatId: telegramChatId });
+      if (out.success) setTelegramTestResult(out.data as { ok: boolean; error?: string });
+      else setTelegramTestResult({ ok: false, error: out.error });
+    } catch {
+      setTelegramTestResult({ ok: false, error: 'שגיאת רשת' });
+    } finally {
+      setTelegramTesting(false);
     }
   };
 
@@ -759,9 +756,106 @@ export default function SettingsCommandCenter() {
                   />
                 </div>
               </div>
-              <p className="rounded-lg border border-slate-700/80 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
-                טוקן בוט ו־Chat ID להגדרה מלאה — בכרטיס <span className="font-medium text-slate-300">חיבור טלגרם</span> בתחתית עמוד ההגדרות (בדיקת חיבור).
-              </p>
+              <div className="rounded-lg border border-slate-700/80 bg-slate-800/40 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-slate-400">
+                    בדיקת אינטגרציה מהירה ללא שמירה קבועה (Token/Chat ID זמניים לבדיקות בלבד).
+                  </p>
+                  {telegramConnected !== null && (
+                    <ConnectionStatusBadge connected={telegramConnected}>
+                      {telegramConnected ? 'חובר' : 'מנותק'}
+                    </ConnectionStatusBadge>
+                  )}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="telegram-token" className={labelClass}>
+                      טוקן בוט (אופציונלי לבדיקה)
+                      <span
+                        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-600/80 text-slate-400 cursor-help"
+                        title={TOOLTIP_TOKEN}
+                        aria-label={TOOLTIP_TOKEN}
+                      >
+                        <Info className="w-3 h-3" />
+                      </span>
+                    </label>
+                    <SecureSecretInput
+                      id="telegram-token"
+                      value={telegramToken}
+                      onChange={setTelegramToken}
+                      placeholder="••••••••"
+                      dir="ltr"
+                      inputClassName={inputClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="telegram-chat-id" className={labelClass}>
+                      מזהה צ&apos;אט (אופציונלי לבדיקה)
+                      <span
+                        className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-600/80 text-slate-400 cursor-help"
+                        title={TOOLTIP_CHAT_ID}
+                        aria-label={TOOLTIP_CHAT_ID}
+                      >
+                        <Info className="w-3 h-3" />
+                      </span>
+                    </label>
+                    <SecureSecretInput
+                      id="telegram-chat-id"
+                      value={telegramChatId}
+                      onChange={setTelegramChatId}
+                      placeholder="123456789"
+                      dir="ltr"
+                      inputMode="numeric"
+                      inputClassName={inputClass}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTelegramTest('integration')}
+                    disabled={telegramTesting}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 text-white text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
+                    aria-label="בדוק חיבור טלגרם — שלח הודעת בדיקה"
+                  >
+                    {telegramTesting ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        שולח...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4" />
+                        בדוק חיבור טלגרם
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTelegramTest('trade')}
+                    disabled={telegramTesting}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-60 text-slate-100 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50"
+                    aria-label="שלח סימולציית עסקה לבדיקה"
+                  >
+                    📊 בדיקת עסקה
+                  </button>
+                </div>
+                {telegramTestResult && (
+                  <div className={`flex items-center gap-2 text-sm ${telegramTestResult.ok ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {telegramTestResult.ok ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 shrink-0" />
+                        הודעת בדיקה נשלחה בהצלחה.
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4 shrink-0" />
+                        {telegramTestResult.error || 'השליחה נכשלה'}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
