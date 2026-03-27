@@ -20,6 +20,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAppSettings } from '@/context/AppSettingsContext';
 import SystemAuditTable from '@/components/SystemAuditTable';
 import ExecutiveChat from '@/components/ExecutiveChat';
+import RiskCommandCenter from '@/components/RiskCommandCenter';
 import type { AppSettings } from '@/lib/db/app-settings';
 
 type TabId = 'trading' | 'risk' | 'neural' | 'notifications' | 'security' | 'chat' | 'subscribers';
@@ -441,6 +442,7 @@ export default function SettingsCommandCenter() {
           hidden={activeTab !== 'risk'}
           className="space-y-4"
         >
+          <RiskCommandCenter />
           <div className={cardClass}>
             <div className={sectionClass}>
               <Shield className="w-5 h-5 text-cyan-400" />
