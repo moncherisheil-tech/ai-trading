@@ -49,6 +49,14 @@ import {
   isChatIdActiveSubscriber,
   isChatIdActiveAdmin,
 } from '@/lib/db/telegram-subscribers';
+import {
+  INSTITUTIONAL_FLOOR_CB_PREFIX,
+  handleInstitutionalTerminalCallback,
+  isInstitutionalTerminalAdmin,
+  buildTerminalDashboardText,
+  getTerminalDashboardKeyboard,
+  EXEC_TERMINAL_AUDIT,
+} from '@/lib/telegram-institutional-terminal';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
@@ -65,11 +73,14 @@ interface TelegramUpdate {
   message?: {
     text?: string;
     chat?: { id?: number };
+    from?: { id?: number };
+    date?: number;
   };
   callback_query?: {
     id: string;
     data?: string;
-    message?: { chat?: { id?: number }; message_id?: number };
+    from?: { id?: number };
+    message?: { chat?: { id?: number }; message_id?: number; date?: number };
   };
 }
 
@@ -471,13 +482,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // ——— Text message: only from allowed chat (DB active subscriber when Postgres is configured).
   // Security: non-allowed chat IDs get 200 OK with no processing so Telegram stops retrying; we ignore malicious users entirely.
+  // Exception: /terminal is gated only by DB admin user id (or TELEGRAM_ADMIN_CHAT_ID) so executives are not blocked by subscriber list.
   const msg = update.message;
   if (msg?.text && msg.chat?.id != null) {
-    if (!(await isAllowedChatAsync(msg.chat.id))) {
-      return NextResponse.json({ ok: true });
-    }
     const chatId = msg.chat.id;
     const { cmd, arg } = parseCommand(msg.text);
+    if (cmd === 'terminal') {
+      if (!(await isInstitutionalTerminalAdmin(msg.from?.id))) {
+        return NextResponse.json({ ok: true });
+      }
+      const t = getToken();
+      if (t) {
+        const text = await buildTerminalDashboardText();
+        await sendTelegramRaw({
+          token: t,
+          chatId: String(chatId),
+          text,
+          parse_mode: 'MarkdownV2',
+          reply_markup: getTerminalDashboardKeyboard(),
+        });
+        try {
+          await recordAuditLog({
+            action_type: EXEC_TERMINAL_AUDIT,
+            actor_ip: null,
+            user_agent: 'telegram-webhook',
+            payload_diff: { action: 'open_terminal', chat_id: String(chatId), user_id: msg.from?.id },
+          });
+        } catch {
+          /* optional */
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+    if (!(await isAllowedChatAsync(chatId))) {
+      return NextResponse.json({ ok: true });
+    }
     if (cmd) {
       try {
         const reply = await handleCommand(cmd, arg);
@@ -524,6 +563,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const chatIdFromCallback = cq.message?.chat?.id;
+  const callbackFromId = cq.from?.id;
+
+  // ——— Institutional Floor 1000 SPA: admin user id only; unauthorized = silent drop (no chat message).
+  if (cq.data?.startsWith(INSTITUTIONAL_FLOOR_CB_PREFIX)) {
+    if (!(await isInstitutionalTerminalAdmin(callbackFromId))) {
+      try {
+        await fetch(`${TELEGRAM_API}/bot${token}/answerCallbackQuery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callback_query_id: cq.id }),
+        });
+      } catch {
+        /* ignore */
+      }
+      return NextResponse.json({ ok: true });
+    }
+    try {
+      await fetch(`${TELEGRAM_API}/bot${token}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: cq.id }),
+      });
+    } catch {
+      /* ignore */
+    }
+    const mid = cq.message?.message_id;
+    if (chatIdFromCallback != null && mid != null && callbackFromId != null) {
+      await handleInstitutionalTerminalCallback({
+        token,
+        callbackQueryId: cq.id,
+        fromUserId: callbackFromId,
+        chatId: chatIdFromCallback,
+        messageId: mid,
+        messageDateUnix: cq.message?.date,
+        data: cq.data,
+      });
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   if (!(await isAllowedChatAsync(chatIdFromCallback))) {
     await answerCallbackQuery(token, cq.id, 'לא מורשה.');
     return NextResponse.json({ ok: true });

@@ -14,8 +14,8 @@ export type TelegramSendResult =
   | { ok: false; error: string; statusCode?: number; rateLimitRetryAfter?: number };
 
 export type TelegramSendOptions = {
-  /** Use 'HTML' or 'Markdown'. */
-  parse_mode?: 'HTML' | 'Markdown';
+  /** Use 'HTML', 'Markdown', or 'MarkdownV2'. */
+  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   disable_web_page_preview?: boolean;
   reply_markup?: TelegramReplyMarkup;
 };
@@ -72,7 +72,7 @@ export async function sendTelegramRaw(params: {
   token: string;
   chatId: string;
   text: string;
-  parse_mode?: 'HTML' | 'Markdown';
+  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
   disable_web_page_preview?: boolean;
   /** Inline keyboard: buttons may have callback_data or url. Reply keyboard: keyboard rows of { text }. */
   reply_markup?: TelegramReplyMarkup;
@@ -152,6 +152,109 @@ export async function sendTelegramRaw(params: {
     const isAbort = e instanceof Error && e.name === 'AbortError';
     const message = isAbort ? 'Request timeout.' : (e instanceof Error ? e.message : 'Network error');
     console.error('[Telegram] Exception:', message);
+    return { ok: false, error: message, statusCode: 0 };
+  }
+}
+
+/**
+ * Edit an existing message (SPA dashboard updates). Same parse modes as sendMessage.
+ */
+export async function editTelegramMessage(params: {
+  token: string;
+  chatId: string;
+  messageId: number;
+  text: string;
+  parse_mode?: 'HTML' | 'Markdown' | 'MarkdownV2';
+  disable_web_page_preview?: boolean;
+  reply_markup?: TelegramReplyMarkup;
+}): Promise<TelegramSendResult> {
+  const { token, chatId, messageId, text } = params;
+  if (!token || !chatId || !messageId) {
+    return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+  }
+  const url = `${TELEGRAM_API_BASE}/bot${token}/editMessageText`;
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    disable_web_page_preview: params.disable_web_page_preview !== false,
+  };
+  if (params.parse_mode) body.parse_mode = params.parse_mode;
+  if (params.reply_markup) body.reply_markup = params.reply_markup;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TELEGRAM_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const raw = await res.text();
+    let payload: { ok?: boolean; description?: string } = {};
+    try {
+      payload = JSON.parse(raw) as typeof payload;
+    } catch {
+      /* empty */
+    }
+    if (res.ok && payload.ok) return { ok: true };
+    return {
+      ok: false,
+      error: payload.description || raw || res.statusText,
+      statusCode: res.status,
+    };
+  } catch (e) {
+    clearTimeout(timeoutId);
+    const message = e instanceof Error ? e.message : 'Network error';
+    return { ok: false, error: message, statusCode: 0 };
+  }
+}
+
+/** Update only inline keyboard (e.g. strip on session expiry). */
+export async function editTelegramReplyMarkup(params: {
+  token: string;
+  chatId: string;
+  messageId: number;
+  reply_markup: TelegramReplyMarkup | { inline_keyboard: [] };
+}): Promise<TelegramSendResult> {
+  const { token, chatId, messageId } = params;
+  if (!token || !chatId || !messageId) {
+    return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+  }
+  const url = `${TELEGRAM_API_BASE}/bot${token}/editMessageReplyMarkup`;
+  const body = {
+    chat_id: chatId,
+    message_id: messageId,
+    reply_markup: params.reply_markup,
+  };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), TELEGRAM_API_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    const raw = await res.text();
+    let payload: { ok?: boolean; description?: string } = {};
+    try {
+      payload = JSON.parse(raw) as typeof payload;
+    } catch {
+      /* empty */
+    }
+    if (res.ok && payload.ok) return { ok: true };
+    return {
+      ok: false,
+      error: payload.description || raw || res.statusText,
+      statusCode: res.status,
+    };
+  } catch (e) {
+    clearTimeout(timeoutId);
+    const message = e instanceof Error ? e.message : 'Network error';
     return { ok: false, error: message, statusCode: 0 };
   }
 }

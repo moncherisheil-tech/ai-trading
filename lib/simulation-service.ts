@@ -100,6 +100,40 @@ export async function closeVirtualTradeBySymbol(symbol: string): Promise<{ succe
   }
 }
 
+/** Close every open virtual position at market (bid + sell slippage). Institutional HARD KILL. */
+export async function closeAllOpenVirtualTradesAtMarket(): Promise<{
+  closed: number;
+  errors: string[];
+}> {
+  if (!usePostgres()) return { closed: 0, errors: ['DATABASE_URL required.'] };
+  const open = await listOpenVirtualTrades();
+  if (open.length === 0) return { closed: 0, errors: [] };
+  const symbols = [...new Set(open.map((t) => t.symbol))];
+  const prices = await fetchBinanceTickerPrices(symbols, 25_000);
+  const slippageBps = APP_CONFIG.paperSlippageBps ?? 5;
+  let closed = 0;
+  const errors: string[] = [];
+  for (const trade of open) {
+    const raw = prices.get(trade.symbol);
+    if (raw == null || raw <= 0) {
+      errors.push(`${trade.symbol}: no price`);
+      continue;
+    }
+    const exitPrice = applySlippage(raw, 'sell', slippageBps);
+    try {
+      await closeVirtualTrade(trade.id, exitPrice, 'manual');
+      const row = await getVirtualTradeById(trade.id);
+      if (row?.pnl_pct != null) {
+        runPostMortemWithTimeout(row, exitPrice, 'manual', row.pnl_pct);
+      }
+      closed++;
+    } catch (e) {
+      errors.push(`${trade.id}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return { closed, errors };
+}
+
 /**
  * Auto-close open trades when live price hits target profit, stop-loss, or liquidation threshold.
  * Applies slippage to exit price (selling the long = worse price). Uses Decimal for PnL.
