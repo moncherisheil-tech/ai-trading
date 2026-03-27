@@ -7,6 +7,17 @@ import { runOpsSimulationAction } from '@/app/actions';
 
 const t = getT('he');
 
+type SimulationActionPayload = {
+  success?: boolean;
+  error?: string;
+  data?: {
+    sentiment_score?: number;
+    market_narrative?: string;
+    predicted_direction?: string;
+    probability?: number;
+  };
+};
+
 export default function SimulateBtcButton() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
@@ -23,7 +34,7 @@ export default function SimulateBtcButton() {
     setResult(null);
     try {
       const out = await runOpsSimulationAction({ symbol: 'BTC' });
-      const data = out.success ? (out.data as any) : null;
+      const data = out.success ? ((out.data ?? null) as SimulationActionPayload | null) : null;
       if (out.success && data?.success && data?.data) {
         setResult({
           success: true,

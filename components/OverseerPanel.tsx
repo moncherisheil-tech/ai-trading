@@ -34,6 +34,10 @@ type AppSettings = {
   risk?: { riskToleranceLevel?: 'strict' | 'moderate' | 'aggressive' };
 };
 
+type OverseerLogsPayload = {
+  logs?: OverseerLog[];
+};
+
 function StatusIcon({ status }: { status: 'ok' | 'skip' | 'fail' }) {
   if (status === 'ok') return <CheckCircle className="w-4 h-4 text-emerald-400" aria-hidden />;
   if (status === 'fail') return <XCircle className="w-4 h-4 text-red-400" aria-hidden />;
@@ -57,8 +61,14 @@ export default function OverseerPanel() {
         getOverseerHealthAction(),
         fetch('/api/settings/app', { credentials: 'include', cache: 'no-store' }),
       ]);
-      if (logsOut.success) setLogs((logsOut.data as any)?.logs ?? []);
-      if (healthOut.success) setHealth(healthOut.data as any);
+      if (logsOut.success) {
+        const payload = (logsOut.data ?? null) as OverseerLogsPayload | null;
+        setLogs(Array.isArray(payload?.logs) ? payload.logs : []);
+      }
+      if (healthOut.success) {
+        const payload = (healthOut.data ?? null) as Health | null;
+        setHealth(payload);
+      }
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setSettings(data);

@@ -21,6 +21,10 @@ type Metrics = {
   };
 } | null;
 
+function hasMetricsShape(data: Metrics): data is Exclude<Metrics, null> {
+  return !!data && typeof data.db === 'object' && typeof data.quality === 'object' && typeof data.audit === 'object';
+}
+
 /** 8s timeout per fetch (aligned with Vercel Hobby); cleanup in finally prevents memory leaks. */
 const METRICS_FETCH_TIMEOUT_MS = 8000;
 
@@ -63,7 +67,7 @@ function OpsMetricsBlockInner() {
         }
 
         const data = out.data as Metrics;
-        if (data && typeof (data as any)?.db === 'object') {
+        if (hasMetricsShape(data)) {
           setMetrics(data);
           setFetchFailed(false);
           setUnauthorized(false);

@@ -1,5 +1,6 @@
 'use client';
 
+import type { CSSProperties } from 'react';
 import {
   LineChart,
   Line,
@@ -12,6 +13,7 @@ import {
 import { getT } from '@/lib/i18n';
 
 const t = getT('he');
+const TABULAR_NUMS_TEXT = { fontVariantNumeric: 'tabular-nums' } as CSSProperties;
 
 export type AccuracyTimeSeriesPoint = {
   date: string;
@@ -99,7 +101,8 @@ export default function PerformanceTrendsCharts({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
+                    className="tabular-nums"
+                    tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={20}
@@ -107,7 +110,8 @@ export default function PerformanceTrendsCharts({
                   <YAxis
                     orientation="right"
                     domain={[0, 'auto']}
-                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
+                    className="tabular-nums"
+                    tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(val) => `${val}%`}
@@ -122,13 +126,13 @@ export default function PerformanceTrendsCharts({
                       color: 'rgb(241 245 249)',
                       textAlign: 'right',
                       direction: 'rtl',
-                      fontVariantNumeric: 'tabular-nums',
+                      ...TABULAR_NUMS_TEXT,
                       zIndex: 9999,
-                    }}
+                    } as CSSProperties}
                     formatter={(value) => [`${Number(value ?? 0)}%`, 'Avg Error']}
                     labelFormatter={(label) => `Date: ${label}`}
-                    labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
-                    itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+                    labelStyle={{ color: 'rgb(203 213 225)', ...TABULAR_NUMS_TEXT } as CSSProperties}
+                    itemStyle={{ ...TABULAR_NUMS_TEXT } as CSSProperties}
                     wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
                   />
                   <Line
@@ -158,7 +162,8 @@ export default function PerformanceTrendsCharts({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
+                    className="tabular-nums"
+                    tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={20}
@@ -166,7 +171,8 @@ export default function PerformanceTrendsCharts({
                   <YAxis
                     orientation="right"
                     domain={[0, 100]}
-                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
+                    className="tabular-nums"
+                    tick={{ fontSize: 10, fill: '#64748b' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(val) => `${val}%`}
@@ -181,13 +187,13 @@ export default function PerformanceTrendsCharts({
                       color: 'rgb(241 245 249)',
                       textAlign: 'right',
                       direction: 'rtl',
-                      fontVariantNumeric: 'tabular-nums',
+                      ...TABULAR_NUMS_TEXT,
                       zIndex: 9999,
-                    }}
+                    } as CSSProperties}
                     formatter={(value) => [`${Number(value ?? 0)}%`, t.accuracyLabel]}
                     labelFormatter={(label) => `${t.dateLabel}: ${label}`}
-                    labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
-                    itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+                    labelStyle={{ color: 'rgb(203 213 225)', ...TABULAR_NUMS_TEXT } as CSSProperties}
+                    itemStyle={{ ...TABULAR_NUMS_TEXT } as CSSProperties}
                     wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
                   />
                   <Line

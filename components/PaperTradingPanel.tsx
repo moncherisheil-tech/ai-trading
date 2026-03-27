@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Lock, RefreshCw, Zap, Wallet, Crosshair, TrendingUp } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -73,6 +73,7 @@ type AnalysisPayload = {
 
 const LTR_TERM_SPAN_CLASS = 'inline-block mx-1 font-mono text-cyan-400';
 const GLASS_TILE = 'frosted-obsidian panel-sovereign-diamond sovereign-tilt bg-zinc-900/50 rounded-2xl shadow-lg';
+const TABULAR_NUMS_TEXT = { fontVariantNumeric: 'tabular-nums' } as CSSProperties;
 
 const EN_TOKEN_RE = /(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)/g;
 const EN_TOKEN_TEST_RE = /^(API Key|BTCUSDT|ETHUSDT|[A-Z0-9]{2,}USDT|RSI|MACD|EMA|Bullish|Bearish|Neutral|BUY|SELL|LIVE|PAPER)$/;
@@ -236,11 +237,12 @@ export default function PaperTradingPanel() {
                 </div>
                 <div className="h-[220px] w-full min-w-0 max-w-full overflow-x-hidden">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={status.alphaEvolution} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                    <ComposedChart data={status.alphaEvolution} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                       <XAxis
                         dataKey="closedAt"
-                        tick={{ fill: '#71717a', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
+                        className="tabular-nums"
+                        tick={{ fill: '#71717a', fontSize: 10 }}
                         tickFormatter={(v) => {
                           try {
                             return new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -251,7 +253,8 @@ export default function PaperTradingPanel() {
                       />
                       <YAxis
                         yAxisId="pnl"
-                        tick={{ fill: '#22d3ee', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
+                        className="tabular-nums"
+                        tick={{ fill: '#22d3ee', fontSize: 10 }}
                         tickFormatter={(v) => `$${v}`}
                         width={56}
                       />
@@ -259,7 +262,8 @@ export default function PaperTradingPanel() {
                         yAxisId="wr"
                         orientation="right"
                         domain={[0, 100]}
-                        tick={{ fill: '#a3e635', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
+                        className="tabular-nums"
+                        tick={{ fill: '#a3e635', fontSize: 10 }}
                         tickFormatter={(v) => `${v}%`}
                         width={40}
                       />
@@ -269,7 +273,8 @@ export default function PaperTradingPanel() {
                           border: '1px solid rgba(34,211,238,0.25)',
                           borderRadius: 12,
                           fontSize: 12,
-                        }}
+                          ...TABULAR_NUMS_TEXT,
+                        } as CSSProperties}
                         labelFormatter={(v) => new Date(String(v)).toLocaleString()}
                       />
                       <Legend wrapperStyle={{ fontSize: 11 }} />

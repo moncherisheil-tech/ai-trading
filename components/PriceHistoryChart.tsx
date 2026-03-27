@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import {
   LineChart,
   Line,
@@ -28,6 +28,7 @@ export type ExecutionMarker = {
   date: string;
   amountAsset?: number;
 };
+const TABULAR_NUMS_TEXT = { fontVariantNumeric: 'tabular-nums' } as CSSProperties;
 
 function findClosestDate(data: ChartRow[], targetDate: string): string {
   if (!data.length) return targetDate;
@@ -129,11 +130,12 @@ export default function PriceHistoryChart({
         </div>
       )}
       <ResponsiveContainer width="100%" height="100%" className="min-h-[180px] sm:min-h-[220px]">
-        <LineChart data={chartDataWithIndicators} margin={{ top: 8, right: 8, left: 4, bottom: 4 }}>
+        <LineChart data={chartDataWithIndicators} margin={{ top: 8, right: 8, left: 8, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(51 65 85)" opacity={0.5} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: 'rgb(148 163 184)', fontVariantNumeric: 'tabular-nums' }}
+            className="tabular-nums"
+            tick={{ fontSize: 10, fill: 'rgb(148 163 184)' }}
             axisLine={false}
             tickLine={false}
             minTickGap={20}
@@ -141,7 +143,8 @@ export default function PriceHistoryChart({
           <YAxis
             orientation="right"
             domain={['auto', 'auto']}
-            tick={{ fontSize: 10, fill: 'rgb(148 163 184)', fontVariantNumeric: 'tabular-nums' }}
+            className="tabular-nums"
+            tick={{ fontSize: 10, fill: 'rgb(148 163 184)' }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(val) => `$${Number(val).toLocaleString()}`}
@@ -155,17 +158,17 @@ export default function PriceHistoryChart({
               color: 'rgb(248 250 252)',
               textAlign: 'right',
               direction: 'rtl',
-              fontVariantNumeric: 'tabular-nums',
+              ...TABULAR_NUMS_TEXT,
               zIndex: 9999,
-            }}
+            } as CSSProperties}
             formatter={(value, name) => {
               const seriesName = String(name ?? '');
               const label =
                 seriesName === 'close' ? 'מחיר' : seriesName === 'ema20' ? 'EMA 20' : seriesName === 'ema50' ? 'EMA 50' : seriesName;
               return [`$${Number(value ?? 0).toLocaleString()}`, label];
             }}
-            labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
-            itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+            labelStyle={{ color: 'rgb(203 213 225)', ...TABULAR_NUMS_TEXT } as CSSProperties}
+            itemStyle={{ ...TABULAR_NUMS_TEXT } as CSSProperties}
             wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
           />
           <Line

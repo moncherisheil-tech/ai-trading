@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /** Single kline row: Binance returns 12 elements; we use indices 0–5 (time, O, H, L, C, V). Accept 6–30 elements. */
-export const binanceKlineRowSchema = z.array(z.any()).min(6).max(30);
+export const binanceKlineRowSchema = z.array(z.unknown()).min(6).max(30);
 
 /** Price history: up to 1000 candles (production limit). */
 export const binanceKlinesSchema = z.array(binanceKlineRowSchema).min(0).max(1000);

@@ -4,6 +4,10 @@ import { generateBacktestSummary, performanceTierFromAccuracy, runBacktest, type
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 import { generateSafeId } from '@/lib/utils';
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown Error';
+}
+
 /**
  * Persist bestExpertKey per symbol to Deep Memory (app_settings.neural.bestExpertBySymbol) so runConsensusEngine can boost that expert's weight.
  */
@@ -123,10 +127,10 @@ export async function GET(req: NextRequest) {
       details: reportsWithTier,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Backtest GET Critical Error]:', error);
     try { console.timeEnd(timerName); } catch (e) { console.warn('[Backtest GET] timer cleanup failed:', e); }
-    return NextResponse.json({ ok: false, error: error.message || 'Unknown Error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }
 
@@ -145,7 +149,7 @@ export async function POST(req: NextRequest) {
     let symbols: string[] = [];
     if (Array.isArray(body.symbols)) {
       symbols = body.symbols
-        .map((s: any) => (s ? String(s).trim().toUpperCase() : ""))
+        .map((s: unknown) => (s ? String(s).trim().toUpperCase() : ""))
         .filter(Boolean);
     } else {
       const singleSymbol = body.symbol || 'BTCUSDT';
@@ -203,9 +207,9 @@ export async function POST(req: NextRequest) {
       details: reportsWithTier,
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[Backtest POST Critical Error]:', error);
     try { console.timeEnd(timerName); } catch (e) { console.warn('[Backtest POST] timer cleanup failed:', e); }
-    return NextResponse.json({ ok: false, error: error.message || 'Unknown Error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: getErrorMessage(error) }, { status: 500 });
   }
 }
