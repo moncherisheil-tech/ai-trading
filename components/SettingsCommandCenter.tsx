@@ -151,7 +151,7 @@ function SubscribersPanel() {
             <UserPlus className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden />
             <span className="text-sm font-semibold tracking-tight">הוספת מנוי חדש</span>
             {refreshing && (
-              <Loader2 className="w-4 h-4 animate-spin text-cyan-400/80 mr-auto" aria-label="מרענן רשימה" />
+              <Loader2 className="w-4 h-4 animate-spin text-cyan-400/80 ms-auto" aria-label="מרענן רשימה" />
             )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">

@@ -210,7 +210,7 @@ export default function AdminTerminalPageClient() {
                   )}
                   <span className="text-zinc-200 font-semibold">{f.label}</span>
                   <span className="text-zinc-500">+{f.score}/{f.weight}</span>
-                  {f.detail ? <span className="w-full text-zinc-500 pl-6">{f.detail}</span> : null}
+                  {f.detail ? <span className="w-full text-zinc-500 ps-6">{f.detail}</span> : null}
                 </li>
               ))}
             </ul>
@@ -239,7 +239,7 @@ export default function AdminTerminalPageClient() {
                     <XCircle className="h-4 w-4 text-rose-500 shrink-0" aria-hidden />
                   )}
                   <span className="text-zinc-200 font-medium">{c.label}</span>
-                  <span className="w-full text-zinc-500 pl-6">{c.detail}</span>
+                  <span className="w-full text-zinc-500 ps-6">{c.detail}</span>
                 </li>
               ))}
             </ul>

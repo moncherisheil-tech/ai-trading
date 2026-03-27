@@ -3,6 +3,7 @@
  * Key: app_settings, Value: JSON. Master Command Center schema.
  */
 
+import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
@@ -128,9 +129,13 @@ export async function getAppSettings(): Promise<AppSettings> {
     const { rows } = await sql`
       SELECT value FROM settings WHERE key = ${KEY} LIMIT 1
     `;
-    const row = rows?.[0] as { value: string } | undefined;
-    if (!row?.value) return DEFAULTS;
-    const parsed = JSON.parse(row.value) as Partial<AppSettings>;
+    const row = rows?.[0] as { value: unknown } | undefined;
+    const raw = row?.value;
+    if (raw == null) return DEFAULTS;
+    const parsed =
+      typeof raw === 'string'
+        ? (JSON.parse(raw) as Partial<AppSettings>)
+        : (raw as Partial<AppSettings>);
     const merged = deepMergeDefaults(
       DEFAULTS as unknown as Record<string, unknown>,
       parsed as unknown as Record<string, unknown>
@@ -159,9 +164,11 @@ export async function setAppSettings(partial: Partial<AppSettings>): Promise<Set
     ) as unknown as AppSettings;
     const value = JSON.stringify(next);
     await sql`
-      INSERT INTO settings (key, value, "updatedAt")
-      VALUES (${KEY}, ${value}, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = ${value}, "updatedAt" = NOW()
+      INSERT INTO settings (id, key, value, "updatedAt")
+      VALUES (${randomUUID()}, ${KEY}, ${value}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET
+        value = ${value}::jsonb,
+        "updatedAt" = NOW()
     `;
     return { ok: true };
   } catch (e) {

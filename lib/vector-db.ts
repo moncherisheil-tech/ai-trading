@@ -499,7 +499,7 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
             NOW()
           )
           ON CONFLICT (key) DO UPDATE SET
-            value = ${settingValue}::jsonb,
+            value = EXCLUDED.value,
             "updatedAt" = NOW();
         `;
       } catch (settingErr) {

@@ -776,7 +776,7 @@ export default function CryptoAnalyzer() {
 
               {/* Tactical Strategy Card: ATR-based SL/TP + HVN + Gemini opinion */}
               {(latestPrediction.suggested_sl != null || latestPrediction.suggested_tp != null || (latestPrediction.hvn_levels?.length ?? 0) > 0 || latestPrediction.tactical_opinion_he) && (
-                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-cyan-500/5 to-transparent border-r-4 border-cyan-500/40" dir="rtl">
+                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-cyan-500/5 to-transparent border-s-4 border-cyan-500/40" dir="rtl">
                   <h3 className="text-xs font-semibold text-cyan-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                     <Target className="w-4 h-4" />
                     כרטיס אסטרטגיה טקטית (ATR + HVN)
@@ -813,7 +813,7 @@ export default function CryptoAnalyzer() {
 
               {/* השורה התחתונה — explicit beginner-friendly 1–2 sentence summary above experts */}
               {latestPrediction.bottom_line_he && (
-                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-amber-500/10 to-transparent border-r-4 border-amber-500/50 rounded-xl mx-4 mb-4" dir="rtl">
+                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-amber-500/10 to-transparent border-s-4 border-amber-500/50 rounded-xl mx-4 mb-4" dir="rtl">
                   <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                     <Lightbulb className="w-4 h-4" aria-hidden />
                     השורה התחתונה
@@ -827,7 +827,7 @@ export default function CryptoAnalyzer() {
 
               {/* Neural Consensus & Debate Room — 6-Agent Board (3x2 grid) + Board Decision */}
               {(typeof latestPrediction.tech_score === 'number' || typeof latestPrediction.risk_score === 'number' || typeof latestPrediction.psych_score === 'number' || typeof latestPrediction.macro_score === 'number' || typeof latestPrediction.onchain_score === 'number' || typeof latestPrediction.deep_memory_score === 'number' || latestPrediction.master_insight_he) && (
-                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-violet-500/5 to-transparent border-r-4 border-violet-500/40" dir="rtl">
+                <div className="p-6 border-b border-white/5 bg-gradient-to-b from-violet-500/5 to-transparent border-s-4 border-violet-500/40" dir="rtl">
                   <h3 className="text-xs font-semibold text-violet-400 uppercase tracking-wider mb-4 flex items-center gap-2">
                     <BarChart2 className="w-4 h-4" />
                     קונצנזוס נוירלי — חדר דיונים (6 מומחים)
@@ -891,7 +891,7 @@ export default function CryptoAnalyzer() {
                   {latestPrediction.master_insight_he && (
                     <div className="rounded-xl bg-black/25 border border-violet-500/20 p-4">
                       <p className="text-[10px] font-semibold text-violet-400/90 uppercase tracking-wider mb-2">החלטת הדירקטוריון (AI)</p>
-                      <blockquote className="text-sm text-zinc-100 leading-relaxed border-r-2 border-violet-500/50 pr-3" dir="rtl">
+                      <blockquote className="text-sm text-zinc-100 leading-relaxed border-s-2 border-violet-500/50 ps-3" dir="rtl">
                         {latestPrediction.master_insight_he}
                       </blockquote>
                     </div>

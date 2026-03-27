@@ -134,7 +134,7 @@ export default function SystemOptimizationCard({ onApplied }: SystemOptimization
           <button
             type="button"
             onClick={runCalibration}
-            className="mr-auto text-sm underline hover:no-underline"
+            className="ms-auto text-sm underline hover:no-underline"
           >
             נסה שוב
           </button>

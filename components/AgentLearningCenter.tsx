@@ -149,7 +149,7 @@ export default function AgentLearningCenter({ fromDate, toDate }: AgentLearningC
                   ? 'border-rose-500/40 bg-rose-500/5'
                   : 'border-white/10 bg-white/[0.02]';
               return (
-                <li key={item.id} className={`px-6 py-4 border-r-4 ${borderClass} transition-colors hover:bg-white/[0.03]`}>
+                <li key={item.id} className={`px-6 py-4 border-s-4 ${borderClass} transition-colors hover:bg-white/[0.03]`}>
                   <div className="flex flex-wrap items-center gap-2 gap-y-1 mb-2">
                     <span className="font-semibold text-white">{item.symbol.replace('USDT', '')}</span>
                     <span className="text-xs text-zinc-500 tabular-nums" suppressHydrationWarning>

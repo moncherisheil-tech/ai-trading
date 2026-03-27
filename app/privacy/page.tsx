@@ -42,7 +42,7 @@ export default function PrivacyPage() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold text-white">2. נתונים שאנו אוספים</h2>
             <p>בהתאם לשימוש בשירות, אנו עשויים לאסוף או לעבד:</p>
-            <ul className="list-disc list-inside space-y-2 pr-4">
+            <ul className="list-disc list-inside space-y-2 pe-4">
               <li><strong className="text-zinc-200">מזהה Telegram (Telegram ID):</strong> משמש לצורך שליחת התראות והתייחסות להמלצות סריקה שהמשתמש בחר לקבל. המזהה נשמר במערכת רק לצורך קישור בין החשבון במערכת לבין חשבון ה‑Telegram.</li>
               <li><strong className="text-zinc-200">נתוני גישה (Session):</strong> כגון כתובת IP וסוג דפדפן, לצורך אבטחה, מניעת ניצול לרעה וניתוח שימוש כללי.</li>
               <li><strong className="text-zinc-200">נתוני סימולציה:</strong> עסקאות סימולציה (Paper Trading), יתרות וירטואליות ותוצאות ניתוח — כולם למטרות תפעול השירות והצגת היסטוריה למשתמש. אין בהם כסף אמיתי או גישה לברוקר/בורסה.</li>
@@ -59,7 +59,7 @@ export default function PrivacyPage() {
           <section className="space-y-4">
             <h2 className="text-xl font-semibold text-white">4. שימוש בנתונים</h2>
             <p>הנתונים משמשים כדי:</p>
-            <ul className="list-disc list-inside space-y-2 pr-4">
+            <ul className="list-disc list-inside space-y-2 pe-4">
               <li>לספק את שירותי הסריקה, הניתוח והסימולציה.</li>
               <li>לשלוח התראות ל‑Telegram בהתאם להגדרות המשתמש.</li>
               <li>לשפר את אבטחת המערכת ולמנוע שימוש לרעה.</li>

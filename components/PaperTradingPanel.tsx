@@ -187,7 +187,7 @@ export default function PaperTradingPanel() {
       dir="rtl"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 px-6 sm:px-7 pt-6 sm:pt-7 pb-5 border-b border-cyan-500/20 bg-black/30 backdrop-blur-xl">
-        <div className="absolute -top-px left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" aria-hidden />
+        <div className="absolute -top-px inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" aria-hidden />
         <div className="relative flex items-center gap-4 min-w-0">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/25 to-emerald-950/40 border border-emerald-400/50">
             <Crosshair className="h-6 w-6 text-emerald-400" aria-hidden />

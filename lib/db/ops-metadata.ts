@@ -3,6 +3,7 @@
  * Used by diagnostics dashboard and vector-db to track last successful Pinecone upsert.
  */
 
+import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
@@ -18,8 +19,12 @@ export async function getLastPineconeUpsertAt(): Promise<string | null> {
     const { rows } = await sql`
       SELECT value FROM settings WHERE key = ${PINECONE_UPSERT_KEY} LIMIT 1
     `;
-    const row = rows?.[0] as { value: string } | undefined;
-    return row?.value ?? null;
+    const row = rows?.[0] as { value: unknown } | undefined;
+    const raw = row?.value;
+    if (raw == null) return null;
+    if (typeof raw === 'string') return raw;
+    if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+    return null;
   } catch {
     return null;
   }
@@ -28,10 +33,13 @@ export async function getLastPineconeUpsertAt(): Promise<string | null> {
 export async function setLastPineconeUpsertAt(isoTimestamp: string): Promise<void> {
   if (!usePostgres()) return;
   try {
+    const jsonScalar = JSON.stringify(isoTimestamp);
     await sql`
-      INSERT INTO settings (key, value, "updatedAt")
-      VALUES (${PINECONE_UPSERT_KEY}, ${isoTimestamp}, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = ${isoTimestamp}, "updatedAt" = NOW()
+      INSERT INTO settings (id, key, value, "updatedAt")
+      VALUES (${randomUUID()}, ${PINECONE_UPSERT_KEY}, ${jsonScalar}::jsonb, NOW())
+      ON CONFLICT (key) DO UPDATE SET
+        value = EXCLUDED.value,
+        "updatedAt" = NOW()
     `;
   } catch (err) {
     console.error('[ops-metadata] setLastPineconeUpsertAt failed:', err);

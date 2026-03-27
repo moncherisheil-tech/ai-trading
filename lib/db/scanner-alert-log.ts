@@ -49,22 +49,31 @@ async function ensureTable(): Promise<boolean> {
   }
 }
 
+/** @returns true only after a successful row insert (fail-closed for Telegram idempotency). */
 export async function insertScannerAlert(params: {
   symbol: string;
   prediction_id: string;
   probability: number;
   entry_price: number;
-}): Promise<void> {
-  if (!usePostgres()) return;
+}): Promise<boolean> {
+  if (!usePostgres()) {
+    console.error('insertScannerAlert failed: Postgres not configured');
+    return false;
+  }
   try {
     const ok = await ensureTable();
-    if (!ok) return;
+    if (!ok) {
+      console.error('insertScannerAlert failed: scanner_alert_log table could not be ensured');
+      return false;
+    }
     await sql`
       INSERT INTO scanner_alert_log (symbol, prediction_id, probability, entry_price, alerted_at)
       VALUES (${params.symbol}, ${params.prediction_id}, ${params.probability}, ${params.entry_price}, ${new Date().toISOString()})
     `;
+    return true;
   } catch (err) {
     console.error('insertScannerAlert failed:', err);
+    return false;
   }
 }
 

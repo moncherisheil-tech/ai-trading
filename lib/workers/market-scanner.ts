@@ -257,12 +257,21 @@ export async function runOneCycle(): Promise<void> {
           continue;
         }
 
-        await insertScannerAlert({
+        const alertPersisted = await insertScannerAlert({
           symbol,
           prediction_id: result.data.id,
           probability,
           entry_price: entryPrice,
         });
+        if (!alertPersisted) {
+          console.error('[MARKET_SCANNER] Scanner alert DB insert failed; skipping Telegram dispatch', { symbol });
+          writeAudit({
+            event: 'scanner.alert_log_failed',
+            level: 'error',
+            meta: { symbol, probability },
+          });
+          continue;
+        }
         recentlyAlerted.add(symbol);
 
         const base = symbol.replace('USDT', '');

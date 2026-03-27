@@ -120,11 +120,13 @@ export async function initDB(): Promise<void> {
     await sql`CREATE INDEX IF NOT EXISTS idx_prediction_records_prediction_date ON prediction_records(prediction_date DESC)`;
     await sql`
       CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL,
-        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        id TEXT PRIMARY KEY,
+        key TEXT NOT NULL,
+        value JSONB NOT NULL,
+        "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS settings_key_key ON settings(key)`;
     await sql`
       CREATE TABLE IF NOT EXISTS telegram_subscribers (
         id SERIAL PRIMARY KEY,
