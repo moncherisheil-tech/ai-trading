@@ -189,20 +189,22 @@ export default function PaperTradingPanel() {
       <div className="flex flex-wrap items-center justify-between gap-4 px-6 sm:px-7 pt-6 sm:pt-7 pb-5 border-b border-cyan-500/20 bg-black/30 backdrop-blur-xl">
         <div className="absolute -top-px left-0 right-0 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" aria-hidden />
         <div className="relative flex items-center gap-4 min-w-0">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/25 to-emerald-950/40 border border-emerald-400/50 shadow-[0_0_28px_rgba(52,211,153,0.3)]">
-            <Crosshair className="h-6 w-6 text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" aria-hidden />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/25 to-emerald-950/40 border border-emerald-400/50">
+            <Crosshair className="h-6 w-6 text-emerald-400" aria-hidden />
           </div>
           <div>
-            <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight drop-shadow-[0_0_12px_rgba(34,211,238,0.25)]">Paper Trading</h3>
-            <p className="text-xs font-bold text-emerald-300 uppercase tracking-[0.15em] mt-0.5 drop-shadow-[0_0_6px_rgba(52,211,153,0.4)]">
+            <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">Paper Trading</h3>
+            <p className="text-xs font-bold text-emerald-300 uppercase tracking-[0.15em] mt-0.5">
               Autonomous Execution Engine
             </p>
           </div>
         </div>
         <button
           type="button"
+          id="refresh-panel-btn"
+          name="refresh-execution-status"
           onClick={() => void refresh()}
-          className="group relative inline-flex items-center gap-2 text-xs font-bold px-5 py-3 rounded-xl transition-all duration-300 border border-cyan-400/50 text-cyan-100 bg-gradient-to-b from-cyan-500/20 to-cyan-950/30 shadow-[0_0_24px_rgba(34,211,238,0.3),inset_0_1px_0_rgba(255,255,255,0.1)] hover:shadow-[0_0_36px_rgba(34,211,238,0.5),0_0_80px_rgba(34,211,238,0.15)] hover:border-cyan-300/70 hover:brightness-110 active:scale-95 backdrop-blur-xl uppercase tracking-wider"
+          className="group relative inline-flex items-center gap-2 text-xs font-bold px-5 py-3 rounded-xl transition-all duration-300 border border-cyan-400/50 text-cyan-100 bg-gradient-to-b from-cyan-500/20 to-cyan-950/30 shadow-[0_0_16px_rgba(34,211,238,0.2)] hover:shadow-[0_0_22px_rgba(34,211,238,0.3)] hover:border-cyan-300/70 active:scale-95 backdrop-blur-xl uppercase tracking-wider"
         >
           <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
           רענן
@@ -225,8 +227,8 @@ export default function PaperTradingPanel() {
                 className={`${GLASS_TILE} p-4 sm:p-5 border border-cyan-500/25 shadow-[0_0_28px_rgba(34,211,238,0.15)]`}
                 dir="ltr"
               >
-                <div className="flex items-center gap-2 mb-4">
-                  <TrendingUp className="h-4 w-4 text-cyan-400 drop-shadow-[0_0_4px_rgba(34,211,238,0.6)]" aria-hidden />
+                  <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp className="h-4 w-4 text-cyan-400" aria-hidden />
                   <h4 className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-200 font-sans">
                     Alpha Evolution Curve
                   </h4>
@@ -300,18 +302,20 @@ export default function PaperTradingPanel() {
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
               <button
                 type="button"
+                id="master-switch-toggle"
+                name="toggle-master-switch"
                 disabled={saving}
                 onClick={() => void updateConfig({ masterSwitchEnabled: !status.masterSwitchEnabled })}
                 className={`group relative overflow-hidden ${GLASS_TILE} px-5 py-5 text-start transition-all duration-300 border ${
                   status.masterSwitchEnabled
-                    ? 'border-emerald-400/60 bg-gradient-to-br from-emerald-500/20 to-emerald-950/35 shadow-[0_0_40px_rgba(52,211,153,0.35),inset_0_1px_0_rgba(255,255,255,0.1)] ring-1 ring-emerald-500/40 hover:shadow-[0_0_50px_rgba(52,211,153,0.45),0_0_100px_rgba(52,211,153,0.15)] hover:border-emerald-300/70 hover:brightness-110 active:scale-95'
-                    : 'border-rose-400/40 bg-gradient-to-br from-rose-500/15 to-rose-950/30 shadow-[0_0_32px_rgba(251,113,133,0.2),inset_0_1px_0_rgba(255,255,255,0.06)] ring-1 ring-rose-500/30 hover:shadow-[0_0_44px_rgba(251,113,133,0.35),0_0_80px_rgba(251,113,133,0.1)] hover:border-rose-300/60 hover:brightness-105'
+                    ? 'border-emerald-400/60 bg-gradient-to-br from-emerald-500/20 to-emerald-950/35 shadow-[0_0_28px_rgba(52,211,153,0.2)] ring-1 ring-emerald-500/40 hover:shadow-[0_0_36px_rgba(52,211,153,0.3)] hover:border-emerald-300/70 active:scale-95'
+                    : 'border-rose-400/40 bg-gradient-to-br from-rose-500/15 to-rose-950/30 shadow-[0_0_20px_rgba(251,113,133,0.15)] ring-1 ring-rose-500/30 hover:shadow-[0_0_28px_rgba(251,113,133,0.25)] hover:border-rose-300/60 active:scale-95'
                 } disabled:opacity-40 disabled:cursor-not-allowed backdrop-blur-xl`}
               >
-                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/15 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" aria-hidden />
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" aria-hidden />
                 <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-zinc-400">Master Control</div>
                 <div
-                  className={`relative text-3xl font-black font-mono font-bold mt-2 transition-all duration-300 tabular-nums ${status.masterSwitchEnabled ? 'text-emerald-400 drop-shadow-[0_0_16px_rgba(52,211,153,0.7)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.6)]'}`}
+                  className={`relative text-3xl font-black font-mono font-bold mt-2 transition-all duration-300 tabular-nums ${status.masterSwitchEnabled ? 'text-emerald-400' : 'text-rose-400'}`}
                 >
                   {status.masterSwitchEnabled ? 'ON' : 'OFF'}
                 </div>
@@ -319,22 +323,22 @@ export default function PaperTradingPanel() {
               <div className={`${GLASS_TILE} relative px-5 py-5 border-cyan-500/40 group overflow-hidden`}>
                 <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
                 <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-cyan-300 flex items-center gap-2">
-                  <Wallet className="h-4 w-4 text-cyan-400 drop-shadow-[0_0_6px_rgba(34,211,238,0.6)]" />
+                  <Wallet className="h-4 w-4 text-cyan-400" />
                   Virtual Balance
                 </div>
-                <div className="relative text-2xl font-black font-mono live-data-number text-cyan-300 mt-2 tabular-nums shadow-[0_0_24px_rgba(34,211,238,0.2)]">
+                <div className="relative text-2xl font-black font-mono live-data-number text-cyan-300 mt-2 tabular-nums">
                   ${status.virtualBalanceUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </div>
               </div>
               <div className={`${GLASS_TILE} relative px-5 py-5 border-amber-500/40 group overflow-hidden`}>
                 <div className="absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
                 <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-amber-300">Active Positions</div>
-                <div className="relative text-2xl font-black font-mono live-data-number text-amber-300 mt-2 tabular-nums shadow-[0_0_20px_rgba(217,119,6,0.15)]">{status.activeTradesCount}</div>
+                <div className="relative text-2xl font-black font-mono live-data-number text-amber-300 mt-2 tabular-nums">{status.activeTradesCount}</div>
               </div>
               <div className={`${GLASS_TILE} relative px-5 py-5 border-emerald-500/40 group overflow-hidden`}>
                 <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" aria-hidden />
                 <div className="relative text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Win Rate</div>
-                <div className="relative text-2xl font-black font-mono live-data-number text-emerald-400 mt-2 tabular-nums shadow-[0_0_24px_rgba(52,211,153,0.2)]">
+                <div className="relative text-2xl font-black font-mono live-data-number text-emerald-400 mt-2 tabular-nums">
                   {status.winRatePct.toFixed(1)}%
                 </div>
               </div>
@@ -343,19 +347,23 @@ export default function PaperTradingPanel() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
+                id="mode-paper-btn"
+                name="select-paper-mode"
                 disabled={saving}
                 onClick={() => void updateConfig({ mode: 'PAPER' })}
                 className={`group relative px-6 py-3 rounded-xl text-xs font-bold font-mono uppercase tracking-wider transition-all duration-300 border backdrop-blur-xl ${
                   status.mode === 'PAPER'
-                    ? 'border-emerald-400/60 text-emerald-100 bg-gradient-to-b from-emerald-500/25 to-emerald-950/40 shadow-[0_0_32px_rgba(52,211,153,0.4),inset_0_1px_0_rgba(255,255,255,0.12)] hover:shadow-[0_0_44px_rgba(52,211,153,0.55),0_0_80px_rgba(52,211,153,0.15)] hover:border-emerald-300/70 hover:brightness-110 active:scale-95'
+                    ? 'border-emerald-400/60 text-emerald-100 bg-gradient-to-b from-emerald-500/25 to-emerald-950/40 shadow-[0_0_22px_rgba(52,211,153,0.3)] hover:shadow-[0_0_30px_rgba(52,211,153,0.4)] hover:border-emerald-300/70 active:scale-95'
                     : 'border-white/15 text-zinc-400 bg-white/5 hover:bg-white/10 hover:border-white/25 hover:text-zinc-300 active:scale-95'
                 } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
-                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 rounded-xl" aria-hidden />
                 <span className="relative">Paper</span>
               </button>
               <button
                 type="button"
+                id="mode-live-btn"
+                name="select-live-mode"
                 disabled
                 className="group relative px-6 py-3 rounded-xl text-xs font-bold font-mono uppercase tracking-wider inline-flex items-center gap-2 transition-all duration-300 border border-rose-400/30 text-rose-400/60 bg-rose-500/8 cursor-not-allowed backdrop-blur-xl"
                 title="ייפתח לאחר הזנת ואימות מפתח לבורסה"
@@ -363,7 +371,7 @@ export default function PaperTradingPanel() {
                 <span dir="ltr" className="relative">
                   Live
                 </span>
-                <Lock className="w-4 h-4 relative drop-shadow-[0_0_4px_rgba(244,63,94,0.4)]" />
+                <Lock className="w-4 h-4 relative" />
               </button>
               {status.liveLocked && (
                 <span className="text-xs text-amber-400/90 font-medium">
@@ -385,59 +393,60 @@ export default function PaperTradingPanel() {
                   פוזיציות פעילות — Execution Ledger
                   <span className="h-px flex-1 bg-gradient-to-r from-emerald-500/30 to-transparent max-w-[80px]" aria-hidden />
                 </h4>
-                <div
-                  className="rounded-2xl border border-white/10 bg-black/40 overflow-x-hidden max-w-full font-mono text-[11px] sm:text-xs shadow-[0_0_24px_rgba(255,255,255,0.05)]"
-                  dir="ltr"
-                >
-                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-3 py-2.5 bg-zinc-900/80 border-b border-white/5 text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
-                    <span className="text-start">Instrument</span>
-                    <span className="text-end">Entry → Mark</span>
-                    <span className="text-end">PnL $</span>
-                    <span className="text-end pe-1">Audit</span>
-                  </div>
-                  <ul className="divide-y divide-white/[0.08]">
-                    {activeTrades.map((trade) => {
-                      const up = trade.unrealizedPnlUsd >= 0;
-                      return (
-                        <li
-                          key={trade.id}
-                          className="group grid grid-cols-[minmax(0,1fr)_auto_auto_auto] gap-2 px-4 py-4 items-center hover:bg-white/[0.06] transition-all duration-200 hover:shadow-[inset_0_0_16px_rgba(34,211,238,0.08)]"
-                        >
-                          <span className="text-start font-semibold text-zinc-200 tracking-tight">
-                            {trade.symbol.replace('USDT', '')}
-                            <span className="text-zinc-600 font-normal">/USDT</span>
-                          </span>
-                          <span className="text-end text-zinc-400 tabular-nums live-data-number text-xs font-mono">
-                            {trade.entryPrice.toFixed(2)} → {trade.currentPrice.toFixed(2)}
-                          </span>
-                          <span
-                            className={`text-end font-black font-mono tabular-nums live-data-number text-sm ${up ? 'text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]' : 'text-rose-400 drop-shadow-[0_0_12px_rgba(251,113,133,0.5)]'}`}
+                <div className="rounded-2xl border border-white/10 bg-black/40 max-w-full font-mono shadow-[0_0_24px_rgba(255,255,255,0.05)] overflow-x-auto max-h-[340px] overflow-y-auto financial-grid-compact" dir="ltr">
+                  <table className="w-full min-w-[640px] border-collapse">
+                    <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 border-b border-white/10">
+                      <tr className="text-[10px] uppercase tracking-widest text-zinc-500 font-sans">
+                        <th className="text-start">Instrument</th>
+                        <th className="text-end">Entry → Mark</th>
+                        <th className="text-end">PnL $</th>
+                        <th className="text-end pe-1">Audit</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.08]">
+                      {activeTrades.map((trade) => {
+                        const up = trade.unrealizedPnlUsd >= 0;
+                        return (
+                          <tr
+                            key={trade.id}
+                            className="group items-center hover:bg-white/[0.05] transition-all duration-200"
                           >
-                            {up ? '+' : ''}
-                            {trade.unrealizedPnlUsd.toFixed(2)}
-                          </span>
-                          <span className="text-end">
-                            <ReasoningTrigger
-                              disabled={!trade.analysisReasoning}
-                              onClick={() =>
-                                setAnalysis({
-                                  assetSymbol: trade.symbol.replace('USDT', ''),
-                                  contextLabel: 'Active Position Analysis',
-                                  direction: null,
-                                  confidence: null,
-                                  reason: trade.analysisReasoning?.reason ?? null,
-                                  overseerSummary: trade.analysisReasoning?.overseerSummary ?? null,
-                                  overseerReasoningPath: trade.analysisReasoning?.overseerReasoningPath ?? null,
-                                  expertBreakdown: trade.analysisReasoning?.expertBreakdown ?? null,
-                                  createdAt: trade.analysisReasoning?.createdAt ?? null,
-                                })
-                              }
-                            />
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                            <td className="text-start font-semibold text-zinc-200 tracking-tight">
+                              {trade.symbol.replace('USDT', '')}
+                              <span className="text-zinc-600 font-normal">/USDT</span>
+                            </td>
+                            <td className="text-end text-zinc-300 tabular-nums live-data-number whitespace-nowrap">
+                              {trade.entryPrice.toFixed(4)} → {trade.currentPrice.toFixed(4)}
+                            </td>
+                            <td
+                              className={`text-end font-black tabular-nums live-data-number ${up ? 'text-emerald-400' : 'text-rose-400'}`}
+                            >
+                              {up ? '+' : ''}
+                              {trade.unrealizedPnlUsd.toFixed(2)}
+                            </td>
+                            <td className="text-end">
+                              <ReasoningTrigger
+                                disabled={!trade.analysisReasoning}
+                                onClick={() =>
+                                  setAnalysis({
+                                    assetSymbol: trade.symbol.replace('USDT', ''),
+                                    contextLabel: 'Active Position Analysis',
+                                    direction: null,
+                                    confidence: null,
+                                    reason: trade.analysisReasoning?.reason ?? null,
+                                    overseerSummary: trade.analysisReasoning?.overseerSummary ?? null,
+                                    overseerReasoningPath: trade.analysisReasoning?.overseerReasoningPath ?? null,
+                                    expertBreakdown: trade.analysisReasoning?.expertBreakdown ?? null,
+                                    createdAt: trade.analysisReasoning?.createdAt ?? null,
+                                  })
+                                }
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -453,29 +462,30 @@ export default function PaperTradingPanel() {
                   {status.recentExecutions.map((ev) => (
                     <div
                       key={ev.id}
-                      className={`${GLASS_TILE} relative px-5 py-4 flex flex-wrap items-center justify-between gap-3 group border-white/15 bg-black/40 shadow-[0_4px_16px_rgba(0,0,0,0.2)] hover:shadow-[0_8px_24px_rgba(34,211,238,0.15)] hover:border-cyan-500/40 transition-all duration-200 backdrop-blur-xl`}
+                      className={`${GLASS_TILE} relative px-5 py-4 flex flex-wrap items-center justify-between gap-3 group border-white/15 bg-black/40 shadow-[0_2px_8px_rgba(0,0,0,0.15)] hover:shadow-[0_4px_12px_rgba(34,211,238,0.1)] hover:border-cyan-500/40 transition-all duration-200 backdrop-blur-xl`}
                       dir="ltr"
                     >
                       <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/5 via-transparent to-violet-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl" aria-hidden />
                       <div className="relative flex items-center gap-4 min-w-0 z-10">
-                        <span className="font-mono font-bold text-lg text-white drop-shadow-[0_0_8px_rgba(34,211,238,0.2)]">{ev.symbol.replace('USDT', '')}</span>
+                        <span className="font-mono font-bold text-lg text-white">{ev.symbol.replace('USDT', '')}</span>
                         <span
                           className={`text-xs font-black uppercase px-3 py-1 rounded-lg border font-mono ${
                             ev.signal === 'BUY'
-                              ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50 shadow-[0_0_12px_rgba(52,211,153,0.3)]'
-                              : 'bg-rose-500/25 text-rose-300 border-rose-400/50 shadow-[0_0_12px_rgba(251,113,133,0.3)]'
+                              ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/50'
+                              : 'bg-rose-500/25 text-rose-300 border-rose-400/50'
                           }`}
                         >
                           {ev.signal}
                         </span>
-                        <span className="text-cyan-300 font-mono font-bold live-data-number text-sm drop-shadow-[0_0_6px_rgba(34,211,238,0.3)]">{ev.confidence.toFixed(1)}%</span>
+                        <span className="text-cyan-300 font-mono font-bold live-data-number text-sm">{ev.confidence.toFixed(1)}%</span>
                       </div>
                       <div className="relative flex items-center gap-3 shrink-0 z-10">
                         <span
-                          className={`text-xs font-bold uppercase tracking-wider font-mono ${
-                            ev.executed ? 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]' : 'text-rose-400/80 drop-shadow-[0_0_6px_rgba(251,113,133,0.3)]'
+                          className={`text-xs font-bold uppercase tracking-wider font-mono inline-flex items-center gap-1.5 ${
+                            ev.executed ? 'text-emerald-400' : 'text-rose-400'
                           }`}
                         >
+                          {ev.executed ? <span className="live-pulse-dot" aria-hidden /> : null}
                           {ev.status}
                         </span>
                         <ReasoningTrigger
@@ -504,10 +514,13 @@ export default function PaperTradingPanel() {
       </div>
 
       {analysis && (
-        <div className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
           <div
             dir="rtl"
-            className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Execution audit analysis"
+            className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] max-h-[90vh] overflow-y-auto"
           >
             <div className="mb-6 border-b border-white/5 pb-5">
               <div className="flex items-start justify-between gap-4">
@@ -538,8 +551,10 @@ export default function PaperTradingPanel() {
                 </div>
                 <button
                   type="button"
+                  id="close-analysis-modal"
+                  name="close-audit-modal"
                   onClick={() => setAnalysis(null)}
-                  className="btn-neon-ghost rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 transition-colors"
+                  className="btn-neon-ghost rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10"
                 >
                   סגור
                 </button>

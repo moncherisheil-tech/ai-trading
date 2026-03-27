@@ -5,8 +5,8 @@
 
 import { getCachedGemsTicker24h } from '@/lib/cache-service';
 import { doAnalysisCore } from '@/lib/analysis-core';
-import { sendGemAlert, sendEliteAlert, escapeHtml } from '@/lib/telegram';
-import { insertScannerAlert, getSymbolsAlertedSince } from '@/lib/db/scanner-alert-log';
+import { sendGemAlert, sendEliteAlert } from '@/lib/telegram';
+import { insertScannerAlert, getSymbolsAlertedSince, getLatestScannerAlertForSymbol } from '@/lib/db/scanner-alert-log';
 import { isSupportedBase } from '@/lib/symbols';
 import { writeAudit } from '@/lib/audit';
 import { getMacroPulse } from '@/lib/macro-service';
@@ -26,6 +26,7 @@ const ELITE_CONFIDENCE_THRESHOLD = 85;
 const SCAN_INTERVAL_MS = 20 * 60 * 1000; // 20 minutes
 
 const RECENTLY_ALERTED_WINDOW_MS = 4 * 60 * 60 * 1000; // 4 hours
+const CONFIDENCE_JUMP_OVERRIDE = 15;
 const MAX_GEMS_PER_CYCLE = 12;
 const DEFAULT_CONFIDENCE_THRESHOLD = 80;
 const PROFESSIONAL_MIN_24H_VOLUME_USD = 500_000;
@@ -49,6 +50,16 @@ function buildScannerDiagnosticsSummary(
   if (belowThreshold > 0) parts.push(`${belowThreshold} סוננו עקב הסתברות נמוכה או תנאי RSI/שוק (מתחת לסף ביטחון)`);
   if (alreadyAlerted > 0) parts.push(`${alreadyAlerted} כבר קיבלו התראה לאחרונה`);
   return parts.join('; ') + '.';
+}
+
+function formatTelegramPrice(value: number): string {
+  if (!Number.isFinite(value)) return '0.0000';
+  return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+function formatTelegramPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0.00';
+  return value.toFixed(2);
 }
 
 export type ScannerStatus = 'ACTIVE' | 'IDLE';
@@ -228,11 +239,24 @@ export async function runOneCycle(): Promise<void> {
       const probability = result.data.probability ?? 0;
       const entryPrice = result.data.entry_price ?? 0;
 
-      if (recentlyAlerted.has(symbol)) {
-        alreadyAlerted += 1;
-      } else if (probability <= confidenceThreshold) {
+      if (probability <= confidenceThreshold) {
         belowThreshold += 1;
       } else {
+        const latestAlert = await getLatestScannerAlertForSymbol(symbol);
+        const latestAlertAgeMs = latestAlert?.alerted_at ? Date.now() - new Date(latestAlert.alerted_at).getTime() : Number.POSITIVE_INFINITY;
+        const withinWindow = Number.isFinite(latestAlertAgeMs) && latestAlertAgeMs <= RECENTLY_ALERTED_WINDOW_MS;
+        const confidenceJump = latestAlert ? probability - latestAlert.probability : Number.POSITIVE_INFINITY;
+        const shouldSkipForIdempotency = Boolean(
+          recentlyAlerted.has(symbol) &&
+            withinWindow &&
+            Number.isFinite(confidenceJump) &&
+            confidenceJump < CONFIDENCE_JUMP_OVERRIDE
+        );
+        if (shouldSkipForIdempotency) {
+          alreadyAlerted += 1;
+          continue;
+        }
+
         await insertScannerAlert({
           symbol,
           prediction_id: result.data.id,
@@ -258,7 +282,6 @@ export async function runOneCycle(): Promise<void> {
           .replace(/\s+/g, ' ')
           .trim()
           .slice(0, 280);
-        const logicEscaped = escapeHtml(logicSnippet || 'אין תזה זמינה.');
 
         const trendConfirmed = (result.data.trend_confirmed_timeframes ?? 0) >= 2;
         const isElite = probability >= ELITE_CONFIDENCE_THRESHOLD && trendConfirmed;
@@ -288,13 +311,19 @@ export async function runOneCycle(): Promise<void> {
             writeAudit({ event: 'scanner.elite_alert_failed', level: 'warn', meta: { symbol, error: sendResult.error } });
           }
         } else {
-          const messageText =
-            `🚨 <b>Mon Chéri Quant AI | זיהוי הזדמנות</b> 🚨\n\n` +
-            `💎 <b>נכס:</b> ${escapeHtml(base)}\n` +
-            `📊 <b>הסתברות הצלחה:</b> ${probability}% | <b>סיכון:</b> ${escapeHtml(riskLabel)}\n\n` +
-            `🎯 <b>מחיר יעד:</b> $${targetPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n` +
-            `🛑 <b>תמיכה קריטית:</b> $${supportPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\n\n` +
-            `🧠 <b>תזת ה-AI:</b>\n${logicEscaped}\n\nבחר פעולה:`;
+          const messageText = [
+            '⚠️ *Scanner Signal*',
+            `Asset: *${base}*`,
+            `Confidence: \`${formatTelegramPercent(probability)}%\``,
+            `Risk: ${riskLabel}`,
+            `Target: \`${formatTelegramPrice(targetPrice)}\``,
+            `Support: \`${formatTelegramPrice(supportPrice)}\``,
+            '',
+            '*Thesis*',
+            logicSnippet || 'אין תזה זמינה.',
+            '',
+            '_Select action:_',
+          ].join('\n');
 
           const sendResult = await sendGemAlert({
             symbol,

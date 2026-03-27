@@ -7,14 +7,14 @@
   /** Fixed right rail (`w-[280px]`) + breathing room so main never sits under the glass. */
   --app-main-inline-offset: calc(var(--app-sidebar-width, 280px) + 1rem);
   --z-sticky: 10;
-  --z-dropdown: 100;
-  --z-header: 50;
+  --z-dropdown: 50;
+  --z-header: 40;
   --z-drawer-backdrop: 60;
   --z-drawer: 70;
-  --z-modal-backdrop: 80;
-  --z-modal: 90;
-  --z-tooltip: 95;
-  --z-toast: 100;
+  --z-modal-backdrop: 90;
+  --z-modal: 100;
+  --z-tooltip: 110;
+  --z-toast: 120;
   --ui-radius-lg: 0.75rem;
   --ui-radius-xl: 1rem;
   --ui-card-padding: 1.25rem;
@@ -761,6 +761,16 @@ textarea:focus-visible {
   border-radius: 50%;
   background: #34d399;
   animation: live-pulse-glow 1.2s ease-in-out infinite;
+}
+
+.financial-grid-compact {
+  font-size: 0.75rem;
+  line-height: 1.1rem;
+}
+
+.financial-grid-compact th,
+.financial-grid-compact td {
+  padding: 0.5rem 0.75rem;
 }
 
 /* Spring physics button ripple */

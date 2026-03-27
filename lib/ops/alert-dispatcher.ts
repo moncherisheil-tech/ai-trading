@@ -1,3 +1,5 @@
+import { sendTelegramMessage } from '@/lib/telegram';
+
 export type AlertSeverity = 'INFO' | 'SUCCESS' | 'WARNING' | 'CRITICAL';
 
 interface AlertPayload {
@@ -15,8 +17,29 @@ const defaultConsoleSink: AlertSink = (payload) => {
   console.log(`${header}\n${body}`);
 };
 
+const severityIcon: Record<AlertSeverity, string> = {
+  INFO: '🟢',
+  SUCCESS: '🟢',
+  WARNING: '⚠️',
+  CRITICAL: '🔴',
+};
+
+const escapeMarkdown = (text: string): string =>
+  text.replace(/([_*`\[\]()~>#+\-=|{}.!\\])/g, '\\$1');
+
+const telegramSink: AlertSink = async (payload) => {
+  const message = [
+    `${severityIcon[payload.severity]} *${escapeMarkdown(payload.severity)} Alert*`,
+    `Title: ${escapeMarkdown(payload.title)}`,
+    `Message: ${escapeMarkdown(payload.message)}`,
+    `Time: \`${escapeMarkdown(payload.timestamp)}\``,
+  ].join('\n');
+
+  await sendTelegramMessage(message, { parse_mode: 'Markdown', disable_web_page_preview: true });
+};
+
 // Add a single line below to register any future sink (Telegram, Resend, etc).
-const alertSinks: AlertSink[] = [defaultConsoleSink];
+const alertSinks: AlertSink[] = [defaultConsoleSink, telegramSink];
 
 export async function dispatchCriticalAlert(
   title: string,

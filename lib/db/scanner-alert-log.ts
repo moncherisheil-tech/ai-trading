@@ -16,6 +16,13 @@ export interface ScannerAlertLogRow {
 
 export interface ScannerAlertLogRecentRow extends ScannerAlertLogRow {}
 
+export interface ScannerAlertLogLatestRow {
+  symbol: string;
+  probability: number;
+  entry_price: number;
+  alerted_at: string;
+}
+
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
@@ -95,6 +102,32 @@ export async function getSymbolsAlertedSince(sinceMs: number): Promise<string[]>
   } catch (err) {
     console.error('getSymbolsAlertedSince failed:', err);
     return [];
+  }
+}
+
+export async function getLatestScannerAlertForSymbol(symbol: string): Promise<ScannerAlertLogLatestRow | null> {
+  if (!usePostgres()) return null;
+  try {
+    const ok = await ensureTable();
+    if (!ok) return null;
+    const { rows } = await sql`
+      SELECT symbol, probability::float, entry_price::float, alerted_at::text
+      FROM scanner_alert_log
+      WHERE symbol = ${symbol}
+      ORDER BY alerted_at DESC
+      LIMIT 1
+    `;
+    const row = (rows || [])[0] as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      symbol: String(row.symbol),
+      probability: Number(row.probability),
+      entry_price: Number(row.entry_price),
+      alerted_at: String(row.alerted_at),
+    };
+  } catch (err) {
+    console.error('getLatestScannerAlertForSymbol failed:', err);
+    return null;
   }
 }
 

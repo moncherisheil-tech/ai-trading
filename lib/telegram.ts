@@ -14,8 +14,8 @@ export type TelegramSendResult =
   | { ok: false; error: string; statusCode?: number; rateLimitRetryAfter?: number };
 
 export type TelegramSendOptions = {
-  /** Use 'HTML' for <b>, <i>, <code>, <a href="...">. Avoid MarkdownV2 (strict escaping). */
-  parse_mode?: 'HTML';
+  /** Use 'HTML' or 'Markdown'. */
+  parse_mode?: 'HTML' | 'Markdown';
   disable_web_page_preview?: boolean;
   reply_markup?: TelegramReplyMarkup;
 };
@@ -60,6 +60,10 @@ export function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;');
 }
 
+function escapeMarkdown(text: string): string {
+  return text.replace(/([_*`\[\]()~>#+\-=|{}.!\\])/g, '\\$1');
+}
+
 /**
  * Low-level send: requires token and chatId. Used by test route and sendTelegramMessage.
  * Handles timeouts, rate limits (429), invalid token/chat (400/401), and logs failures for debugging.
@@ -68,7 +72,7 @@ export async function sendTelegramRaw(params: {
   token: string;
   chatId: string;
   text: string;
-  parse_mode?: 'HTML';
+  parse_mode?: 'HTML' | 'Markdown';
   disable_web_page_preview?: boolean;
   /** Inline keyboard: buttons may have callback_data or url. Reply keyboard: keyboard rows of { text }. */
   reply_markup?: TelegramReplyMarkup;
@@ -186,6 +190,19 @@ export async function sendTelegramMessage(
   return lastResult;
 }
 
+function formatPrice(value: number): string {
+  if (!Number.isFinite(value)) return '0.0000';
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  });
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return '0.00';
+  return value.toFixed(2);
+}
+
 export function getDashboardReportKeyboard(baseUrl: string): TelegramReplyMarkup {
   const root = (baseUrl || getBaseUrl()).replace(/\/$/, '');
   // Ensure we never send localhost URLs to Telegram
@@ -231,9 +248,16 @@ export async function sendGemAlert(params: {
   const base = symbol.replace('USDT', '');
   const text =
     messageText ||
-    `💎 <b>ג'ם זוהה</b>\n\nנכס: <b>${escapeHtml(base)}</b>\nמחיר כניסה: <code>$${entryPrice.toLocaleString()}</code>\nסכום וירטואלי: <code>$${amountUsd.toLocaleString()}</code>\n\nבחר פעולה:`;
-  const priceStr = Math.round(entryPrice).toString();
-  const amountStr = Math.round(amountUsd).toString();
+    [
+      '⚠️ *Scanner Signal*',
+      `Asset: *${escapeMarkdown(base)}*`,
+      `Entry: \`${formatPrice(entryPrice)}\``,
+      `Size USD: \`${formatPrice(amountUsd)}\``,
+      '',
+      '_Select action:_',
+    ].join('\n');
+  const priceStr = entryPrice.toFixed(2);
+  const amountStr = amountUsd.toFixed(2);
   const callbackConfirm = `${GEM_CALLBACK_PREFIX_CONFIRM}${symbol}:${priceStr}:${amountStr}`.slice(0, 64);
   const callbackReject = `${GEM_CALLBACK_PREFIX_REJECT}${symbol}`.slice(0, 64);
   const callbackDeep = `${GEM_CALLBACK_DEEP}${symbol}`.slice(0, 64);
@@ -262,7 +286,7 @@ export async function sendGemAlert(params: {
       token,
       chatId,
       text,
-      parse_mode: 'HTML',
+      parse_mode: 'Markdown',
       reply_markup,
     });
     lastResult = result;
@@ -302,8 +326,7 @@ export async function sendEliteAlert(params: {
   if (chatIds.length === 0) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
   const base = params.symbol.replace('USDT', '');
   const safetyHe = params.marketSafetyStatus === 'Safe' ? 'בטוח' : params.marketSafetyStatus === 'Caution' ? 'זהירות' : 'מסוכן';
-  const riskColor =
-    params.marketSafetyStatus === 'Safe' ? '#4ade80' : params.marketSafetyStatus === 'Caution' ? '#fbbf24' : '#fb7185';
+  const safetyIcon = params.marketSafetyStatus === 'Safe' ? '🟢' : params.marketSafetyStatus === 'Dangerous' ? '🔴' : '⚠️';
   const tp =
     params.takeProfitPct != null && Number.isFinite(params.takeProfitPct)
       ? `TP: +${params.takeProfitPct.toFixed(2)}%`
@@ -312,52 +335,50 @@ export async function sendEliteAlert(params: {
     params.stopLossPct != null && Number.isFinite(params.stopLossPct)
       ? `SL: ${params.stopLossPct.toFixed(2)}%`
       : 'SL: —';
-  const ladder = `<pre>Entry: $${params.entryPrice.toLocaleString()}
-${tp}
-${sl}
-Conf: ${params.confidence}/100</pre>`;
+  const ladder = [
+    `Entry: \`${formatPrice(params.entryPrice)}\``,
+    `${tp}`,
+    `${sl}`,
+    `Conf: \`${formatPercent(params.confidence)}\``,
+  ].join('\n');
   const gemScoreLine =
     params.gemScore != null && Number.isFinite(params.gemScore)
-      ? '\n<b>ציון Gem (MoE):</b> ' + Math.round(params.gemScore * 10) / 10 + '/100'
+      ? `Gem Score: \`${formatPercent(params.gemScore)}\``
       : '';
   const masterInsightHe = (params.masterInsightHe ?? '').trim();
   const macroLogicHe = (params.macroLogicHe ?? '').trim();
   const onchainLogicHe = (params.onchainLogicHe ?? '').trim();
   const deepMemoryLogicHe = (params.deepMemoryLogicHe ?? '').trim();
-  const masterInsightLine = masterInsightHe
-    ? '\n\n<b>תובנת קונצנזוס:</b>\n' + escapeHtml(masterInsightHe.slice(0, 400))
-    : '';
-  const macroLogicLine = macroLogicHe
-    ? '\n\n<b>מקרו / Order Book:</b>\n' + escapeHtml(macroLogicHe.slice(0, 300))
-    : '';
-  const onchainLogicLine = onchainLogicHe
-    ? '\n\n<b>On-Chain:</b>\n' + escapeHtml(onchainLogicHe.slice(0, 200))
-    : '';
-  const deepMemoryLogicLine = deepMemoryLogicHe
-    ? '\n\n<b>Deep Memory:</b>\n' + escapeHtml(deepMemoryLogicHe.slice(0, 200))
-    : '';
+  const extraReasoningBlocks = [
+    masterInsightHe ? `Consensus Insight: ${masterInsightHe.slice(0, 300)}` : '',
+    macroLogicHe ? `Macro / Order Book: ${macroLogicHe.slice(0, 220)}` : '',
+    onchainLogicHe ? `On-Chain: ${onchainLogicHe.slice(0, 160)}` : '',
+    deepMemoryLogicHe ? `Deep Memory: ${deepMemoryLogicHe.slice(0, 160)}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   const text =
     params.messageText ||
     [
-      '🚀 <b>איתות אליט עוצמתי</b> (ביטחון: <code>' + params.confidence + '/100</code>)' + gemScoreLine,
+      '🐋 *Elite Signal*',
       '',
+      `Asset: *${escapeMarkdown(base)}*`,
       ladder,
+      gemScoreLine,
+      `${safetyIcon} Market Safety: *${safetyHe}*`,
       '',
-      'מטבע: <b>' + escapeHtml(base) + '</b>',
-      'מחיר כניסה: <code>$' + params.entryPrice.toLocaleString() + '</code>',
+      '*Reasoning*',
+      escapeMarkdown((params.reasoning || 'אין נימוק זמין.').slice(0, 360)),
+      extraReasoningBlocks ? escapeMarkdown(extraReasoningBlocks) : '',
       '',
-      '<b>נימוק טכני:</b>',
-      escapeHtml((params.reasoning || 'אין נימוק זמין.').slice(0, 500)) + masterInsightLine + macroLogicLine + onchainLogicLine + deepMemoryLogicLine,
+      params.simulationLink ? `Simulation: ${escapeMarkdown(params.simulationLink)}` : '',
       '',
-      `<b>מדד בטיחות שוק:</b> <span style="color:${riskColor}"><b>${safetyHe}</b></span>`,
-      params.simulationLink ? '\n🔗 <a href="' + params.simulationLink + '">מסחר סימולציה</a>' : '',
-      '',
-      'בחר פעולה:',
+      '_Select action:_',
     ]
       .filter(Boolean)
       .join('\n');
-  const priceStr = Math.round(params.entryPrice).toString();
-  const amountStr = Math.round(params.amountUsd).toString();
+  const priceStr = params.entryPrice.toFixed(2);
+  const amountStr = params.amountUsd.toFixed(2);
   const callbackConfirm = `${GEM_CALLBACK_PREFIX_CONFIRM}${params.symbol}:${priceStr}:${amountStr}`.slice(0, 64);
   const callbackReject = `${GEM_CALLBACK_PREFIX_REJECT}${params.symbol}`.slice(0, 64);
   const callbackDeep = `${GEM_CALLBACK_DEEP}${params.symbol}`.slice(0, 64);
@@ -386,7 +407,7 @@ Conf: ${params.confidence}/100</pre>`;
       token,
       chatId,
       text,
-      parse_mode: 'HTML',
+      parse_mode: 'Markdown',
       reply_markup,
     });
     lastResult = result;

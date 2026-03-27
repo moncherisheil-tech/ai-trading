@@ -69,7 +69,7 @@ export default function SymbolSelect({ value, onChange, placeholder = 'בחר מ
       </button>
 
       {open && (
-        <div className="ui-panel-dense absolute top-full start-0 end-0 mt-1 shadow-xl z-[var(--z-dropdown)] max-h-[320px] flex flex-col overflow-hidden p-0">
+        <div className="ui-panel-dense absolute top-full start-0 end-0 mt-1 shadow-xl z-50 max-h-[320px] flex flex-col overflow-hidden p-0">
           <div className="p-2 border-b border-white/5 flex items-center gap-2">
             <label htmlFor="crypto-symbol-search" className="sr-only">חיפוש מטבע</label>
             <Search className="w-4 h-4 text-zinc-500 shrink-0" aria-hidden />

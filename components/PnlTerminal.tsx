@@ -551,8 +551,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
             )}
           </div>
         ) : (
-          <div className="overflow-x-auto overflow-y-visible max-h-[70vh] overflow-y-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-            <table className="w-full text-sm min-w-[580px] border-collapse">
+          <div className="overflow-x-auto overflow-y-visible max-h-[70vh] overflow-y-auto financial-grid-compact" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <table className="w-full min-w-[580px] border-collapse">
               <thead className="sticky top-0 z-[var(--z-sticky)] bg-zinc-900/95 backdrop-blur-[60px] border-b border-white/10 shadow-sm">
                 <tr>
                   <th className="text-end py-3 px-4 text-zinc-500 font-medium">
@@ -596,11 +596,11 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
                       <td className="py-3 px-4 text-zinc-500 text-end tabular-nums" suppressHydrationWarning>{formatDateTimeLocal(t.evaluated_at)}</td>
                       <td className="py-3 px-4 font-medium text-white text-end">{t.symbol}</td>
                       <td className="py-3 px-4 text-zinc-500 text-end">{DIRECTION_HE[t.predicted_direction] ?? t.predicted_direction}</td>
-                      <td className={`py-3 px-4 text-end font-medium tabular-nums ${t.pnl_usd >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                      <td className={`text-end font-medium tabular-nums ${t.pnl_usd >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                         <span dir="ltr" className="inline-block">{t.pnl_usd >= 0 ? '+' : ''}{t.pnl_usd.toFixed(2)}</span>
                       </td>
                       <td className="py-3 px-4 text-center">
-                        {t.win ? <TrendingUp className="w-4 h-4 text-emerald-400 inline" /> : <TrendingDown className="w-4 h-4 text-rose-500 inline" />}
+                        {t.win ? <TrendingUp className="w-4 h-4 text-emerald-400 inline" /> : <TrendingDown className="w-4 h-4 text-rose-400 inline" />}
                       </td>
                       <td className="py-3 px-4 text-center text-zinc-500 text-xs" title="עסקאות backtest — הערכה בסיום תקופה">הערכה בסיום תקופה</td>
                       <td className="py-3 px-4 text-center">
@@ -783,8 +783,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
                       ))}
                     </ul>
                   ) : (
-                    <div className="overflow-x-auto max-h-[40vh] overflow-y-auto">
-                      <table className="w-full text-sm min-w-[400px] border-collapse">
+                    <div className="overflow-x-auto max-h-[40vh] overflow-y-auto financial-grid-compact">
+                      <table className="w-full min-w-[400px] border-collapse">
                         <thead className="sticky top-0 z-[var(--z-sticky)] bg-[#111111] border-b border-white/10">
                           <tr>
                             <th className="text-end py-2.5 px-4 text-zinc-500 font-medium">סמל</th>
@@ -838,8 +838,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
                       ))}
                     </ul>
                   ) : (
-                    <div className="overflow-x-auto max-h-[30vh] overflow-y-auto">
-                      <table className="w-full text-sm min-w-[640px] border-collapse">
+                    <div className="overflow-x-auto max-h-[30vh] overflow-y-auto financial-grid-compact">
+                      <table className="w-full min-w-[640px] border-collapse">
                         <thead className="sticky top-0 z-[var(--z-sticky)] bg-[#111111] border-b border-white/10">
                           <tr>
                             <th className="text-end py-2 px-4 text-zinc-500 font-medium">סמל</th>
@@ -868,10 +868,10 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
                               <td className="py-2 px-4 text-zinc-400 text-end tabular-nums text-xs" dir="ltr">
                                 {t.exit_fee_usd != null ? `$${formatFiat(t.exit_fee_usd)}` : '—'}
                               </td>
-                              <td className={`py-2 px-4 text-end tabular-nums font-medium ${(t.pnl_net_usd ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-500'}`} dir="ltr">
+                              <td className={`text-end tabular-nums font-medium ${(t.pnl_net_usd ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`} dir="ltr">
                                 {t.pnl_net_usd != null ? `${t.pnl_net_usd >= 0 ? '+' : ''}${formatFiat(t.pnl_net_usd)}` : (t.pnl_pct != null ? `~${formatFiat((t.amount_usd ?? 0) * (t.pnl_pct / 100))}` : '—')}
                               </td>
-                              <td className={`py-2 px-4 text-end tabular-nums font-medium ${(t.pnl_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>
+                              <td className={`text-end tabular-nums font-medium ${(t.pnl_pct ?? 0) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 <span dir="ltr" className="inline-block">{t.pnl_pct != null ? `${t.pnl_pct >= 0 ? '+' : ''}${t.pnl_pct.toFixed(2)}%` : '—'}</span>
                               </td>
                               <td className="py-2 px-4 text-end text-zinc-400 text-xs">
