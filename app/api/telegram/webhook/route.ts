@@ -4,7 +4,9 @@
  *
  * CRITICAL: This route MUST be reachable by Telegram servers without browser cookies,
  * session, or CSRF. Middleware only protects /ops, so /api/* is not blocked.
- * Authentication is by TELEGRAM_CHAT_ID: only updates from that chat are processed.
+ * Authentication: when PostgreSQL is configured, only `telegram_subscribers` rows with
+ * `is_active` may invoke commands/callbacks (DB ACL). Without Postgres, TELEGRAM_CHAT_ID /
+ * TELEGRAM_ADMIN_CHAT_ID env fallbacks apply for local/dev continuity.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -43,6 +45,10 @@ import { getOverseerChatReply } from '@/lib/system-overseer';
 import { recordAuditLog } from '@/lib/db/audit-logs';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
 import { listVirtualTradeHistory } from '@/lib/db/virtual-trades-history';
+import {
+  isChatIdActiveSubscriber,
+  isChatIdActiveAdmin,
+} from '@/lib/db/telegram-subscribers';
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
@@ -83,8 +89,8 @@ function getAdminChatId(): string {
   return typeof c === 'string' ? c.trim() : '';
 }
 
-/** Returns true if the chat is the configured TELEGRAM_CHAT_ID (commands) or TELEGRAM_ADMIN_CHAT_ID (Executive Hotline). For admin-only commands, use isAdminChatId instead. */
-function isAllowedChatId(chatId: number | string | undefined): boolean {
+/** Legacy env allow-list when Postgres / `telegram_subscribers` is not used. */
+function isAllowedChatIdFromEnv(chatId: number | string | undefined): boolean {
   const defaultId = getDefaultChatId();
   const adminId = getAdminChatId();
   if (!defaultId && !adminId) return false;
@@ -92,11 +98,32 @@ function isAllowedChatId(chatId: number | string | undefined): boolean {
   return id === defaultId || (adminId !== '' && id === adminId);
 }
 
-/** Returns true only if the chat is the CEO Executive Hotline (TELEGRAM_ADMIN_CHAT_ID). Used to gate Overseer AI. */
-function isAdminChatId(chatId: number | string | undefined): boolean {
+/** DB-backed ACL when Postgres is configured; otherwise env-based allow-list. */
+async function isAllowedChatAsync(chatId: number | string | undefined): Promise<boolean> {
+  if (chatId == null) return false;
+  const id = String(chatId);
+  if (!APP_CONFIG.postgresUrl?.trim()) {
+    return isAllowedChatIdFromEnv(id);
+  }
+  return isChatIdActiveSubscriber(id);
+}
+
+/** Returns true only if the chat is the CEO Executive Hotline (TELEGRAM_ADMIN_CHAT_ID). Used to gate Overseer AI when DB has no admin row. */
+function isAdminChatIdFromEnv(chatId: number | string | undefined): boolean {
   const adminId = getAdminChatId();
   if (!adminId) return false;
   return String(chatId) === adminId;
+}
+
+/** Overseer: active `admin` row in DB, or TELEGRAM_ADMIN_CHAT_ID when set. */
+async function isAdminChatAsync(chatId: number | string | undefined): Promise<boolean> {
+  if (chatId == null) return false;
+  const id = String(chatId);
+  if (APP_CONFIG.postgresUrl?.trim()) {
+    const dbAdmin = await isChatIdActiveAdmin(id);
+    if (dbAdmin) return true;
+  }
+  return isAdminChatIdFromEnv(chatId);
 }
 
 async function sendToChat(chatId: string | number, text: string): Promise<void> {
@@ -442,11 +469,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false }, { status: 200 });
   }
 
-  // ——— Text message: only from allowed chat (TELEGRAM_CHAT_ID or TELEGRAM_ADMIN_CHAT_ID).
+  // ——— Text message: only from allowed chat (DB active subscriber when Postgres is configured).
   // Security: non-allowed chat IDs get 200 OK with no processing so Telegram stops retrying; we ignore malicious users entirely.
   const msg = update.message;
   if (msg?.text && msg.chat?.id != null) {
-    if (!isAllowedChatId(msg.chat.id)) {
+    if (!(await isAllowedChatAsync(msg.chat.id))) {
       return NextResponse.json({ ok: true });
     }
     const chatId = msg.chat.id;
@@ -477,8 +504,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       return NextResponse.json({ ok: true });
     }
-    // Executive Hotline: only TELEGRAM_ADMIN_CHAT_ID gets Overseer AI for non-command messages
-    if (isAdminChatId(chatId)) {
+    // Executive Hotline: DB `admin` role or TELEGRAM_ADMIN_CHAT_ID gets Overseer AI for non-command messages
+    if (await isAdminChatAsync(chatId)) {
       try {
         const reply = await getOverseerChatReply(msg.text);
         await sendToChat(chatId, reply);
@@ -497,7 +524,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const chatIdFromCallback = cq.message?.chat?.id;
-  if (!isAllowedChatId(chatIdFromCallback)) {
+  if (!(await isAllowedChatAsync(chatIdFromCallback))) {
     await answerCallbackQuery(token, cq.id, 'לא מורשה.');
     return NextResponse.json({ ok: true });
   }
@@ -548,7 +575,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       const raw = (cq.data.slice(5).trim() || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
       const symbolFromCallback = raw.toUpperCase();
       const symbol = symbolFromCallback.endsWith('USDT') ? symbolFromCallback : `${symbolFromCallback}USDT`;
-      const chatId = String(chatIdFromCallback ?? getDefaultChatId());
+      const chatId = String(chatIdFromCallback);
       try {
         const base = symbol.replace(/USDT$/i, '');
         if (!base || !isSupportedBase(base)) {

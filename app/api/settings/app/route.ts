@@ -78,12 +78,21 @@ function validateAndNormalize(body: Record<string, unknown>): Partial<AppSetting
     const s = body.system as Record<string, unknown>;
     const theme = s.theme;
     const validTheme = theme === 'dark' || theme === 'light' || theme === 'deep-sea' ? theme : undefined;
-    out.system = {
+    const systemPart: Record<string, unknown> = {
       telegramNotifications: typeof s.telegramNotifications === 'boolean' ? s.telegramNotifications : Boolean(s.telegramNotifications),
       soundAlerts: typeof s.soundAlerts === 'boolean' ? s.soundAlerts : Boolean(s.soundAlerts),
       theme: validTheme,
       dataRefreshIntervalMinutes: [1, 5, 15].includes(Number(s.dataRefreshIntervalMinutes)) ? (Number(s.dataRefreshIntervalMinutes) as 1 | 5 | 15) : undefined,
     };
+    if (s.telegramBotToken !== undefined) {
+      const t = typeof s.telegramBotToken === 'string' ? s.telegramBotToken.trim() : '';
+      if (t.length <= 4096) systemPart.telegramBotToken = t;
+    }
+    if (s.telegramChatId !== undefined) {
+      const c = typeof s.telegramChatId === 'string' ? s.telegramChatId.trim() : '';
+      if (c === '' || /^-?\d{1,20}$/.test(c)) systemPart.telegramChatId = c;
+    }
+    out.system = systemPart as AppSettings['system'];
     if ((out.system as Record<string, unknown>).theme === undefined) delete (out.system as Record<string, unknown>).theme;
     if ((out.system as Record<string, unknown>).dataRefreshIntervalMinutes === undefined) delete (out.system as Record<string, unknown>).dataRefreshIntervalMinutes;
   }
@@ -125,6 +134,24 @@ function payloadDiff(current: AppSettings, next: AppSettings): Record<string, un
     if (Object.keys(sub).length) diff[top] = sub;
   }
   return diff;
+}
+
+const SECRET_SYSTEM_KEYS = new Set(['telegramBotToken', 'telegramChatId']);
+
+/** Never persist raw Telegram secrets in audit_logs. */
+function redactPayloadDiffForAudit(diff: Record<string, unknown>): Record<string, unknown> {
+  const system = diff.system;
+  if (!system || typeof system !== 'object' || Array.isArray(system)) return diff;
+  const sub = { ...(system as Record<string, unknown>) };
+  let changed = false;
+  for (const k of SECRET_SYSTEM_KEYS) {
+    if (k in sub) {
+      sub[k] = '[redacted]';
+      changed = true;
+    }
+  }
+  if (!changed) return diff;
+  return { ...diff, system: sub };
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -183,11 +210,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const updated = await getAppSettings();
     const diff = payloadDiff(current, updated);
+    const safeDiff = Object.keys(diff).length ? redactPayloadDiffForAudit(diff) : { updated: true };
     await recordAuditLog({
       action_type: 'settings_update',
       actor_ip: request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? null,
       user_agent: request.headers.get('user-agent') ?? null,
-      payload_diff: Object.keys(diff).length ? diff : { updated: true },
+      payload_diff: safeDiff,
     });
     revalidatePath('/settings');
     revalidatePath('/');

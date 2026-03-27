@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, type FormEvent, type ReactNode } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import {
   Shield,
   Settings as SettingsIcon,
@@ -203,7 +203,7 @@ function SubscribersPanel() {
       </div>
       <div className="p-4 sm:p-5" dir="rtl">
         <p className="text-sm text-cyan-200/80 mb-4">
-          משתמשים פעילים שמקבלים התראות בוט (עסקאות, סיכומים יומיים). אם הרשימה ריקה — ניתן להוסיף מנוי כאן או להשתמש ב־TELEGRAM_CHAT_ID מ־.env.
+          משתמשים פעילים שמקבלים התראות בוט (עסקאות, סיכומים יומיים). אם הרשימה ריקה — הוסף מנוי כאן; פקודות בוט דורשות רשומת מנוי פעילה בטבלה.
         </p>
 
         <form
@@ -275,7 +275,7 @@ function SubscribersPanel() {
         </form>
 
         {list.length === 0 ? (
-          <p className="text-sm text-cyan-500/90">אין מנויים בטבלה עדיין. השתמש בטופס למעלה או ב־TELEGRAM_CHAT_ID.</p>
+          <p className="text-sm text-cyan-500/90">אין מנויים בטבלה עדיין. השתמש בטופס למעלה או ב־הגדרות מנכ&quot;ל (התראות).</p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-slate-700">
             <table className="w-full text-sm text-end">
@@ -315,15 +315,13 @@ export default function SettingsCommandCenter() {
   const [activeTab, setActiveTab] = useState<TabId>('trading');
   const [initialSettings, setInitialSettings] = useState<AppSettings | null>(null);
   const [telegramConnected, setTelegramConnected] = useState<boolean | null>(null);
-  const [telegramToken, setTelegramToken] = useState('');
-  const [telegramChatId, setTelegramChatId] = useState('');
   const [telegramTesting, setTelegramTesting] = useState(false);
   const [telegramTestResult, setTelegramTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
 
   const form = useForm<AppSettings>({
     defaultValues: {} as AppSettings,
   });
-  const { register, handleSubmit, reset, formState: { isDirty }, watch } = form;
+  const { register, handleSubmit, reset, formState: { isDirty }, watch, control } = form;
 
   useEffect(() => {
     let cancelled = false;
@@ -416,7 +414,12 @@ export default function SettingsCommandCenter() {
     setTelegramTesting(true);
     setTelegramTestResult(null);
     try {
-      const out = await testTelegramAction({ variant, token: telegramToken, chatId: telegramChatId });
+      const sys = watch('system');
+      const out = await testTelegramAction({
+        variant,
+        token: sys?.telegramBotToken ?? '',
+        chatId: sys?.telegramChatId ?? '',
+      });
       if (out.success) setTelegramTestResult(out.data as { ok: boolean; error?: string });
       else setTelegramTestResult({ ok: false, error: out.error });
     } catch {
@@ -770,7 +773,7 @@ export default function SettingsCommandCenter() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <label htmlFor="telegram-token" className={labelClass}>
-                      טוקן בוט (אופציונלי לבדיקה)
+                      טוקן בוט (נשמר בהגדרות; אופציונלי לבדיקה)
                       <span
                         className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-600/80 text-slate-400 cursor-help"
                         title={TOOLTIP_TOKEN}
@@ -779,18 +782,24 @@ export default function SettingsCommandCenter() {
                         <Info className="w-3 h-3" />
                       </span>
                     </label>
-                    <SecureSecretInput
-                      id="telegram-token"
-                      value={telegramToken}
-                      onChange={setTelegramToken}
-                      placeholder="••••••••"
-                      dir="ltr"
-                      inputClassName={inputClass}
+                    <Controller
+                      name="system.telegramBotToken"
+                      control={control}
+                      render={({ field }) => (
+                        <SecureSecretInput
+                          id="telegram-token"
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                          placeholder="••••••••"
+                          dir="ltr"
+                          inputClassName={inputClass}
+                        />
+                      )}
                     />
                   </div>
                   <div>
                     <label htmlFor="telegram-chat-id" className={labelClass}>
-                      מזהה צ&apos;אט (אופציונלי לבדיקה)
+                      מזהה צ&apos;אט (נשמר בהגדרות; אופציונלי לבדיקה)
                       <span
                         className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-slate-600/80 text-slate-400 cursor-help"
                         title={TOOLTIP_CHAT_ID}
@@ -799,14 +808,20 @@ export default function SettingsCommandCenter() {
                         <Info className="w-3 h-3" />
                       </span>
                     </label>
-                    <SecureSecretInput
-                      id="telegram-chat-id"
-                      value={telegramChatId}
-                      onChange={setTelegramChatId}
-                      placeholder="123456789"
-                      dir="ltr"
-                      inputMode="numeric"
-                      inputClassName={inputClass}
+                    <Controller
+                      name="system.telegramChatId"
+                      control={control}
+                      render={({ field }) => (
+                        <SecureSecretInput
+                          id="telegram-chat-id"
+                          value={field.value ?? ''}
+                          onChange={field.onChange}
+                          placeholder="123456789"
+                          dir="ltr"
+                          inputMode="numeric"
+                          inputClassName={inputClass}
+                        />
+                      )}
                     />
                   </div>
                 </div>

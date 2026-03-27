@@ -63,3 +63,16 @@ model Setting {
 
   @@map("settings")
 }
+
+/// Matches `telegram_subscribers` (see `lib/db.ts` init + `lib/db/telegram-subscribers.ts` raw SQL).
+model TelegramSubscriber {
+  id        Int      @id @default(autoincrement())
+  chatId    String   @unique @map("chat_id")
+  username  String?
+  isActive  Boolean  @default(true) @map("is_active")
+  role      String   @default("subscriber")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("telegram_subscribers")
+}

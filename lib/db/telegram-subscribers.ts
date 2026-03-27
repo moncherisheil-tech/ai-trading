@@ -5,6 +5,7 @@
 
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
+import { getPrisma } from '@/lib/prisma';
 
 export interface TelegramSubscriber {
   id: number;
@@ -94,6 +95,44 @@ export async function setSubscriberActive(chatId: string, isActive: boolean): Pr
     return true;
   } catch (err) {
     console.error('[telegram-subscribers] setSubscriberActive failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Webhook ACL: true when `chat_id` exists and `is_active` (DB-backed; replaces static env allow-lists).
+ */
+export async function isChatIdActiveSubscriber(chatId: string): Promise<boolean> {
+  if (!hasPostgres()) return false;
+  const prisma = getPrisma();
+  if (!prisma) return false;
+  try {
+    const row = await prisma.telegramSubscriber.findFirst({
+      where: { chatId, isActive: true },
+      select: { id: true },
+    });
+    return row != null;
+  } catch (err) {
+    console.error('[telegram-subscribers] isChatIdActiveSubscriber failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Executive Overseer hotline: active row with role `admin` (DB). Env fallback handled in webhook when DB unavailable.
+ */
+export async function isChatIdActiveAdmin(chatId: string): Promise<boolean> {
+  if (!hasPostgres()) return false;
+  const prisma = getPrisma();
+  if (!prisma) return false;
+  try {
+    const row = await prisma.telegramSubscriber.findFirst({
+      where: { chatId, isActive: true, role: 'admin' },
+      select: { id: true },
+    });
+    return row != null;
+  } catch (err) {
+    console.error('[telegram-subscribers] isChatIdActiveAdmin failed:', err);
     return false;
   }
 }

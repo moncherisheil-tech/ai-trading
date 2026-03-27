@@ -50,6 +50,9 @@ export interface AppSettings {
     soundAlerts: boolean;
     theme: 'dark' | 'light' | 'deep-sea';
     dataRefreshIntervalMinutes: 1 | 5 | 15;
+    /** Stored in unified `settings` row; runtime may still prefer `TELEGRAM_BOT_TOKEN` env when set. */
+    telegramBotToken?: string;
+    telegramChatId?: string;
   };
   execution: {
     /** Master kill-switch for autonomous execution (paper/live). */
@@ -104,6 +107,8 @@ const DEFAULTS: AppSettings = {
     soundAlerts: true,
     theme: 'dark',
     dataRefreshIntervalMinutes: 5,
+    telegramBotToken: '',
+    telegramChatId: '',
   },
   execution: {
     masterSwitchEnabled: true,
