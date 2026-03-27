@@ -18,19 +18,16 @@ jobs:
             cat << 'EOF' > .env
             ${{ secrets.ENV_FILE }}
             EOF
+            # DATABASE_URL must come from secrets.ENV_FILE (user quantum_admin — never overwrite with postgres).
             if ! docker ps -a --format '{{.Names}}' | grep -Fxq moncheri-db; then
               docker run --name moncheri-db -e POSTGRES_PASSWORD=moncheri_admin -e POSTGRES_DB=quantum -p 5432:5432 -d postgres:15
             elif [ "$(docker inspect -f '{{.State.Running}}' moncheri-db)" != "true" ]; then
               docker start moncheri-db
             fi
-            if grep -q '^DATABASE_URL=' .env; then
-              sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgresql://postgres:moncheri_admin@localhost:5432/quantum|' .env
-            else
-              echo 'DATABASE_URL=postgresql://postgres:moncheri_admin@localhost:5432/quantum' >> .env
-            fi
             rm -rf .next
             npm install
             node scripts/migrate-postgres.mjs
-            npm run build
-            pm2 restart all --update-env || pm2 restart mon-cheri-quantum --update-env || pm2 start "npm start" --name "mon-cheri-quantum"
+            npm run build:production
+            # Prefer ecosystem.config.js so env (incl. DATABASE_URL from .env) is merged on each deploy.
+            pm2 startOrReload ecosystem.config.js --update-env || pm2 restart all --update-env || pm2 restart mon-cheri-quantum --update-env || pm2 start "npm start" --name "mon-cheri-quantum"
             pm2 save

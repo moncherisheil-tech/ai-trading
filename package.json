@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:production": "bash scripts/build-production.sh",
     "start": "next start"
   },
   "dependencies": {
