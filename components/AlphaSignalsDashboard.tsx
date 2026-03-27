@@ -72,7 +72,7 @@ function ProbabilityRing({ probability, signal }: { probability: number; signal:
           strokeDashoffset={offset}
         />
       </svg>
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold text-zinc-100">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-zinc-100">
         {p}%
       </div>
     </div>
@@ -238,7 +238,8 @@ export default function AlphaSignalsDashboard() {
               </p>
               <h2 className="mt-3 text-2xl font-semibold text-white">{topPick.asset}</h2>
               <p className="mt-1 text-sm text-zinc-200">
-                {getSignalLabel(topPick.shortTermOutlook.signal, locale)} {t.withShortTermConfidence ?? 'with short-term confidence'} {topPick.shortTermOutlook.probability}%.
+                {getSignalLabel(topPick.shortTermOutlook.signal, locale)} {t.withShortTermConfidence ?? 'with short-term confidence'}{' '}
+                <span className="tabular-nums">{topPick.shortTermOutlook.probability}</span>%.
               </p>
               <p className="mt-2 max-w-2xl text-sm text-zinc-300">{topPick.shortTermOutlook.rationale}</p>
             </div>
@@ -344,14 +345,14 @@ export default function AlphaSignalsDashboard() {
       )}
 
       {pendingExecution && (
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[var(--z-modal-backdrop)] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeExecutionModal} aria-hidden />
           <div
             dir="rtl"
             role="dialog"
             aria-modal="true"
             aria-label="Confirm manual override"
-            className="relative z-[91] w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-950/95 p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+            className="relative z-[var(--z-modal)] w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-950/95 p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
           >
             <div className="mb-4 flex items-start gap-3">
               <div>

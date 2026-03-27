@@ -14,16 +14,26 @@ describe('sourceCitationSchema', () => {
     expect(parsed.source_type).toBe('market_data');
   });
 
-  it('rejects invalid relevance score', () => {
-    expect(() =>
-      sourceCitationSchema.parse({
-        source_name: 'Bad source',
-        source_type: 'derived',
-        timestamp: new Date().toISOString(),
-        evidence_snippet: 'invalid score',
-        relevance_score: 1.2,
-      })
-    ).toThrow();
+  it('normalizes percentage-style relevance scores (e.g. 85 → 0.85)', () => {
+    const parsed = sourceCitationSchema.parse({
+      source_name: 'Bad source',
+      source_type: 'derived',
+      timestamp: new Date().toISOString(),
+      evidence_snippet: 'model returned percent',
+      relevance_score: 85,
+    });
+    expect(parsed.relevance_score).toBe(0.85);
+  });
+
+  it('clamps relevance score above 100 to 1', () => {
+    const parsed = sourceCitationSchema.parse({
+      source_name: 'Bad source',
+      source_type: 'derived',
+      timestamp: new Date().toISOString(),
+      evidence_snippet: 'out of range',
+      relevance_score: 150,
+    });
+    expect(parsed.relevance_score).toBe(1);
   });
 });
 

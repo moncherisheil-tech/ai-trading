@@ -29,9 +29,9 @@ export async function setLastPineconeUpsertAt(isoTimestamp: string): Promise<voi
   if (!usePostgres()) return;
   try {
     await sql`
-      INSERT INTO settings (key, value, updated_at)
+      INSERT INTO settings (key, value, "updatedAt")
       VALUES (${PINECONE_UPSERT_KEY}, ${isoTimestamp}, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = ${isoTimestamp}, updated_at = NOW()
+      ON CONFLICT (key) DO UPDATE SET value = ${isoTimestamp}, "updatedAt" = NOW()
     `;
   } catch (err) {
     console.error('[ops-metadata] setLastPineconeUpsertAt failed:', err);

@@ -147,7 +147,7 @@ export default function ManualTradeForm() {
         />
         {suggestionsOpen && symbolSuggestions.length > 0 && (
           <ul
-            className="absolute top-full left-0 right-0 mt-1 rounded-xl bg-[#111111] border border-white/10 shadow-xl z-[var(--z-dropdown)] max-h-48 overflow-auto py-1"
+            className="absolute top-full start-0 end-0 mt-1 rounded-xl bg-[#111111] border border-white/10 shadow-xl z-[var(--z-dropdown)] max-h-48 overflow-auto py-1"
             role="listbox"
           >
             {symbolSuggestions.map((s) => (

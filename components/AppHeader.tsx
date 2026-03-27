@@ -210,7 +210,7 @@ export default function AppHeader() {
 
       {/* Mobile header */}
       <header
-        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian panel-sovereign-diamond z-50 shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden overflow-x-hidden pt-[var(--safe-area-top)]"
+        className="fixed top-0 inset-x-0 bg-[var(--app-surface)]/95 border-b border-[var(--app-border)] frosted-obsidian panel-sovereign-diamond z-[var(--z-dropdown)] shadow-[0_1px_0_0_rgba(255,255,255,0.05)] md:hidden overflow-x-hidden pt-[var(--safe-area-top)]"
         dir="rtl"
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4 lg:gap-6 min-w-0">

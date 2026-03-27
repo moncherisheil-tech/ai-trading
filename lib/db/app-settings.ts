@@ -159,9 +159,9 @@ export async function setAppSettings(partial: Partial<AppSettings>): Promise<Set
     ) as unknown as AppSettings;
     const value = JSON.stringify(next);
     await sql`
-      INSERT INTO settings (key, value, updated_at)
+      INSERT INTO settings (key, value, "updatedAt")
       VALUES (${KEY}, ${value}, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = ${value}, updated_at = NOW()
+      ON CONFLICT (key) DO UPDATE SET value = ${value}, "updatedAt" = NOW()
     `;
     return { ok: true };
   } catch (e) {

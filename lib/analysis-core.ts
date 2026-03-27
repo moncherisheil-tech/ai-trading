@@ -1140,7 +1140,9 @@ RULES:
   }
 
   newRecord.sources = newRecord.sources
-    ?.map((source) => sourceCitationSchema.parse(source))
+    ?.map((source) => sourceCitationSchema.safeParse(source))
+    .filter((r): r is Extract<typeof r, { success: true }> => r.success)
+    .map((r) => r.data)
     .sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
 
   const output = {

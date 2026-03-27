@@ -122,7 +122,7 @@ export async function initDB(): Promise<void> {
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
     await sql`

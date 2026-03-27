@@ -240,7 +240,7 @@ export default function PaperTradingPanel() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                       <XAxis
                         dataKey="closedAt"
-                        tick={{ fill: '#71717a', fontSize: 10 }}
+                        tick={{ fill: '#71717a', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
                         tickFormatter={(v) => {
                           try {
                             return new Date(v).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -251,7 +251,7 @@ export default function PaperTradingPanel() {
                       />
                       <YAxis
                         yAxisId="pnl"
-                        tick={{ fill: '#22d3ee', fontSize: 10 }}
+                        tick={{ fill: '#22d3ee', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
                         tickFormatter={(v) => `$${v}`}
                         width={56}
                       />
@@ -259,7 +259,7 @@ export default function PaperTradingPanel() {
                         yAxisId="wr"
                         orientation="right"
                         domain={[0, 100]}
-                        tick={{ fill: '#a3e635', fontSize: 10 }}
+                        tick={{ fill: '#a3e635', fontSize: 10, fontVariantNumeric: 'tabular-nums' }}
                         tickFormatter={(v) => `${v}%`}
                         width={40}
                       />

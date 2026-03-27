@@ -15,12 +15,25 @@ export const fearGreedSchema = z.object({
   ).optional(),
 });
 
+/** Normalize AI output: 85 → 0.85; values >100 clamp to 1; then clamp to [0,1]. */
+function normalizeRelevanceScore(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return undefined;
+  let x = n;
+  if (x > 1) {
+    if (x <= 100) x = x / 100;
+    else x = 1;
+  }
+  return Math.max(0, Math.min(1, x));
+}
+
 export const sourceCitationSchema = z.object({
   source_name: z.string().min(1),
   source_type: z.string().catch('derived'),
   timestamp: z.string().nullable().optional(),
   evidence_snippet: z.string().min(1),
-  relevance_score: z.number().min(0).max(1).optional(),
+  relevance_score: z.preprocess(normalizeRelevanceScore, z.number().min(0).max(1).optional()),
 });
 
 /** Risk level as output by the Quantitative AI engine. */

@@ -74,7 +74,7 @@ export default function ConsultationChat() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 left-6 z-[var(--z-dropdown)] flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-black shadow-lg hover:bg-amber-400 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+        className="fixed bottom-6 start-6 z-[var(--z-dropdown)] flex h-14 w-14 items-center justify-center rounded-full bg-amber-500 text-black shadow-lg hover:bg-amber-400 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
         aria-label="פתח ייעוץ AI"
       >
         <MessageCircle className="h-6 w-6" />
@@ -105,7 +105,7 @@ export default function ConsultationChat() {
                 <div
                   key={i}
                   className={`rounded-xl px-4 py-2.5 ${
-                    msg.role === 'user' ? 'bg-amber-500/20 text-white mr-0 ml-8' : 'bg-white/5 text-zinc-200 mr-8 ml-0'
+                    msg.role === 'user' ? 'bg-amber-500/20 text-white me-0 ms-8' : 'bg-white/5 text-zinc-200 me-8 ms-0'
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
