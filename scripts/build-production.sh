@@ -29,4 +29,12 @@ echo "[build-production] Removing .next (standalone cache) ..."
 rm -rf .next
 
 echo "[build-production] next build ..."
-exec npx next build
+npx next build
+
+echo "[build-production] PM2: ecosystem.config.js with --update-env (reload if already running) ..."
+if pm2 describe quantum-mon-cheri >/dev/null 2>&1; then
+  pm2 reload ecosystem.config.js --update-env
+else
+  pm2 start ecosystem.config.js --update-env
+fi
+pm2 save 2>/dev/null || true

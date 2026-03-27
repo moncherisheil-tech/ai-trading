@@ -5,8 +5,27 @@
 
 import { runProductionDatabaseUrlGate } from '@/lib/db/sovereign-db-url';
 
+const AI_PROVIDER_KEYS = [
+  'GEMINI_API_KEY',
+  'GROQ_API_KEY',
+  'ANTHROPIC_API_KEY',
+] as const;
+
+function aiKeyLine(key: (typeof AI_PROVIDER_KEYS)[number]): string {
+  const raw = process.env[key];
+  const ok = typeof raw === 'string' && raw.trim().length > 0;
+  return `${key}: ${ok ? '✅ Valid' : '❌ Missing'}`;
+}
+
 export function runSystemDiagnostics(): void {
   runProductionDatabaseUrlGate();
+
+  console.log('');
+  console.log('[SYSTEM AUDIT] AI provider keys (presence only, values never logged):');
+  for (const key of AI_PROVIDER_KEYS) {
+    console.log(`[SYSTEM AUDIT]   ${aiKeyLine(key)}`);
+  }
+  console.log('');
 
   const line = '─'.repeat(52);
   const header = '╔══════════════════════════════════════════════════════╗';

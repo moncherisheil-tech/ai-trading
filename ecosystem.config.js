@@ -1,38 +1,20 @@
 /**
- * PM2 — Next.js standalone output (`output: 'standalone'` in next.config).
- * After `npm run build`, start with: `pm2 start ecosystem.config.js`
- *
- * We merge `.env` here so DATABASE_URL comes from the file on disk every time
- * this config is loaded (avoids stale `postgres` user stuck in `pm2 save` dump).
- * After fixing .env: `pm2 delete quantum-mon-cheri && pm2 start ecosystem.config.js && pm2 save`
+ * PM2 — Next.js standalone (`output: 'standalone'` in next.config).
+ * dotenv runs at config load time so every `pm2 start|reload … --update-env`
+ * merges `.env` from disk into the app `env` block (no reliance on shell export).
  */
-const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
 
-function parseEnvFile(filePath) {
-  const env = {};
-  if (!fs.existsSync(filePath)) return env;
-  const text = fs.readFileSync(filePath, 'utf8');
-  for (let line of text.split(/\r?\n/)) {
-    line = line.trim();
-    if (!line || line.startsWith('#')) continue;
-    if (line.startsWith('export ')) line = line.slice(7).trim();
-    const eq = line.indexOf('=');
-    if (eq === -1) continue;
-    const key = line.slice(0, eq).trim();
-    let val = line.slice(eq + 1).trim();
-    if (
-      (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
-      val = val.slice(1, -1);
-    }
-    if (key) env[key] = val;
-  }
-  return env;
+const envPath = path.join(__dirname, '.env');
+const dotenvResult = dotenv.config({ path: envPath });
+const fromEnvFile = dotenvResult.parsed && typeof dotenvResult.parsed === 'object'
+  ? { ...dotenvResult.parsed }
+  : {};
+
+if (dotenvResult.error && dotenvResult.error.code !== 'ENOENT') {
+  console.warn('[ecosystem.config] dotenv:', dotenvResult.error.message);
 }
-
-const fromEnvFile = parseEnvFile(path.join(__dirname, '.env'));
 
 module.exports = {
   apps: [
@@ -48,8 +30,8 @@ module.exports = {
       env: {
         ...fromEnvFile,
         NODE_ENV: 'production',
+        PORT: '3000',
         HOSTNAME: '0.0.0.0',
-        PORT: fromEnvFile.PORT || process.env.PORT || '3000',
       },
     },
   ],
