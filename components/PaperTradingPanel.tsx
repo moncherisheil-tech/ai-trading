@@ -514,16 +514,16 @@ export default function PaperTradingPanel() {
       </div>
 
       {analysis && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div
             dir="rtl"
             role="dialog"
             aria-modal="true"
             aria-label="Execution audit analysis"
-            className="mx-auto w-full max-w-4xl rounded-3xl border border-white/10 bg-zinc-950/95 backdrop-blur-xl p-6 sm:p-8 shadow-[0_20px_60px_rgba(0,0,0,0.4)] max-h-[90vh] overflow-y-auto"
+            className="mx-auto w-full max-w-4xl rounded-3xl border border-slate-800 bg-slate-950/95 backdrop-blur-sm p-6 sm:p-8 shadow-[0_18px_48px_rgba(0,0,0,0.45)] max-h-[90vh] overflow-y-auto"
           >
             <div className="mb-6 border-b border-white/5 pb-5">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
                 <div className="min-w-0">
                   <div className="text-[10px] font-bold uppercase tracking-[0.25em] text-cyan-500/80">Execution Audit (XAI)</div>
                   <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-2">
@@ -554,7 +554,7 @@ export default function PaperTradingPanel() {
                   id="close-analysis-modal"
                   name="close-audit-modal"
                   onClick={() => setAnalysis(null)}
-                  className="btn-neon-ghost rounded-xl px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-white/10"
+                  className="ms-auto rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:bg-slate-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500"
                 >
                   סגור
                 </button>

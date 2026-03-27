@@ -133,7 +133,7 @@ export default function PriceHistoryChart({
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgb(51 65 85)" opacity={0.5} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: 'rgb(148 163 184)' }}
+            tick={{ fontSize: 10, fill: 'rgb(148 163 184)', fontVariantNumeric: 'tabular-nums' }}
             axisLine={false}
             tickLine={false}
             minTickGap={20}
@@ -141,7 +141,7 @@ export default function PriceHistoryChart({
           <YAxis
             orientation="right"
             domain={['auto', 'auto']}
-            tick={{ fontSize: 10, fill: 'rgb(148 163 184)' }}
+            tick={{ fontSize: 10, fill: 'rgb(148 163 184)', fontVariantNumeric: 'tabular-nums' }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(val) => `$${Number(val).toLocaleString()}`}
@@ -151,10 +151,11 @@ export default function PriceHistoryChart({
             contentStyle={{
               borderRadius: '8px',
               border: '1px solid rgb(51 65 85)',
-              backgroundColor: 'rgb(30 41 59)',
+              backgroundColor: 'rgb(2 6 23 / 0.96)',
               color: 'rgb(248 250 252)',
               textAlign: 'right',
               direction: 'rtl',
+              fontVariantNumeric: 'tabular-nums',
               zIndex: 9999,
             }}
             formatter={(value, name) => {
@@ -163,8 +164,9 @@ export default function PriceHistoryChart({
                 seriesName === 'close' ? 'מחיר' : seriesName === 'ema20' ? 'EMA 20' : seriesName === 'ema50' ? 'EMA 50' : seriesName;
               return [`$${Number(value ?? 0).toLocaleString()}`, label];
             }}
-            labelStyle={{ color: 'rgb(203 213 225)' }}
-            wrapperStyle={{ direction: 'rtl', zIndex: 9999 }}
+            labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
+            itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+            wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
           />
           <Line
             type="monotone"

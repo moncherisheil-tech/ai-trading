@@ -30,16 +30,16 @@ export default function UserGuideModal({ isOpen, onClose }: UserGuideModalProps)
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="guide-title"
     >
       <div
-        className="bg-[#111111] border border-white/10 rounded-2xl shadow-2xl max-h-[90vh] w-full max-w-2xl overflow-hidden flex flex-col"
+        className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-2xl border border-slate-800 bg-slate-950/95 shadow-[0_18px_48px_rgba(0,0,0,0.45)] flex flex-col"
         dir="rtl"
       >
-        <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
+        <div className="flex items-center gap-3 p-4 border-b border-slate-800 shrink-0">
           <h2 id="guide-title" className="text-lg font-bold text-white flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-amber-500" aria-hidden />
             {GUIDE_TITLE}
@@ -47,7 +47,7 @@ export default function UserGuideModal({ isOpen, onClose }: UserGuideModalProps)
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+            className="ms-auto p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500"
             aria-label="סגור מדריך"
           >
             <X className="w-5 h-5" />

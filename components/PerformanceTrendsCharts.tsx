@@ -47,14 +47,14 @@ export default function PerformanceTrendsCharts({
           style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
         >
           <div className="text-xs text-slate-400 uppercase tracking-wide">סה&quot;כ בדיקות</div>
-          <div className="text-2xl font-semibold text-slate-100">{totalBacktests}</div>
+          <div className="text-2xl font-semibold text-slate-100 tabular-nums">{totalBacktests}</div>
         </div>
         <div
           className="rounded-xl border border-white/10 p-4 bg-gradient-to-br from-slate-950/75 via-zinc-950/70 to-black/70 frosted-obsidian"
           style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
         >
           <div className="text-xs text-slate-400 uppercase tracking-wide">דיוק נוכחי</div>
-          <div className="text-2xl font-semibold text-emerald-400">
+          <div className="text-2xl font-semibold text-emerald-400 tabular-nums">
             {totalBacktests > 0 ? `${currentAccuracyPct}%` : '—'}
           </div>
         </div>
@@ -63,7 +63,7 @@ export default function PerformanceTrendsCharts({
           style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.09) 0px, rgba(255,255,255,0.02) 1px, transparent 1px)' }}
         >
           <div className="text-xs text-slate-400 uppercase tracking-wide">מחזור למידה אחרון</div>
-          <div className="text-sm font-medium text-slate-300">
+          <div className="text-sm font-medium text-slate-300 tabular-nums">
             {lastLearningCycleDate
               ? new Date(lastLearningCycleDate).toLocaleDateString('he-IL', {
                   dateStyle: 'medium',
@@ -99,7 +99,7 @@ export default function PerformanceTrendsCharts({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={20}
@@ -107,7 +107,7 @@ export default function PerformanceTrendsCharts({
                   <YAxis
                     orientation="right"
                     domain={[0, 'auto']}
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(val) => `${val}%`}
@@ -116,15 +116,20 @@ export default function PerformanceTrendsCharts({
                   <Tooltip
                     contentStyle={{
                       borderRadius: '8px',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                      border: '1px solid rgb(51 65 85)',
+                      backgroundColor: 'rgb(2 6 23 / 0.96)',
+                      boxShadow: '0 10px 30px -12px rgb(0 0 0 / 0.7)',
+                      color: 'rgb(241 245 249)',
                       textAlign: 'right',
                       direction: 'rtl',
+                      fontVariantNumeric: 'tabular-nums',
                       zIndex: 9999,
                     }}
                     formatter={(value) => [`${Number(value ?? 0)}%`, 'Avg Error']}
                     labelFormatter={(label) => `Date: ${label}`}
-                    wrapperStyle={{ direction: 'rtl', zIndex: 9999 }}
+                    labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
+                    itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+                    wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
                   />
                   <Line
                     type="monotone"
@@ -153,7 +158,7 @@ export default function PerformanceTrendsCharts({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
                     axisLine={false}
                     tickLine={false}
                     minTickGap={20}
@@ -161,7 +166,7 @@ export default function PerformanceTrendsCharts({
                   <YAxis
                     orientation="right"
                     domain={[0, 100]}
-                    tick={{ fontSize: 10, fill: '#64748b' }}
+                    tick={{ fontSize: 10, fill: '#64748b', fontVariantNumeric: 'tabular-nums' }}
                     axisLine={false}
                     tickLine={false}
                     tickFormatter={(val) => `${val}%`}
@@ -170,15 +175,20 @@ export default function PerformanceTrendsCharts({
                   <Tooltip
                     contentStyle={{
                       borderRadius: '8px',
-                      border: '1px solid #e2e8f0',
-                      boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                      border: '1px solid rgb(51 65 85)',
+                      backgroundColor: 'rgb(2 6 23 / 0.96)',
+                      boxShadow: '0 10px 30px -12px rgb(0 0 0 / 0.7)',
+                      color: 'rgb(241 245 249)',
                       textAlign: 'right',
                       direction: 'rtl',
+                      fontVariantNumeric: 'tabular-nums',
                       zIndex: 9999,
                     }}
                     formatter={(value) => [`${Number(value ?? 0)}%`, t.accuracyLabel]}
                     labelFormatter={(label) => `${t.dateLabel}: ${label}`}
-                    wrapperStyle={{ direction: 'rtl', zIndex: 9999 }}
+                    labelStyle={{ color: 'rgb(203 213 225)', fontVariantNumeric: 'tabular-nums' }}
+                    itemStyle={{ fontVariantNumeric: 'tabular-nums' }}
+                    wrapperStyle={{ direction: 'rtl', zIndex: 9999, maxWidth: '260px' }}
                   />
                   <Line
                     type="monotone"

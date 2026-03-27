@@ -48,7 +48,8 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 
 /** Deep Sea cockpit: navy surfaces, cyan accent, RTL labels, LTR numbers */
 const inputClass =
-  'w-full px-3 py-2 rounded-lg bg-[#07192d] border border-cyan-900/50 text-cyan-50 focus:ring-2 focus:ring-cyan-400/50 focus:border-cyan-400/50';
+  'w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 tabular-nums focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500';
+const selectClass = `${inputClass} appearance-none`;
 const labelClass = 'flex items-center gap-1.5 text-sm font-medium text-cyan-100/90 mb-1';
 const cardClass = 'rounded-xl border border-cyan-900/50 bg-[#07192d]/80 overflow-hidden';
 const sectionClass = 'p-4 sm:p-5 border-b border-cyan-900/40 bg-[#07192d]/60 flex items-center gap-2';
@@ -487,7 +488,7 @@ export default function SettingsCommandCenter() {
                     <Info className="w-3 h-3" />
                   </span>
                 </label>
-                <select dir="rtl" className={inputClass} {...register('risk.riskToleranceLevel')}>
+                <select dir="rtl" className={selectClass} {...register('risk.riskToleranceLevel')}>
                   <option value="strict">Conservative / סטריקט (1:3)</option>
                   <option value="moderate">Balanced / ממוצע (1:2)</option>
                   <option value="aggressive">Aggressive / אגרסיבי (1:1.5)</option>
@@ -680,7 +681,7 @@ export default function SettingsCommandCenter() {
               </div>
               <div>
                 <label className={labelClass}>ערכת נושא</label>
-                <select dir="rtl" className={inputClass} {...register('system.theme')}>
+                <select dir="rtl" className={selectClass} {...register('system.theme')}>
                   {THEME_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
@@ -688,7 +689,7 @@ export default function SettingsCommandCenter() {
               </div>
               <div>
                 <label className={labelClass}>מרווח רענון נתונים</label>
-                <select dir="rtl" className={inputClass} {...register('system.dataRefreshIntervalMinutes', { valueAsNumber: true })}>
+                <select dir="rtl" className={selectClass} {...register('system.dataRefreshIntervalMinutes', { valueAsNumber: true })}>
                   {REFRESH_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}

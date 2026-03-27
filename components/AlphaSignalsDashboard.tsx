@@ -345,14 +345,15 @@ export default function AlphaSignalsDashboard() {
 
       {pendingExecution && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/75 backdrop-blur-lg" onClick={closeExecutionModal} aria-hidden />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeExecutionModal} aria-hidden />
           <div
+            dir="rtl"
             role="dialog"
             aria-modal="true"
             aria-label="Confirm manual override"
-            className="relative z-[91] w-full max-w-xl rounded-3xl border border-cyan-400/60 bg-black/50 p-6 frosted-obsidian shadow-[0_24px_60px_rgba(0,0,0,0.4)]"
+            className="relative z-[91] w-full max-w-xl rounded-3xl border border-slate-800 bg-slate-950/95 p-6 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
           >
-            <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="mb-4 flex items-start gap-3">
               <div>
                 <p className="ui-label text-xs tracking-wide text-violet-200/90">{t.manualOverride ?? 'Manual Override'}</p>
                 <h3 className="mt-1 text-xl font-semibold text-zinc-100">{t.confirmDeploySignal ?? 'Confirm & Deploy Signal'}</h3>
@@ -360,7 +361,7 @@ export default function AlphaSignalsDashboard() {
               <button
                 type="button"
                 onClick={closeExecutionModal}
-                className="rounded-lg border border-white/15 bg-black/20 p-1.5 text-zinc-300 transition hover:bg-white/10"
+                className="ms-auto rounded-lg border border-slate-700 bg-slate-900 p-1.5 text-zinc-300 transition hover:bg-slate-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500"
                 aria-label="Close confirmation"
               >
                 <X className="h-4 w-4" />

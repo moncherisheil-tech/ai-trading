@@ -121,6 +121,10 @@ export default function ManualTradeForm() {
   };
 
   const displaySymbol = symbol || symbolQuery;
+  const formFieldClass =
+    'w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500';
+  const numericFieldClass = `${formFieldClass} tabular-nums`;
+  const selectFieldClass = `${formFieldClass} appearance-none`;
 
   return (
     <form onSubmit={handleSubmit} className="rounded-2xl border border-white/5 bg-[#111111] p-6 space-y-4" dir="rtl">
@@ -138,7 +142,7 @@ export default function ManualTradeForm() {
           }}
           onFocus={() => setSuggestionsOpen(true)}
           placeholder="BTC, ETH, ..."
-          className="w-full rounded-xl border border-white/5 bg-[#0a0a0a] px-4 py-2.5 text-white placeholder-zinc-500 focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/30"
+          className={formFieldClass}
           aria-autocomplete="list"
         />
         {suggestionsOpen && symbolSuggestions.length > 0 && (
@@ -174,7 +178,7 @@ export default function ManualTradeForm() {
           value={amountUsd}
           onChange={(e) => setAmountUsd(e.target.value)}
           placeholder="100"
-          className="w-full rounded-xl border border-white/5 bg-[#0a0a0a] px-4 py-2.5 text-white placeholder-zinc-500 focus:ring-2 focus:ring-amber-500/50"
+          className={numericFieldClass}
         />
       </div>
 
@@ -183,7 +187,7 @@ export default function ManualTradeForm() {
         <select
           value={side}
           onChange={(e) => setSide(e.target.value as Side)}
-          className="w-full rounded-xl border border-white/5 bg-[#0a0a0a] px-4 py-2.5 text-white focus:ring-2 focus:ring-amber-500/50"
+          className={selectFieldClass}
         >
           <option value="buy">קנייה</option>
           <option value="sell">מכירה (סגירת פוזיציה)</option>
@@ -201,7 +205,7 @@ export default function ManualTradeForm() {
                 value={slPct}
                 onChange={(e) => setSlPct(e.target.value)}
                 placeholder="-2"
-                className="w-full rounded-xl border border-white/5 bg-[#0a0a0a] px-4 py-2.5 text-white placeholder-zinc-500 focus:ring-2 focus:ring-amber-500/50"
+                className={numericFieldClass}
               />
             </div>
             <div>
@@ -212,7 +216,7 @@ export default function ManualTradeForm() {
                 value={tpPct}
                 onChange={(e) => setTpPct(e.target.value)}
                 placeholder="5"
-                className="w-full rounded-xl border border-white/5 bg-[#0a0a0a] px-4 py-2.5 text-white placeholder-zinc-500 focus:ring-2 focus:ring-amber-500/50"
+                className={numericFieldClass}
               />
             </div>
           </div>
