@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, type FormEvent, type InputHTMLAttributes, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Shield,
@@ -15,6 +15,9 @@ import {
   MessageSquare,
   Users,
   UserPlus,
+  Eye,
+  EyeOff,
+  KeyRound,
 } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 import { useAppSettings } from '@/context/AppSettingsContext';
@@ -47,13 +50,112 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'subscribers', label: 'מנויים לבוט', icon: <Users className="w-4 h-4" /> },
 ];
 
-/** Deep Sea cockpit: navy surfaces, cyan accent, RTL labels, LTR numbers */
+/** Institutional Floor 1000: slate surfaces, cyan accent, RTL labels, LTR numbers */
 const inputClass =
   'w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 tabular-nums focus:outline-none focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500';
 const selectClass = `${inputClass} appearance-none`;
 const labelClass = 'flex items-center gap-1.5 text-sm font-medium text-cyan-100/90 mb-1';
-const cardClass = 'rounded-xl border border-cyan-900/50 bg-[#07192d]/80 overflow-hidden';
-const sectionClass = 'p-4 sm:p-5 border-b border-cyan-900/40 bg-[#07192d]/60 flex items-center gap-2';
+const cardClass = 'rounded-xl border border-slate-700 bg-slate-900 overflow-hidden';
+const sectionClass = 'p-4 sm:p-5 border-b border-slate-700 bg-slate-800/90 flex items-center gap-2';
+const panelHeadClass = 'px-4 sm:px-5 py-3 border-b border-slate-700 bg-slate-800/80 flex items-center gap-2';
+
+function InstitutionalToggle({
+  checked,
+  onToggle,
+  'aria-label': ariaLabel,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  'aria-label'?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      onClick={onToggle}
+      className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer items-center rounded-full border transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 ${
+        checked ? 'border-cyan-400/50 bg-slate-800 shadow-[0_0_14px_rgba(34,211,238,0.22)]' : 'border-slate-700 bg-slate-900'
+      }`}
+    >
+      <span
+        className={`pointer-events-none absolute top-1 h-6 w-6 rounded-full shadow-md transition-all duration-200 ${
+          checked
+            ? 'end-1 start-auto bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.55)]'
+            : 'start-1 end-auto bg-slate-600'
+        }`}
+      />
+    </button>
+  );
+}
+
+function SecureSecretInput({
+  id,
+  value,
+  onChange,
+  placeholder,
+  disabled,
+  dir = 'ltr',
+  className = '',
+  inputMode,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  dir?: 'ltr' | 'rtl';
+  className?: string;
+  inputMode?: InputHTMLAttributes<HTMLInputElement>['inputMode'];
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        type={show ? 'text' : 'password'}
+        autoComplete="off"
+        disabled={disabled}
+        dir={dir}
+        inputMode={inputMode}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`${inputClass} pe-11 font-mono ${className}`}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        className="absolute inset-y-0 end-0 flex items-center justify-center px-2 text-slate-400 transition hover:text-cyan-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-cyan-500 rounded-e-xl"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? 'הסתר ערך' : 'חשוף ערך'}
+      >
+        {show ? <EyeOff className="h-4 w-4 shrink-0" /> : <Eye className="h-4 w-4 shrink-0" />}
+      </button>
+    </div>
+  );
+}
+
+function ConnectionStatusBadge({ connected, children }: { connected: boolean; children: ReactNode }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums ${
+        connected
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.18)]'
+          : 'border-slate-600 bg-slate-800/90 text-slate-400'
+      }`}
+    >
+      {connected && (
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+        </span>
+      )}
+      {children}
+    </span>
+  );
+}
 
 type SubscriberRow = { id: number; chat_id: string; username: string | null; is_active: boolean; role: string; created_at: string | null };
 
@@ -146,7 +248,7 @@ function SubscribersPanel() {
 
         <form
           onSubmit={handleAddSubscriber}
-          className="mb-6 rounded-2xl border border-white/10 bg-gradient-to-br from-cyan-950/40 via-[#07192d]/70 to-emerald-950/30 p-4 sm:p-5 shadow-[0_0_40px_-12px_rgba(34,211,238,0.25)] frosted-obsidian"
+          className="mb-6 rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-900/90 via-slate-900/70 to-slate-800/50 p-4 sm:p-5 shadow-[0_0_28px_-8px_rgba(34,211,238,0.15)]"
         >
           <div className="flex items-center gap-2 mb-4 text-cyan-100/95">
             <UserPlus className="w-5 h-5 text-emerald-400 shrink-0" aria-hidden />
@@ -156,36 +258,32 @@ function SubscribersPanel() {
             )}
           </div>
           <div className="grid gap-4 sm:grid-cols-2 sm:gap-5">
-            <div className="text-right">
+            <div className="text-end">
               <label htmlFor="sub-chat-id" className={labelClass}>
                 מזהה צ&apos;אט (Chat ID) <span className="text-emerald-400/90">*</span>
               </label>
-              <input
+              <SecureSecretInput
                 id="sub-chat-id"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
                 placeholder="למשל 123456789"
                 dir="ltr"
-                className={`${inputClass} text-left font-mono placeholder:text-cyan-600/50`}
+                inputMode="numeric"
+                className="text-start placeholder:text-cyan-600/50"
                 value={chatIdInput}
-                onChange={(ev) => setChatIdInput(ev.target.value)}
+                onChange={setChatIdInput}
                 disabled={submitting}
               />
             </div>
-            <div className="text-right">
+            <div className="text-end">
               <label htmlFor="sub-username" className={labelClass}>
                 שם משתמש בטלגרם <span className="text-cyan-500/70 text-xs font-normal">(אופציונלי)</span>
               </label>
-              <input
+              <SecureSecretInput
                 id="sub-username"
-                type="text"
-                autoComplete="off"
                 placeholder="@username או ללא @"
                 dir="ltr"
-                className={`${inputClass} text-left font-mono placeholder:text-cyan-600/50`}
+                className="text-start placeholder:text-cyan-600/50"
                 value={usernameInput}
-                onChange={(ev) => setUsernameInput(ev.target.value)}
+                onChange={setUsernameInput}
                 disabled={submitting}
               />
             </div>
@@ -219,9 +317,9 @@ function SubscribersPanel() {
         {list.length === 0 ? (
           <p className="text-sm text-cyan-500/90">אין מנויים בטבלה עדיין. השתמש בטופס למעלה או ב־TELEGRAM_CHAT_ID.</p>
         ) : (
-          <div className="overflow-x-auto rounded-lg border border-cyan-900/50">
-            <table className="w-full text-sm text-right">
-              <thead className="bg-cyan-900/30 text-cyan-200/90">
+          <div className="overflow-x-auto rounded-lg border border-slate-700">
+            <table className="w-full text-sm text-end">
+              <thead className="bg-slate-800/80 text-cyan-200/90">
                 <tr>
                   <th className="px-4 py-2 font-semibold">chat_id</th>
                   <th className="px-4 py-2 font-semibold">שם משתמש</th>
@@ -334,7 +432,7 @@ export default function SettingsCommandCenter() {
   if (loading || !initialSettings) {
     return (
       <section
-        className="mb-6 sm:mb-8 p-4 sm:p-6 rounded-2xl border border-cyan-900/50 bg-[#030f1c]/95"
+        className="mb-6 sm:mb-8 p-4 sm:p-6 rounded-2xl border border-slate-700 bg-slate-900/95"
         dir="rtl"
         aria-label="מרכז שליטה"
       >
@@ -351,11 +449,11 @@ export default function SettingsCommandCenter() {
 
   return (
     <section
-      className="mb-6 sm:mb-8 rounded-2xl border border-cyan-900/50 bg-[#030f1c]/95 overflow-hidden min-w-0 w-full"
+      className="mb-6 sm:mb-8 rounded-2xl border border-slate-700 bg-slate-900 overflow-hidden min-w-0 w-full"
       aria-label="מרכז שליטה — מרכז פקודות מאסטר"
       dir="rtl"
     >
-      <div className="p-4 sm:p-6 border-b border-cyan-900/50 bg-[#07192d]/80 flex items-center gap-2 min-w-0">
+      <div className="p-4 sm:p-6 border-b border-slate-700 bg-slate-800/90 flex items-center gap-2 min-w-0">
         <SettingsIcon className="w-6 h-6 text-cyan-400 shrink-0" aria-hidden />
         <h2 className="text-xl font-bold text-cyan-50">מרכז פקודות מאסטר</h2>
       </div>
@@ -363,7 +461,7 @@ export default function SettingsCommandCenter() {
       {/* Sidebar layout: tabs left, content right */}
       <div className="flex flex-col sm:flex-row min-h-0">
         <div
-          className="flex sm:flex-col flex-wrap sm:flex-nowrap border-b sm:border-b-0 sm:border-e border-cyan-900/50 bg-[#07192d]/60 gap-0 shrink-0 sm:w-56"
+          className="flex sm:flex-col flex-wrap sm:flex-nowrap border-b sm:border-b-0 sm:border-e border-slate-700 bg-slate-800/50 gap-0 shrink-0 sm:w-56"
           role="tablist"
           aria-label="קטגוריות הגדרות"
         >
@@ -442,7 +540,9 @@ export default function SettingsCommandCenter() {
           hidden={activeTab !== 'risk'}
           className="space-y-4"
         >
-          <RiskCommandCenter />
+          <div className="rounded-2xl border border-slate-700 bg-slate-900/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <RiskCommandCenter />
+          </div>
           <div className={cardClass}>
             <div className={sectionClass}>
               <Shield className="w-5 h-5 text-cyan-400" />
@@ -524,7 +624,7 @@ export default function SettingsCommandCenter() {
                 <input type="number" min={50} max={95} dir="ltr" className={inputClass} {...register('neural.moeConfidenceThreshold', { valueAsNumber: true })} />
               </div>
               {/* God-Mode: MoE Weights override */}
-              <div className="rounded-lg border border-cyan-900/50 bg-cyan-950/20 p-3 space-y-2">
+              <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-3 space-y-2">
                 <p className="text-sm font-medium text-cyan-100/90">משקלי MoE (אופציונלי — 0 = ברירת מחדל)</p>
                 <p className="text-xs text-cyan-500/80">סכום מומלץ 100. לדוגמה: שבוע חדשות — העלאת מקרו.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -548,33 +648,19 @@ export default function SettingsCommandCenter() {
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">הפעלת RAG (זיכרון היסטורי)</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.neural?.ragEnabled}
-                  onClick={() => form.setValue('neural.ragEnabled', !settings?.neural?.ragEnabled, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.neural?.ragEnabled ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.neural?.ragEnabled ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.neural?.ragEnabled)}
+                  onToggle={() => form.setValue('neural.ragEnabled', !settings?.neural?.ragEnabled, { shouldDirty: true })}
+                  aria-label="הפעלת RAG"
+                />
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">פוסט־מורטם אוטומטי</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.neural?.autoPostMortemEnabled}
-                  onClick={() => form.setValue('neural.autoPostMortemEnabled', !settings?.neural?.autoPostMortemEnabled, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.neural?.autoPostMortemEnabled ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.neural?.autoPostMortemEnabled ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.neural?.autoPostMortemEnabled)}
+                  onToggle={() => form.setValue('neural.autoPostMortemEnabled', !settings?.neural?.autoPostMortemEnabled, { shouldDirty: true })}
+                  aria-label="פוסט־מורטם אוטומטי"
+                />
               </div>
               <div>
                 <label className={labelClass}>סף ביטחון סורק AI (%)</label>
@@ -592,7 +678,7 @@ export default function SettingsCommandCenter() {
           </div>
         </div>
 
-        {/* D. Notifications */}
+        {/* D. Notifications — institutional panels: API, CEO alerts, Telegram service, system prefs */}
         <div
           id="panel-notifications"
           role="tabpanel"
@@ -600,86 +686,98 @@ export default function SettingsCommandCenter() {
           hidden={activeTab !== 'notifications'}
           className="space-y-4"
         >
+          {initialSettings.execution && (
+            <div className={cardClass}>
+              <div className={sectionClass}>
+                <KeyRound className="w-5 h-5 text-cyan-400 shrink-0" />
+                <h3 className="text-lg font-semibold text-cyan-100">ניהול API</h3>
+              </div>
+              <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-200">מפתחות בורסה (LIVE)</p>
+                  <p className="mt-1 text-xs text-slate-500">מוגדרים במשתני סביבה — לא נשמרים בטופס זה.</p>
+                </div>
+                <ConnectionStatusBadge connected={Boolean(settings.execution?.liveApiKeyConfigured)}>
+                  {settings.execution?.liveApiKeyConfigured ? 'מחובר' : 'לא מוגדר'}
+                </ConnectionStatusBadge>
+              </div>
+            </div>
+          )}
+
           <div className={cardClass}>
             <div className={sectionClass}>
-              <Bell className="w-5 h-5 text-cyan-400" />
+              <Bell className="w-5 h-5 text-cyan-400 shrink-0" />
               <h3 className="text-lg font-semibold text-cyan-100">התראות מנכ&quot;ל</h3>
             </div>
             <div className="p-4 sm:p-5 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">דוח פעימה יומי</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.notifications?.dailyPulseReport}
-                  onClick={() => form.setValue('notifications.dailyPulseReport', !settings?.notifications?.dailyPulseReport, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.notifications?.dailyPulseReport ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.notifications?.dailyPulseReport ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.notifications?.dailyPulseReport)}
+                  onToggle={() => form.setValue('notifications.dailyPulseReport', !settings?.notifications?.dailyPulseReport, { shouldDirty: true })}
+                  aria-label="דוח פעימה יומי"
+                />
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">התראות סיכון קריטי</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.notifications?.riskCriticalAlerts}
-                  onClick={() => form.setValue('notifications.riskCriticalAlerts', !settings?.notifications?.riskCriticalAlerts, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.notifications?.riskCriticalAlerts ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.notifications?.riskCriticalAlerts ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.notifications?.riskCriticalAlerts)}
+                  onToggle={() => form.setValue('notifications.riskCriticalAlerts', !settings?.notifications?.riskCriticalAlerts, { shouldDirty: true })}
+                  aria-label="התראות סיכון קריטי"
+                />
               </div>
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">ג&apos;ם עלית חדש זוהה</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.notifications?.newEliteGemDetected}
-                  onClick={() => form.setValue('notifications.newEliteGemDetected', !settings?.notifications?.newEliteGemDetected, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.notifications?.newEliteGemDetected ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.notifications?.newEliteGemDetected ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.notifications?.newEliteGemDetected)}
+                  onToggle={() => form.setValue('notifications.newEliteGemDetected', !settings?.notifications?.newEliteGemDetected, { shouldDirty: true })}
+                  aria-label="ג'ם עלית חדש"
+                />
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm font-medium text-cyan-100/90">התראות טלגרם</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.system?.telegramNotifications}
-                  onClick={() => form.setValue('system.telegramNotifications', !settings?.system?.telegramNotifications, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.system?.telegramNotifications ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.system?.telegramNotifications ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <div className={sectionClass}>
+              <MessageSquare className="w-5 h-5 text-cyan-400 shrink-0" />
+              <h3 className="text-lg font-semibold text-cyan-100">תצורת טלגרם (שירות)</h3>
+            </div>
+            <div className="p-4 sm:p-5 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <span className="text-sm font-medium text-cyan-100/90">התראות טלגרם</span>
+                  <p className="mt-0.5 text-xs text-slate-500">הפעלת ערוץ ההתראות דרך הבוט.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <ConnectionStatusBadge connected={Boolean(settings?.system?.telegramNotifications)}>
+                    {settings?.system?.telegramNotifications ? 'פעיל' : 'כבוי'}
+                  </ConnectionStatusBadge>
+                  <InstitutionalToggle
+                    checked={Boolean(settings?.system?.telegramNotifications)}
+                    onToggle={() => form.setValue('system.telegramNotifications', !settings?.system?.telegramNotifications, { shouldDirty: true })}
+                    aria-label="התראות טלגרם"
+                  />
+                </div>
               </div>
+              <p className="rounded-lg border border-slate-700/80 bg-slate-800/40 px-3 py-2 text-xs text-slate-400">
+                טוקן בוט ו־Chat ID להגדרה מלאה — בכרטיס <span className="font-medium text-slate-300">חיבור טלגרם</span> בתחתית עמוד ההגדרות (בדיקת חיבור).
+              </p>
+            </div>
+          </div>
+
+          <div className={cardClass}>
+            <div className={sectionClass}>
+              <SettingsIcon className="w-5 h-5 text-cyan-400 shrink-0" />
+              <h3 className="text-lg font-semibold text-cyan-100">העדפות מערכת</h3>
+            </div>
+            <div className="p-4 sm:p-5 space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <span className="text-sm font-medium text-cyan-100/90">התראות קול</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings?.system?.soundAlerts}
-                  onClick={() => form.setValue('system.soundAlerts', !settings?.system?.soundAlerts, { shouldDirty: true })}
-                  dir="ltr"
-                  className={`relative inline-flex h-7 w-12 shrink-0 rounded-full border-2 transition-colors ${
-                    settings?.system?.soundAlerts ? 'border-cyan-400/60 bg-cyan-500/30' : 'border-cyan-900/60 bg-[#07192d]'
-                  }`}
-                >
-                  <span className={`inline-block h-6 w-6 rounded-full shadow-sm transition-transform ${settings?.system?.soundAlerts ? 'translate-x-5 bg-cyan-400' : 'translate-x-0.5 bg-cyan-600/50'}`} />
-                </button>
+                <InstitutionalToggle
+                  checked={Boolean(settings?.system?.soundAlerts)}
+                  onToggle={() => form.setValue('system.soundAlerts', !settings?.system?.soundAlerts, { shouldDirty: true })}
+                  aria-label="התראות קול"
+                />
               </div>
               <div>
                 <label className={labelClass}>ערכת נושא</label>
