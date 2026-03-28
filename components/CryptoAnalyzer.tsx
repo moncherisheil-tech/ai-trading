@@ -337,13 +337,19 @@ export default function CryptoAnalyzer() {
             close: d.close,
           }))
         : [];
-    const entry_zone =
-      latestPrediction?.entry_price != null && latestPrediction.entry_price > 0
-        ? latestPrediction.entry_price
-        : undefined;
-    const take_profit_targets =
-      latestPrediction?.suggested_tp != null ? [latestPrediction.suggested_tp] : [];
-    const stop_loss_level = latestPrediction?.suggested_sl ?? undefined;
+    const lastClose = data.length > 0 ? data[data.length - 1]?.close : null;
+    const rawEntry = latestPrediction?.entry_price;
+    const levelPlausible = (price: number | null | undefined): boolean => {
+      if (price == null || !Number.isFinite(price) || price <= 0) return false;
+      if (lastClose == null || !Number.isFinite(lastClose) || lastClose <= 0) return true;
+      const r = price / lastClose;
+      return r >= 0.12 && r <= 8;
+    };
+    const entry_zone = levelPlausible(rawEntry) ? rawEntry! : undefined;
+    const tp = latestPrediction?.suggested_tp;
+    const take_profit_targets = levelPlausible(tp) && tp != null ? [tp] : [];
+    const sl = latestPrediction?.suggested_sl;
+    const stop_loss_level = levelPlausible(sl) && sl != null ? sl : undefined;
     return { data, entry_zone, take_profit_targets, stop_loss_level };
   }, [chartData, latestPrediction?.entry_price, latestPrediction?.suggested_tp, latestPrediction?.suggested_sl]);
 
@@ -528,7 +534,11 @@ export default function CryptoAnalyzer() {
           {displayPrice > 0 && (
             <>
               <p className="text-sm text-slate-400 mb-2 flex items-center gap-2 flex-wrap" suppressHydrationWarning>
-                <span>מחיר נוכחי: <span dir="ltr" className="live-data-number">${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span></span>
+                <span>מחיר נוכחי:{' '}
+                  <span dir="ltr" className="ticker-numeric live-data-number">
+                    ${displayPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                  </span>
+                </span>
                 {livePriceConnected && (
                   <span className="inline-flex items-center gap-1.5 text-cyan-400" title="מחיר חי — Binance">
                     <span className="relative flex h-2 w-2">
@@ -714,11 +724,18 @@ export default function CryptoAnalyzer() {
                     <span dir="ltr" className="live-data-number">{(latestPrediction.target_percentage ?? 0) > 0 ? '+' : ''}{latestPrediction.target_percentage ?? 0}%</span>
                   </div>
                 </div>
-                <div className="p-6 col-span-2 sm:col-span-1 min-w-0">
-                  <div className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-wider mb-1">מחיר כניסה</div>
-                  <div className="text-lg sm:text-2xl font-semibold text-white truncate" suppressHydrationWarning>
-                    <span dir="ltr" className="live-data-number">${(latestPrediction.entry_price ?? 0).toLocaleString()}</span>
+                <div className="p-6 col-span-2 sm:col-span-1 min-w-0 overflow-x-auto">
+                  <div className="text-[10px] sm:text-xs text-zinc-500 uppercase tracking-wider mb-1">מחיר כניסה (תחזית)</div>
+                  <div className="text-lg sm:text-2xl font-semibold text-white whitespace-nowrap" suppressHydrationWarning>
+                    <span dir="ltr" className="ticker-numeric live-data-number">
+                      ${(latestPrediction.entry_price ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
+                  {livePrice != null && livePrice > 0 && (
+                    <p className="text-[10px] text-zinc-500 mt-1 dir-ltr ticker-numeric" dir="ltr">
+                      מחיר חי להשוואה: ${livePrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -756,14 +773,14 @@ export default function CryptoAnalyzer() {
                   <h3 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">
                     גרף מסחר (TradingView) — מחיר חי {latestPrediction.entry_price != null || latestPrediction.suggested_tp != null || latestPrediction.suggested_sl != null ? '· אזור כניסה, TP, SL' : ''}
                   </h3>
-                  <div className="h-48 sm:h-64 w-full min-h-[200px]">
+                  <div className="w-full min-h-[280px] h-[min(440px,52vh)] sm:h-[min(480px,55vh)] flex flex-col">
                     <TradingChart
                       data={tradingChartProps.data}
                       entry_zone={tradingChartProps.entry_zone}
                       take_profit_targets={tradingChartProps.take_profit_targets}
                       stop_loss_level={tradingChartProps.stop_loss_level}
-                      height={256}
-                      className="w-full rounded-lg overflow-hidden"
+                      height={420}
+                      className="flex-1 min-h-0 w-full h-full rounded-lg overflow-hidden"
                     />
                   </div>
                   <h3 className="text-xs text-zinc-500 uppercase tracking-wider mt-4 mb-2">
@@ -792,13 +809,17 @@ export default function CryptoAnalyzer() {
                     {latestPrediction.suggested_sl != null && (
                       <div className="rounded-lg bg-black/20 p-3 border border-rose-500/20">
                         <p className="text-[10px] text-rose-400/90 uppercase mb-0.5">סטופ לוס מוצע</p>
-                        <p className="text-sm font-bold text-white tabular-nums live-data-number">${latestPrediction.suggested_sl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
+                        <p className="text-sm font-bold text-white ticker-numeric live-data-number">
+                          ${latestPrediction.suggested_sl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                        </p>
                       </div>
                     )}
                     {latestPrediction.suggested_tp != null && (
                       <div className="rounded-lg bg-black/20 p-3 border border-emerald-500/20">
                         <p className="text-[10px] text-emerald-400/90 uppercase mb-0.5">יעד רווח מוצע</p>
-                        <p className="text-sm font-bold text-white tabular-nums live-data-number">${latestPrediction.suggested_tp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</p>
+                        <p className="text-sm font-bold text-white ticker-numeric live-data-number">
+                          ${latestPrediction.suggested_tp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                        </p>
                       </div>
                     )}
                     {(latestPrediction.hvn_levels?.length ?? 0) > 0 && (

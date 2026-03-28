@@ -20,6 +20,8 @@ export interface FetchWithBackoffOptions {
   maxRetries?: number;
   /** Cache mode for fetch. */
   cache?: RequestCache;
+  /** Merged into fetch (signal is always set by the wrapper). */
+  init?: Omit<RequestInit, 'signal' | 'cache'>;
 }
 
 /**
@@ -36,6 +38,7 @@ export async function fetchWithBackoff(
     timeoutMs = DEFAULT_TIMEOUT_MS,
     maxRetries = DEFAULT_MAX_RETRIES,
     cache = 'no-store',
+    init: extraInit,
   } = options;
 
   let lastError: Error | null = null;
@@ -45,7 +48,7 @@ export async function fetchWithBackoff(
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(url, { cache, signal: controller.signal });
+      const res = await fetch(url, { ...extraInit, cache, signal: controller.signal });
       clearTimeout(timeoutId);
 
       const isRateLimited = res.status === BINANCE_429 || res.status === BINANCE_418;
@@ -298,8 +301,16 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
   try {
     const [dxySnapshot, fngRes, dominanceRes] = await Promise.all([
       fetchDxySnapshot(timeoutMs).catch(() => null),
-      fetch('https://api.alternative.me/fng/?limit=1', { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }).catch(() => null),
-      fetch('https://api.coingecko.com/api/v3/global', { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) }).catch(() => null),
+      fetchWithBackoff('https://api.alternative.me/fng/?limit=1', {
+        timeoutMs,
+        maxRetries: 3,
+        cache: 'no-store',
+      }).catch(() => null),
+      fetchWithBackoff('https://api.coingecko.com/api/v3/global', {
+        timeoutMs,
+        maxRetries: 3,
+        cache: 'no-store',
+      }).catch(() => null),
     ]);
 
     if (dxySnapshot) {
@@ -383,14 +394,15 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
   ];
   await Promise.all(
     symbols.map(async ({ key, yahoo }) => {
-      const controller = new AbortController();
-      const t = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoo)}?range=1d&interval=5m`;
-        const res = await fetch(url, {
+        const res = await fetchWithBackoff(url, {
+          timeoutMs,
+          maxRetries: 3,
           cache: 'no-store',
-          signal: controller.signal,
-          headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+          init: {
+            headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+          },
         });
         if (!res.ok) return;
         const text = await res.text();
@@ -398,8 +410,6 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
         if (v != null) out[key] = Math.round(v * 10_000) / 10_000;
       } catch {
         // skip symbol
-      } finally {
-        clearTimeout(t);
       }
     })
   );

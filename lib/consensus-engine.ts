@@ -35,8 +35,11 @@ import {
 } from '@/lib/gemini-model';
 import { createHash } from 'crypto';
 
-/** Wall-clock cap for one MoE round; fail fast to avoid UI hangs. */
-const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 45_000;
+/**
+ * Wall-clock cap for one MoE round. Must exceed parallel expert timeouts (each can run up to ~timeoutMs)
+ * plus stagger; a 45s cap against 45s+ per-expert work caused spurious "Consensus absolute timeout".
+ */
+const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 115_000;
 /** Neutral fallback message when an expert times out or fails — never show raw error to UI. */
 const NEUTRAL_FALLBACK_LOGIC = 'הנתונים אינם זמינים כרגע. ממשיכים במשקל ניטרלי.';
 
@@ -1035,11 +1038,17 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
         };
       } catch (geminiErr) {
         console.error('[ConsensusEngine] Gemini Macro fallback also failed:', geminiErr);
-        throw geminiErr;
+        return {
+          macro_score: FALLBACK_EXPERT_SCORE,
+          macro_logic: `${NEUTRAL_FALLBACK_LOGIC} (מקרו: Groq וגיבוי Gemini נכשלו).`,
+        };
       }
     }
     console.error('[ConsensusEngine] Groq Macro agent failed:', msg);
-    throw err;
+    return {
+      macro_score: FALLBACK_EXPERT_SCORE,
+      macro_logic: `${NEUTRAL_FALLBACK_LOGIC} (מקרו/Groq: ${msg.slice(0, 120)}).`,
+    };
   }
 }
 
@@ -1285,7 +1294,9 @@ export async function runConsensusEngine(
     );
   }
   const rawTimeout = options?.timeoutMs ?? Math.min(60_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
-  const timeoutMs = Math.max(45_000, rawTimeout ?? 60_000);
+  /** Bounded so parallel experts can finish before the global failsafe (was min 45s × parallel vs 45s wall → false timeouts). */
+  const timeoutMs = Math.min(58_000, Math.max(22_000, Number.isFinite(rawTimeout) ? rawTimeout : 45_000));
+  const consensusFailsafeMs = Math.max(ABSOLUTE_FAILSAFE_TIMEOUT_MS, timeoutMs + 42_000);
   let threshold = options?.moeConfidenceThreshold;
   let riskToleranceLevel: 'strict' | 'moderate' | 'aggressive' | undefined;
   let bestExpertFromDeepMemory: { bestExpertKey: string; accuracyPct: number } | null = null;
@@ -1380,16 +1391,41 @@ export async function runConsensusEngine(
     ]);
   })();
 
-  const [techSettled, riskSettled, psychSettled, macroSettled, onchainSettled, deepMemorySettled] =
-    await Promise.race([
+  let techSettled: PromiseSettledResult<ExpertTechnicianOutput>;
+  let riskSettled: PromiseSettledResult<ExpertRiskOutput>;
+  let psychSettled: PromiseSettledResult<ExpertPsychOutput>;
+  let macroSettled: PromiseSettledResult<ExpertMacroOutput>;
+  let onchainSettled: PromiseSettledResult<ExpertOnChainOutput>;
+  let deepMemorySettled: PromiseSettledResult<ExpertDeepMemoryOutput>;
+  try {
+    [
+      techSettled,
+      riskSettled,
+      psychSettled,
+      macroSettled,
+      onchainSettled,
+      deepMemorySettled,
+    ] = await Promise.race([
       expertsPromise,
       new Promise<never>((_, rej) =>
         setTimeout(
           () => rej(new Error('Consensus absolute timeout (APIs unresponsive)')),
-          ABSOLUTE_FAILSAFE_TIMEOUT_MS
+          consensusFailsafeMs
         )
       ),
     ]);
+  } catch (absErr) {
+    const msg = absErr instanceof Error ? absErr.message : String(absErr);
+    if (!msg.includes('Consensus absolute timeout')) throw absErr;
+    console.warn('[ConsensusEngine] Absolute failsafe fired — using neutral board fallbacks.', msg);
+    const reason = absErr;
+    techSettled = { status: 'rejected', reason };
+    riskSettled = { status: 'rejected', reason };
+    psychSettled = { status: 'rejected', reason };
+    macroSettled = { status: 'rejected', reason };
+    onchainSettled = { status: 'rejected', reason };
+    deepMemorySettled = { status: 'rejected', reason };
+  }
 
   const expert1: ExpertTechnicianOutput =
     techSettled.status === 'fulfilled'
@@ -1444,13 +1480,13 @@ export async function runConsensusEngine(
   if (psychSettled.status === 'rejected') {
     console.warn('[ConsensusEngine] Psych expert failed:', psychSettled.reason, '| model:', logModel);
   }
-  if (macroFailed) {
-    console.warn('[ConsensusEngine] Macro expert failed (Groq fallback active):', macroSettled.reason);
+  if (macroSettled.status === 'rejected') {
+    console.warn('[ConsensusEngine] Macro expert failed:', macroSettled.reason);
   }
-  if (onchainFailed) {
+  if (onchainSettled.status === 'rejected') {
     console.warn('[ConsensusEngine] On-Chain Sleuth expert failed:', onchainSettled.reason);
   }
-  if (deepMemoryFailed) {
+  if (deepMemorySettled.status === 'rejected') {
     console.warn('[ConsensusEngine] Deep Memory expert failed:', deepMemorySettled.reason);
   }
 
@@ -1658,7 +1694,8 @@ export async function runConsensusEngine(
     macro_logic: expert4.macro_logic,
     onchain_logic: expert5.onchain_logic,
     deep_memory_logic: expert6.deep_memory_logic,
-    ...(macroFailed && { macro_fallback_used: true }),
+    ...((macroFailed ||
+      /\(מקרו\/Groq|מקרו: Groq וגיבוי/.test(expert4.macro_logic)) && { macro_fallback_used: true }),
     ...(onchainFailed && { onchain_fallback_used: true }),
     ...(deepMemoryFailed && { deep_memory_fallback_used: true }),
     master_insight_he: judgeResult.master_insight_he,

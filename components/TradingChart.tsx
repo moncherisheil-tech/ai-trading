@@ -71,6 +71,7 @@ function TradingChart({
         layout: {
           background: { color: '#0f172a' },
           textColor: '#94a3b8',
+          attributionLogo: false,
         },
         grid: {
           vertLines: { color: 'rgba(51, 65, 85, 0.5)' },
@@ -83,8 +84,9 @@ function TradingChart({
         },
         rightPriceScale: {
           borderColor: 'rgba(51, 65, 85, 0.8)',
-          scaleMargins: { top: 0.1, bottom: 0.2 },
+          scaleMargins: { top: 0.14, bottom: 0.28 },
         },
+        leftPriceScale: { visible: false },
       });
 
       const chartWithSeries = chart as IChartApi & {
@@ -242,9 +244,14 @@ function TradingChart({
     };
   }, [data, entry_zone, take_profit_targets, stop_loss_level, height]);
 
+  const layoutMinH = Math.max(200, height || 280);
+
   if (!data.length) {
     return (
-      <div className={`flex items-center justify-center bg-slate-900/50 rounded-xl ${className}`} style={{ height }}>
+      <div
+        className={`flex w-full h-full min-h-[200px] items-center justify-center bg-slate-900/50 rounded-xl ${className}`}
+        style={{ minHeight: layoutMinH }}
+      >
         <span className="text-zinc-500 text-sm">אין נתוני גרף</span>
       </div>
     );
@@ -253,8 +260,8 @@ function TradingChart({
   return (
     <div
       ref={containerRef}
-      className={className || undefined}
-      style={{ minHeight: '400px', width: '100%', position: 'relative' }}
+      className={`w-full h-full min-h-[200px] ${className || ''}`.trim()}
+      style={{ minHeight: layoutMinH, position: 'relative' }}
     />
   );
 }

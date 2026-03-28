@@ -1,5 +1,7 @@
 import { LEVIATHAN_SPOOFING_BOOK_RULES } from '@/lib/agents/psych-agent';
 import { ensureMarketDataProviderOrFallback } from '@/lib/market-data';
+import { fetchWithBackoff } from '@/lib/api-utils';
+import { APP_CONFIG } from '@/lib/config';
 
 type LeviathanSignal = {
   provider: 'CryptoQuant' | 'CoinMarketCap';
@@ -39,12 +41,17 @@ async function fetchCoinMarketCapQuote(baseAsset: string): Promise<LeviathanSign
   }
 
   const url = `https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(baseAsset)}&convert=USD`;
+  const ft = APP_CONFIG.fetchTimeoutMs ?? 12_000;
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithBackoff(url, {
+      timeoutMs: ft,
+      maxRetries: 3,
       cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        'X-CMC_PRO_API_KEY': apiKey,
+      init: {
+        headers: {
+          Accept: 'application/json',
+          'X-CMC_PRO_API_KEY': apiKey,
+        },
       },
     });
     if (!res.ok) {
@@ -107,10 +114,21 @@ async function fetchCryptoQuantSignals(baseAsset: string): Promise<LeviathanSign
   const asset = baseAsset.toLowerCase();
   const netflowUrl = `https://api.cryptoquant.com/v1/${asset}/exchange-flows/netflow`;
   const whaleUrl = `https://api.cryptoquant.com/v1/${asset}/flow-indicator/whale-ratio`;
+  const ft = APP_CONFIG.fetchTimeoutMs ?? 12_000;
   try {
     const [netflowRes, whaleRes] = await Promise.all([
-      fetch(netflowUrl, { cache: 'no-store', headers: { Authorization: `Bearer ${apiKey}` } }),
-      fetch(whaleUrl, { cache: 'no-store', headers: { Authorization: `Bearer ${apiKey}` } }),
+      fetchWithBackoff(netflowUrl, {
+        timeoutMs: ft,
+        maxRetries: 3,
+        cache: 'no-store',
+        init: { headers: { Authorization: `Bearer ${apiKey}` } },
+      }),
+      fetchWithBackoff(whaleUrl, {
+        timeoutMs: ft,
+        maxRetries: 3,
+        cache: 'no-store',
+        init: { headers: { Authorization: `Bearer ${apiKey}` } },
+      }),
     ]);
 
     const netflowBody = netflowRes.ok ? await netflowRes.json().catch(() => null) : await netflowRes.text().catch(() => '');
