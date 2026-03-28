@@ -111,6 +111,16 @@ function isProtectedPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // 1. Absolute bypass for Next.js internal assets, static files, and APIs
+  if (
+    pathname.startsWith('/_next/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/static/') ||
+    pathname.match(/\.(.*)$/) // Bypasses anything with a file extension (.js, .css, .png, etc.)
+  ) {
+    return NextResponse.next();
+  }
+
   if (shouldBypassAuthForPath(pathname)) {
     return NextResponse.next();
   }
