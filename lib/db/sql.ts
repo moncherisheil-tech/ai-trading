@@ -7,18 +7,15 @@ import {
 
 let pool: Pool | null = null;
 
-/** Last DATABASE_URL string that passed sovereign policy (avoids re-parsing on hot paths). */
+/** Last DATABASE_URL string that passed validation (avoids re-parsing on hot paths). */
 let cachedAuthorizedDatabaseUrl: string | null = null;
 
 /**
- * Enforces sovereign DB policy before any query (including `ensureTable` DDL).
- * Runs before `getPool()` so workers never open a socket until authorization succeeds.
+ * Validates DATABASE_URL before any query (including `ensureTable` DDL).
+ * Runs before `getPool()` so workers never open a socket until validation succeeds.
  */
 function ensureDatabaseAuthorizedForQuery(): string {
   const url = normalizeDatabaseUrlEnv(process.env.DATABASE_URL);
-  if (!url) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
-  }
   if (url !== cachedAuthorizedDatabaseUrl) {
     assertAuthorizedDatabaseUrl(url);
     cachedAuthorizedDatabaseUrl = url;

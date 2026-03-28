@@ -9,11 +9,20 @@ const { loadEnvConfig } = nextEnv;
 // Standalone Node script: ensure `.env` is loaded before reading DATABASE_URL.
 loadEnvConfig(process.cwd(), process.env.NODE_ENV !== 'production');
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString || !connectionString.includes('quantum_admin')) {
-  console.error(
-    'Security Breach: Unauthorized DB User Attempted'
-  );
+const connectionString = (process.env.DATABASE_URL || '').trim();
+if (!connectionString) {
+  console.error('DATABASE_URL is required.');
+  process.exit(1);
+}
+try {
+  const u = new URL(connectionString);
+  const p = u.protocol.toLowerCase();
+  if (p !== 'postgresql:' && p !== 'postgres:') {
+    console.error('DATABASE_URL must be postgres:// or postgresql://');
+    process.exit(1);
+  }
+} catch {
+  console.error('DATABASE_URL is not a valid URL.');
   process.exit(1);
 }
 

@@ -1,28 +1,20 @@
 /**
- * Sovereign DB URL policy: never connect as the default role `postgres`.
- * In production, `quantum_admin` is accepted automatically when present in the URL authority.
- * Connection strings are parsed with `URL` + `decodeURIComponent`; last successful URL is cached.
+ * DATABASE_URL validation: accepts any postgres:// or postgresql:// URL from the environment.
+ * Parses with the WHATWG `URL` API; last authorized URL string is cached for hot paths.
  * Enforced when opening DB connections (`lib/prisma.ts`, `lib/db/sql.ts`).
  * Do not import from `prisma.config.ts` — Prisma CLI loads config outside app runtime.
  */
-
-const QUANTUM_ADMIN = 'quantum_admin';
-
-/**
- * Optional dev-only lock: when set, DATABASE_URL username must match (still never `postgres`).
- * Aliases: QUANTUM_SOVEREIGN_DB_USER, QUANTUM_ADMIN.
- */
-function devSovereignUserOverride(): string | null {
-  const raw =
-    process.env.QUANTUM_SOVEREIGN_DB_USER?.trim() || process.env.QUANTUM_ADMIN?.trim() || '';
-  return raw || null;
-}
 
 /** Same URL string → skip re-parse (hot paths: `lib/db/sql.ts` + this module). */
 let lastAuthorizedUrl: string | null = null;
 
 function isProduction(): boolean {
   return process.env.NODE_ENV === 'production';
+}
+
+function isPostgresProtocol(protocol: string): boolean {
+  const p = protocol.toLowerCase();
+  return p === 'postgresql:' || p === 'postgres:';
 }
 
 /** Strip optional wrapping quotes (matches `lib/db/sql.ts` / `lib/config.ts`). */
@@ -38,11 +30,6 @@ export function normalizeDatabaseUrlEnv(raw: string | undefined): string {
   return value;
 }
 
-/** True when `quantum_admin` appears as the PostgreSQL URL user (not only inside a password). */
-function authorityHasQuantumAdmin(trimmed: string): boolean {
-  return /:\/\/quantum_admin(?=[:@])/i.test(trimmed);
-}
-
 export type ParsedDatabaseUrlIdentity = {
   username: string | null;
   parseError: boolean;
@@ -54,6 +41,9 @@ export function parseDatabaseUrlIdentity(url: string): ParsedDatabaseUrlIdentity
   if (!trimmed) return { username: null, parseError: false };
   try {
     const parsed = new URL(trimmed);
+    if (!isPostgresProtocol(parsed.protocol)) {
+      return { username: null, parseError: true };
+    }
     const u = decodeURIComponent(parsed.username || '');
     return { username: u || null, parseError: false };
   } catch {
@@ -62,34 +52,29 @@ export function parseDatabaseUrlIdentity(url: string): ParsedDatabaseUrlIdentity
 }
 
 /** Human-readable remediation for operators (startup audit / logs). */
-export function formatDatabaseUrlRemediation(reason: 'postgres' | 'not_quantum_admin' | 'invalid' | 'missing'): string {
+export function formatDatabaseUrlRemediation(reason: 'invalid' | 'missing'): string {
   const lines = [
-    '[DATABASE_URL] Production requires a PostgreSQL URL with user "quantum_admin" (never the default "postgres").',
+    '[DATABASE_URL] Set a valid PostgreSQL connection string.',
     '',
     'Fix your server .env (or PM2 env):',
-    '  DATABASE_URL=postgresql://quantum_admin:<PASSWORD>@<HOST>:5432/<DB>?schema=public',
+    '  DATABASE_URL=postgresql://<USER>:<PASSWORD>@<HOST>:5432/<DB>?schema=public',
     '',
     'Then: save the file, restart the app (e.g. pm2 restart all).',
   ];
-  if (reason === 'postgres') {
+  if (reason === 'invalid') {
+    lines.splice(1, 0, 'Detected: DATABASE_URL is not a valid postgres:// or postgresql:// URL.');
+  } else {
     lines.splice(
       1,
       0,
-      'Detected: username is "postgres" — this is blocked for security.',
-      'Create role quantum_admin in Postgres, grant privileges, and point DATABASE_URL at that user.'
+      'DATABASE_URL is empty. Set it if you need persistence, cron DB routes, or the Telegram terminal.'
     );
-  } else if (reason === 'not_quantum_admin') {
-    lines.splice(1, 0, 'Detected: DATABASE_URL is set but the URL user is not quantum_admin.');
-  } else if (reason === 'invalid') {
-    lines.splice(1, 0, 'Detected: DATABASE_URL is not a valid postgres:// or postgresql:// URL.');
-  } else {
-    lines.splice(1, 0, 'DATABASE_URL is empty. Set it if you need persistence, cron DB routes, or the Telegram terminal.');
   }
   return lines.join('\n');
 }
 
 /**
- * Fail fast in production with operator-friendly instructions (before generic "Security Breach" at first query).
+ * Fail fast in production with operator-friendly instructions (before first DB connection).
  */
 export function runProductionDatabaseUrlGate(): void {
   if (!isProduction()) return;
@@ -98,30 +83,27 @@ export function runProductionDatabaseUrlGate(): void {
     console.error(formatDatabaseUrlRemediation('missing'));
     process.exit(1);
   }
-  const { username, parseError } = parseDatabaseUrlIdentity(trimmed);
-  if (parseError) {
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
     console.error(formatDatabaseUrlRemediation('invalid'));
     process.exit(1);
   }
-  if (username === 'postgres') {
-    console.error(formatDatabaseUrlRemediation('postgres'));
-    process.exit(1);
-  }
-  if (username !== QUANTUM_ADMIN && !authorityHasQuantumAdmin(trimmed)) {
-    console.error(formatDatabaseUrlRemediation('not_quantum_admin'));
+  if (!isPostgresProtocol(parsed.protocol)) {
+    console.error(formatDatabaseUrlRemediation('invalid'));
     process.exit(1);
   }
 }
 
 /**
- * Strict enforcement — call only when opening DB connections (Prisma, pg Pool).
- * Production: URL user must be `quantum_admin` (never `postgres`).
- * Development: any non-`postgres` URL user is allowed unless `QUANTUM_SOVEREIGN_DB_USER` / `QUANTUM_ADMIN` is set, then the URL user must match.
+ * Call when opening DB connections (Prisma, pg Pool).
+ * Ensures a non-empty, parseable postgres:// or postgresql:// URL.
  */
 export function assertAuthorizedDatabaseUrl(url: string): void {
   const trimmed = normalizeDatabaseUrlEnv(url);
   if (!trimmed) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
+    throw new Error('DATABASE_URL is not set or is empty.');
   }
   if (trimmed === lastAuthorizedUrl) {
     return;
@@ -136,29 +118,8 @@ export function assertAuthorizedDatabaseUrl(url: string): void {
     );
   }
 
-  const dbUser = decodeURIComponent(parsed.username || '');
-
-  if (dbUser === 'postgres') {
-    throw new Error(
-      "Fatal Security Error: DATABASE_URL must not use the default PostgreSQL superuser role 'postgres'."
-    );
-  }
-
-  if (isProduction()) {
-    if (dbUser === QUANTUM_ADMIN || authorityHasQuantumAdmin(trimmed)) {
-      lastAuthorizedUrl = trimmed;
-      return;
-    }
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
-  }
-
-  const devLock = devSovereignUserOverride();
-  if (devLock) {
-    if (dbUser !== devLock) {
-      throw new Error('Security Breach: Unauthorized DB User Attempted');
-    }
-  } else if (!dbUser) {
-    throw new Error('Security Breach: Unauthorized DB User Attempted');
+  if (!isPostgresProtocol(parsed.protocol)) {
+    throw new Error('DATABASE_URL must use postgres:// or postgresql:// protocol.');
   }
 
   lastAuthorizedUrl = trimmed;
