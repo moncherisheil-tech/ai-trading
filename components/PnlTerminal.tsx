@@ -137,10 +137,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
   const [simSummaryLoading, setSimSummaryLoading] = useState(true);
   const [olympusBoard, setOlympusBoard] = useState<OlympusBoardTelemetry | null>(null);
 
-  const tradesSignature = useMemo(() => {
-    const trades = simContext?.trades ?? [];
-    return `${trades.length}-${trades[0]?.id ?? ''}`;
-  }, [simContext?.trades]);
+  /** Length-only dependency avoids refetch loops when the context replaces the trades array each render. */
+  const simulationTradeCount = simContext?.trades?.length ?? 0;
 
   useEffect(() => {
     setMounted(true);
@@ -189,7 +187,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [mounted, tradesSignature]);
+  }, [mounted, simulationTradeCount]);
 
   useEffect(() => {
     if (!mounted) return;

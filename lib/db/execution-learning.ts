@@ -82,9 +82,9 @@ export async function insertTradeExecution(input: {
   amount: number;
   entryPrice: number;
   status?: TradeExecutionStatus;
-}): Promise<TradeExecutionRow | null> {
+}): Promise<{ row: TradeExecutionRow | null; inserted: boolean }> {
   const ok = await ensureExecutionLearningTables();
-  if (!ok) return null;
+  if (!ok) return { row: null, inserted: false };
   const status = input.status ?? 'OPEN';
   const { rows } = await sql`
     INSERT INTO trade_executions (
@@ -94,9 +94,16 @@ export async function insertTradeExecution(input: {
       ${input.id}, ${input.symbol}, ${input.alphaSignalId ?? null}, ${input.type}, ${input.side},
       ${input.amount}, ${input.entryPrice}, ${status}, NOW()
     )
+    ON CONFLICT (id) DO NOTHING
     RETURNING *
   `;
-  return mapTradeRow(rows?.[0] as Record<string, unknown> | undefined);
+  const ins = rows?.[0] as Record<string, unknown> | undefined;
+  if (ins) return { row: mapTradeRow(ins), inserted: true };
+  const { rows: existing } = await sql`SELECT * FROM trade_executions WHERE id = ${input.id} LIMIT 1`;
+  return {
+    row: mapTradeRow(existing?.[0] as Record<string, unknown> | undefined),
+    inserted: false,
+  };
 }
 
 export async function closeTradeExecution(input: {

@@ -4,6 +4,7 @@ import { listOpenVirtualTrades, listClosedVirtualTrades, closeVirtualTrade, type
 import {
   insertVirtualTradeHistory,
   hasVirtualTradeExecutionEvent,
+  tryClaimExecutionPipeline,
   listVirtualTradeHistory,
   getLatestExecutedBuyForVirtualTrade,
   type ExecutionMode,
@@ -26,7 +27,7 @@ import {
   shouldUseStealthTwap,
 } from '@/lib/trading/execution-liquidity';
 import { buildScalpExecutionPlan, inferScalpTierFromVolatility } from '@/lib/trading/scalp-tiers';
-import { createBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-adapter';
+import { createExecutionBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-adapter';
 import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
 import { ReinforcementEngine } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
@@ -180,6 +181,21 @@ function safeJsonParse(value: string | null | undefined): Record<string, unknown
   }
 }
 
+function duplicateExecutionSkip(
+  eventId: string,
+  mode: ExecutionMode,
+  signal: ExecutionSignalSide | null
+): AutonomousExecutionResult {
+  return {
+    eventId,
+    mode,
+    signal,
+    executed: false,
+    status: 'skipped',
+    reason: 'Execution event already processed.',
+  };
+}
+
 async function dispatchTradeBlockedAlert(symbol: string, reason: string): Promise<void> {
   const normalized = reason.toLowerCase();
   const severity: AlertSeverity =
@@ -200,9 +216,10 @@ export async function executeAutonomousConsensusSignal(
 ): Promise<AutonomousExecutionResult> {
   const signal = mapDirectionToSignal(input.predictedDirection);
   const symbol = normalizeSymbol(input.symbol);
-  const eventId = input.idempotencyKey?.trim()
-    ? input.idempotencyKey.trim()
-    : `${input.predictionId}:${signal ?? 'NONE'}:${input.decisionId ?? 'no-decision-id'}`;
+  const rawKey = input.idempotencyKey?.trim();
+  const eventId = rawKey
+    ? `idem:${rawKey.slice(0, 200)}`
+    : `auto:${input.predictionId}:${signal ?? 'NONE'}:${input.decisionId ?? 'no-decision-id'}`;
   const priority = input.priority === 'atomic' ? 'atomic' : 'standard';
   const settings = await getAppSettings();
   const execution = settings.execution;
@@ -234,7 +251,7 @@ export async function executeAutonomousConsensusSignal(
 
   if (!execution.masterSwitchEnabled) {
     const reason = 'Autonomous execution master switch is OFF.';
-    await insertVirtualTradeHistory({
+    const ins = await insertVirtualTradeHistory({
       eventId,
       predictionId: input.predictionId,
       symbol,
@@ -248,13 +265,14 @@ export async function executeAutonomousConsensusSignal(
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson,
     });
+    if (!ins.inserted) return duplicateExecutionSkip(eventId, mode, signal);
     await dispatchTradeBlockedAlert(symbol, reason);
     return { eventId, mode, signal, executed: false, status: 'blocked', reason };
   }
 
   if (!input.consensusApproved || input.finalConfidence < minConfidence) {
     const reason = `Confidence ${input.finalConfidence.toFixed(1)} below execution threshold ${minConfidence.toFixed(1)}.`;
-    await insertVirtualTradeHistory({
+    const ins = await insertVirtualTradeHistory({
       eventId,
       predictionId: input.predictionId,
       symbol,
@@ -268,6 +286,7 @@ export async function executeAutonomousConsensusSignal(
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson,
     });
+    if (!ins.inserted) return duplicateExecutionSkip(eventId, mode, signal);
     return { eventId, mode, signal, executed: false, status: 'skipped', reason };
   }
 
@@ -278,7 +297,7 @@ export async function executeAutonomousConsensusSignal(
     const livePrice = prices.get(symbol);
     if (!Number.isFinite(livePrice) || (livePrice ?? 0) <= 0) {
       const reason = 'Live Binance execution price unavailable.';
-      await insertVirtualTradeHistory({
+      const ins = await insertVirtualTradeHistory({
         eventId,
         predictionId: input.predictionId,
         symbol,
@@ -292,6 +311,7 @@ export async function executeAutonomousConsensusSignal(
         overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
         expertBreakdownJson,
       });
+      if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
       return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
     }
 
@@ -299,13 +319,14 @@ export async function executeAutonomousConsensusSignal(
     const openForSymbol = openTrades.find((t) => t.symbol === symbol);
 
     if (signal === 'BUY') {
+      const depthPrefetch = fetchBinanceOrderBookDepth(symbol, 50, 10_000);
       const configuredMaxOpen = Math.max(1, Number(settings.trading.maxOpenPositions ?? MAX_OPEN_POSITIONS));
       const maxOpenPositions = Math.min(MAX_OPEN_POSITIONS, configuredMaxOpen);
       try {
         assertOpenPositionsLimit(openTrades.length);
       } catch {
         const reason = `Risk limit blocked BUY: open positions ${openTrades.length}/${maxOpenPositions}.`;
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -320,12 +341,13 @@ export async function executeAutonomousConsensusSignal(
           expertBreakdownJson,
           executionPrice: livePrice,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchTradeBlockedAlert(symbol, reason);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
       }
       if (openTrades.length >= maxOpenPositions) {
         const reason = `Risk limit blocked BUY: open positions ${openTrades.length}/${maxOpenPositions}.`;
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -340,13 +362,14 @@ export async function executeAutonomousConsensusSignal(
           expertBreakdownJson,
           executionPrice: livePrice,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchTradeBlockedAlert(symbol, reason);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
       }
 
       if (openForSymbol) {
         const reason = 'Open position already exists for symbol.';
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -363,6 +386,7 @@ export async function executeAutonomousConsensusSignal(
           amountUsd: openForSymbol.amount_usd,
           virtualTradeId: openForSymbol.id,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason };
       }
 
@@ -376,7 +400,7 @@ export async function executeAutonomousConsensusSignal(
       const sizing = calculatePositionSize(virtualEquityUsd, input.finalConfidence, marketVolatility);
       if (sizing.rejected || sizing.positionSizeUsd <= 0) {
         const reason = `Risk manager rejected position sizing: ${sizing.reason}`;
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -391,6 +415,7 @@ export async function executeAutonomousConsensusSignal(
           expertBreakdownJson,
           executionPrice: livePrice,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchTradeBlockedAlert(symbol, reason);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
       }
@@ -417,7 +442,7 @@ export async function executeAutonomousConsensusSignal(
         )} USD, global available ${availableGlobalUsd.toFixed(
           2
         )} USD, symbol available ${availableSingleAssetUsd.toFixed(2)} USD.`;
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -433,8 +458,14 @@ export async function executeAutonomousConsensusSignal(
           executionPrice: livePrice,
           amountUsd: desiredAmountUsd,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchTradeBlockedAlert(symbol, reason);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
+      }
+
+      const pipelineClaimed = await tryClaimExecutionPipeline(eventId);
+      if (!pipelineClaimed) {
+        return duplicateExecutionSkip(eventId, effectiveMode, signal);
       }
 
       const entryPrice = applySlippage(livePrice, 'buy', 5);
@@ -450,7 +481,7 @@ export async function executeAutonomousConsensusSignal(
         stopLoss: stopLossPx,
       });
 
-      const depth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
+      const depth = await depthPrefetch;
       const slipFrac = estimateBuySlippageFraction(depth, amountUsd, livePrice ?? entryPrice);
       const twapSched = pickTwapSchedule(shouldUseStealthTwap(slipFrac));
 
@@ -487,7 +518,7 @@ export async function executeAutonomousConsensusSignal(
       });
       if (!opened.success) {
         const reason = opened.error || 'Failed to open virtual trade.';
-        await insertVirtualTradeHistory({
+        const ins = await insertVirtualTradeHistory({
           eventId,
           predictionId: input.predictionId,
           symbol,
@@ -503,6 +534,7 @@ export async function executeAutonomousConsensusSignal(
           executionPrice: entryPrice,
           amountUsd,
         });
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchCriticalAlert(
           'Execution Engine — Virtual Trade Open Failed',
           `${symbol}: ${reason}`,
@@ -511,23 +543,25 @@ export async function executeAutonomousConsensusSignal(
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
       }
 
-      const broker = createBrokerAdapter({
+      const broker = createExecutionBrokerAdapter(effectiveMode, {
         allowSimulationFallback: true,
         testnet: process.env.EXCHANGE_TESTNET === 'true',
       });
       const stealth = new StealthExecutionEngine(broker);
       const priceForSize = livePrice ?? entryPrice;
       const totalAssetAmount = roundAmount(amountUsd / Math.max(priceForSize, 0.00000001), 8);
+      const twapIdem = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
       const twapResult = await stealth.executeTWAP(
         symbol,
         mapSignalToBrokerSide(signal),
         totalAssetAmount,
         twapSched.durationMinutes,
-        twapSched.chunks
+        twapSched.chunks,
+        { idempotencyKeyPrefix: `${twapIdem}-buy` }
       );
       const executionLabel = broker.isSimulated ? 'Simulated TWAP BUY executed.' : 'TWAP BUY executed via exchange.';
 
-      await insertVirtualTradeHistory({
+      const insExec = await insertVirtualTradeHistory({
         eventId,
         predictionId: input.predictionId,
         symbol,
@@ -548,6 +582,9 @@ export async function executeAutonomousConsensusSignal(
         amountUsd,
         virtualTradeId: opened.id,
       });
+      if (!insExec.inserted) {
+        console.warn('[ExecutionEngine] TWAP completed but history row already exists for eventId=', eventId);
+      }
       await dispatchTwapSuccessAlert(
         symbol,
         signal,
@@ -568,7 +605,7 @@ export async function executeAutonomousConsensusSignal(
 
     if (!openForSymbol) {
       const reason = 'No open position found for SELL signal.';
-      await insertVirtualTradeHistory({
+      const ins = await insertVirtualTradeHistory({
         eventId,
         predictionId: input.predictionId,
         symbol,
@@ -583,10 +620,16 @@ export async function executeAutonomousConsensusSignal(
         expertBreakdownJson,
         executionPrice: livePrice,
       });
+      if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
       return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason };
     }
 
-    const broker = createBrokerAdapter({
+    const sellClaimed = await tryClaimExecutionPipeline(eventId);
+    if (!sellClaimed) {
+      return duplicateExecutionSkip(eventId, effectiveMode, signal);
+    }
+
+    const broker = createExecutionBrokerAdapter(effectiveMode, {
       allowSimulationFallback: true,
       testnet: process.env.EXCHANGE_TESTNET === 'true',
     });
@@ -599,19 +642,21 @@ export async function executeAutonomousConsensusSignal(
     );
     const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
     const totalAssetAmount = roundAmount(openForSymbol.amount_usd / Math.max(openForSymbol.entry_price, 0.00000001), 8);
+    const twapIdemSell = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
     const twapResult = await stealth.executeTWAP(
       symbol,
       mapSignalToBrokerSide(signal),
       totalAssetAmount,
       twapSellSched.durationMinutes,
-      twapSellSched.chunks
+      twapSellSched.chunks,
+      { idempotencyKeyPrefix: `${twapIdemSell}-sell` }
     );
     const exitPrice = applySlippage(livePrice, 'sell', 5);
     const closeResult = await closeVirtualTrade(openForSymbol.id, exitPrice, 'manual');
     const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(openForSymbol.id);
     const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
     const executionLabel = broker.isSimulated ? 'Simulated TWAP SELL executed.' : 'TWAP SELL executed via exchange.';
-    await insertVirtualTradeHistory({
+    const insSell = await insertVirtualTradeHistory({
       eventId,
       predictionId: input.predictionId,
       symbol,
@@ -629,6 +674,9 @@ export async function executeAutonomousConsensusSignal(
       pnlNetUsd: closeResult?.pnlNetUsd ?? null,
       virtualTradeId: openForSymbol.id,
     });
+    if (!insSell.inserted) {
+      console.warn('[ExecutionEngine] SELL TWAP completed but history row already exists for eventId=', eventId);
+    }
     await dispatchTwapSuccessAlert(
       symbol,
       signal,
@@ -651,7 +699,7 @@ export async function executeAutonomousConsensusSignal(
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Execution engine failure.';
-    await insertVirtualTradeHistory({
+    const ins = await insertVirtualTradeHistory({
       eventId,
       predictionId: input.predictionId,
       symbol,
@@ -665,6 +713,7 @@ export async function executeAutonomousConsensusSignal(
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson,
     });
+    if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
     await dispatchCriticalAlert('PROTOCOL OMEGA — Execution Engine Exception', `${symbol}: ${reason}`, 'CRITICAL');
     return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
   }
@@ -763,6 +812,8 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
 
 export interface AlphaSignalExecutionInput {
   id?: string;
+  /** Stable key for CEO terminal retries; maps to trade_executions primary key when safe. */
+  idempotencyKey?: string;
   symbol: string;
   side: 'BUY' | 'SELL';
   orderType?: 'market' | 'limit';
@@ -792,9 +843,12 @@ export class LiveExecutionEngine {
     const mode: 'PAPER' | 'LIVE' = isLiveTradingEnabled ? 'LIVE' : 'PAPER';
     const symbol = normalizeSymbol(signal.symbol);
     const amountUsd = signal.amountUsd ?? settings.trading.defaultTradeSizeUsd ?? 100;
+    const idem = signal.idempotencyKey?.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    const executionId =
+      idem && idem.length >= 8 ? `alpha-exec-${idem}` : `alpha-exec-${generateSafeId()}`;
 
-    const execution = await insertTradeExecution({
-      id: generateSafeId(),
+    const { row: execution, inserted: executionInserted } = await insertTradeExecution({
+      id: executionId,
       symbol,
       alphaSignalId: signal.id ?? null,
       type: mode,
@@ -806,6 +860,15 @@ export class LiveExecutionEngine {
 
     if (!isLiveTradingEnabled) {
       return { success: true, mode, reason: 'isLiveTradingEnabled=false; stored as PAPER execution.', execution };
+    }
+
+    if (!executionInserted) {
+      return {
+        success: true,
+        mode,
+        reason: 'Idempotent replay: execution record already exists for this key; no duplicate exchange order.',
+        execution,
+      };
     }
 
     try {

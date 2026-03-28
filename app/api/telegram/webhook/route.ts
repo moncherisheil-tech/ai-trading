@@ -461,6 +461,15 @@ async function answerCallbackQuery(
   }
 }
 
+/** Uptime / webhook URL verification (some proxies ping GET). */
+export async function GET(): Promise<NextResponse> {
+  return NextResponse.json({
+    ok: true,
+    service: 'telegram-webhook',
+    ts: new Date().toISOString(),
+  });
+}
+
 /**
  * POST /api/telegram/webhook
  * Handles: (1) Text commands /start, /status, /report, /analyze, /strategy, /portfolio, /help.

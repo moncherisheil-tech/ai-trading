@@ -5,14 +5,7 @@ import { Loader2, RefreshCw, Sparkles, X, Zap } from 'lucide-react';
 import type { AdvisorySignal, AssetForecast, AssetOutlook } from '@/lib/trading/forecast-engine';
 import { useToastOptional } from '@/context/ToastContext';
 import { useLocale } from '@/hooks/use-locale';
-import { executeTradingSignalAction, getTradingSignalsAction } from '@/app/actions';
-
-type ApiResponse = {
-  success: boolean;
-  mode?: 'live';
-  data?: AssetForecast[];
-  error?: string;
-};
+import { executeTradingSignalAction, getAlphaSignalsForecastsAction } from '@/app/actions';
 
 type ExecuteSignalResponse = {
   success: boolean;
@@ -279,15 +272,11 @@ export default function AlphaSignalsDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const out = await getTradingSignalsAction();
+      const out = await getAlphaSignalsForecastsAction();
       if (!out.success) {
         throw new Error(out.error);
       }
-      const payload = out.data as ApiResponse;
-      if (!payload?.success || !payload.data) {
-        throw new Error(payload?.error ?? 'Failed to load alpha signals.');
-      }
-      setItems(payload.data);
+      setItems(out.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load alpha signals.');
     } finally {

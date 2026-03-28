@@ -52,7 +52,8 @@ export class StealthExecutionEngine {
     side: BrokerOrderSide,
     totalAmount: number,
     durationMinutes: number,
-    chunks: number
+    chunks: number,
+    options?: { idempotencyKeyPrefix?: string }
   ): Promise<TwapExecutionResult> {
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
       throw new Error('TWAP totalAmount must be a positive number.');
@@ -66,6 +67,7 @@ export class StealthExecutionEngine {
 
     const startedAtDate = new Date();
     const startedAt = startedAtDate.toISOString();
+    const idemBase = (options?.idempotencyKeyPrefix ?? `twap-${startedAt}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24);
     const totalMs = durationMinutes * 60_000;
     const intervalMs = totalMs / chunks;
     const maxAbsJitterMs = Math.min(5_000, Math.floor(intervalMs * 0.25));
@@ -84,7 +86,10 @@ export class StealthExecutionEngine {
         await sleep(plannedDelayMs);
       }
 
-      const order = await this.broker.createMarketOrder(symbol, side, executedAmount);
+      const chunkId = `${idemBase}c${i + 1}`.slice(0, 36);
+      const order = await this.broker.createMarketOrder(symbol, side, executedAmount, {
+        clientOrderId: chunkId,
+      });
       results.push({
         chunkIndex: i + 1,
         plannedDelayMs,

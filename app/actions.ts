@@ -87,6 +87,23 @@ async function requireAuth(requiredRole: SessionRole = 'viewer'): Promise<void> 
   }
 }
 
+/** QUANTUM_ADMIN session: same as `admin` role — required for ops writes when sessions are enabled. */
+async function requireQuantumAdmin(): Promise<void> {
+  await requireAuth('admin');
+}
+
+type AdminWriteGate = { ok: true } | { ok: false; error: string };
+
+async function assertQuantumAdminForWrites(): Promise<AdminWriteGate> {
+  if (!isSessionEnabled() || isDevelopmentAuthBypass()) return { ok: true };
+  try {
+    await requireQuantumAdmin();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'UNAUTHORIZED' };
+  }
+}
+
 async function verifyCaptcha(captchaToken?: string): Promise<boolean> {
   if (!APP_CONFIG.turnstileSecret) {
     return true;
@@ -883,6 +900,8 @@ export async function updateTradingExecutionStatusAction(
     goLiveSafetyAcknowledged: boolean;
   }>
 ): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/trading/execution/status', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -901,6 +920,8 @@ export async function createVirtualPortfolioTradeAction(input: {
   target_profit_pct?: number;
   stop_loss_pct?: number;
 }): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/portfolio/virtual', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -909,6 +930,8 @@ export async function createVirtualPortfolioTradeAction(input: {
 }
 
 export async function closeVirtualPortfolioTradeAction(input: { symbol: string }): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/portfolio/virtual/close', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -925,6 +948,8 @@ export async function testTelegramAction(input: {
   token?: string;
   chatId?: string;
 }): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/ops/telegram/test', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -936,10 +961,14 @@ export async function testTelegramAction(input: {
 }
 
 export async function triggerRetrospectiveAction(): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/ops/trigger-retrospective', { method: 'POST' });
 }
 
 export async function runOpsSimulationAction(input: { symbol: string }): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/ops/simulate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1008,6 +1037,29 @@ export async function getTradingSignalsAction(): Promise<AdminActionResult<unkno
   return adminApiRequest<unknown>('/api/trading/signals', { method: 'GET' }, { retries: 3 });
 }
 
+/**
+ * Alpha Signals: loads forecasts directly (no ADMIN_SECRET round-trip). Requires QUANTUM_ADMIN session when auth is on.
+ */
+export async function getAlphaSignalsForecastsAction(): Promise<
+  | { success: true; data: import('@/lib/trading/forecast-engine').AssetForecast[] }
+  | { success: false; error: string }
+> {
+  try {
+    if (isSessionEnabled() && !isDevelopmentAuthBypass()) {
+      await requireQuantumAdmin();
+    }
+  } catch {
+    return { success: false, error: 'Unauthorized request.' };
+  }
+  try {
+    const { getAlphaSignalForecasts } = await import('@/lib/trading/forecast-engine');
+    const data = await getAlphaSignalForecasts({ useLiveAnalysis: true });
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'Failed to load alpha signals.' };
+  }
+}
+
 export async function executeTradingSignalAction(input: {
   symbol: string;
   side: 'BUY' | 'SELL' | null;
@@ -1020,6 +1072,8 @@ export async function executeTradingSignalAction(input: {
     gapStrengthPct?: number;
   };
 }): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>(
     '/api/trading/execute-signal',
     {
@@ -1032,6 +1086,8 @@ export async function executeTradingSignalAction(input: {
 }
 
 export async function runOpsSandboxAction(): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>('/api/ops/sandbox/run', { method: 'POST' });
 }
 
@@ -1040,6 +1096,8 @@ export async function getOpsDiagnosticsAction(): Promise<AdminActionResult<unkno
 }
 
 export async function runOpsAuditCheckAction(): Promise<AdminActionResult<unknown>> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
   return adminApiRequest<unknown>(
     '/api/ops/audit-check',
     { method: 'POST' },

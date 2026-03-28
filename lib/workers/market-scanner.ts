@@ -359,17 +359,22 @@ export async function runOneCycle(): Promise<void> {
           }
         } else {
           const messageText = [
-            '⚠️ *Scanner Signal*',
-            `Asset: *${base}*`,
-            `Confidence: \`${formatTelegramPercent(probability)}%\``,
-            `Risk: ${riskLabel}`,
-            `Target: \`${formatTelegramPrice(targetPrice)}\``,
-            `Support: \`${formatTelegramPrice(supportPrice)}\``,
+            '🏛 *Quantum Scanner — Institutional*',
+            '━━━━━━━━━━━━━━━━',
+            `📌 *Symbol:* ${base}`,
+            `📊 *Signal strength:* \`${formatTelegramPercent(probability)}%\` confidence`,
+            `🛡 *Risk profile:* ${riskLabel}`,
             '',
-            '*Thesis*',
-            logicSnippet || 'אין תזה זמינה.',
+            '📍 *Key levels*',
+            `• Entry: \`${formatTelegramPrice(entryPrice)}\``,
+            `• Target: \`${formatTelegramPrice(targetPrice)}\``,
+            `• Support / invalidation: \`${formatTelegramPrice(supportPrice)}\``,
             '',
-            '_Select action:_',
+            '🧠 *Logic*',
+            (logicSnippet || 'No thesis text available.').slice(0, 320),
+            '',
+            '━━━━━━━━━━━━━━━━',
+            '_Action:_ chart · approve/reject · deep analysis',
           ].join('\n');
 
           const sendResult = await sendGemAlert({

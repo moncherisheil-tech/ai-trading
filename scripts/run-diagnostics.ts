@@ -162,7 +162,12 @@ function createDryRunBroker(): IBrokerAdapter {
     async fetchBalance() {
       return { simulated: true, free: { USDT: 1_000_000 } };
     },
-    async createMarketOrder(symbol: string, side: 'buy' | 'sell', amount: number): Promise<BrokerOrderResult> {
+    async createMarketOrder(
+      symbol: string,
+      side: 'buy' | 'sell',
+      amount: number,
+      _options?: { clientOrderId?: string }
+    ): Promise<BrokerOrderResult> {
       return {
         id: `dryrun-${generateSafeId()}`,
         symbol,

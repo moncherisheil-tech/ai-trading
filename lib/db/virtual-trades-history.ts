@@ -58,6 +58,45 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
+async function ensureClaimsTable(): Promise<boolean> {
+  if (!usePostgres()) return false;
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS execution_pipeline_claims (
+        event_id TEXT PRIMARY KEY,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `;
+    await sql`CREATE INDEX IF NOT EXISTS idx_exec_claims_created ON execution_pipeline_claims (created_at)`;
+    return true;
+  } catch (err) {
+    console.error('execution_pipeline_claims ensure failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Atomic claim before openVirtualTrade / TWAP so retries cannot double-open positions.
+ * Stale claims older than 48h are purged so long-delayed replays can proceed.
+ */
+export async function tryClaimExecutionPipeline(eventId: string): Promise<boolean> {
+  if (!usePostgres() || !eventId.trim()) return true;
+  try {
+    const ok = await ensureClaimsTable();
+    if (!ok) return true;
+    await sql`DELETE FROM execution_pipeline_claims WHERE created_at < NOW() - INTERVAL '48 hours'`;
+    const { rows } = await sql`
+      INSERT INTO execution_pipeline_claims (event_id) VALUES (${eventId.trim()})
+      ON CONFLICT (event_id) DO NOTHING
+      RETURNING event_id
+    `;
+    return (rows?.length ?? 0) > 0;
+  } catch (err) {
+    console.error('tryClaimExecutionPipeline failed:', err);
+    return true;
+  }
+}
+
 async function ensureTable(): Promise<boolean> {
   if (!usePostgres()) return false;
   try {
@@ -111,11 +150,17 @@ export async function hasVirtualTradeExecutionEvent(eventId: string): Promise<bo
   }
 }
 
-export async function insertVirtualTradeHistory(input: InsertVirtualTradeHistoryInput): Promise<number> {
-  if (!usePostgres()) return 0;
+export type InsertVirtualTradeHistoryResult = { id: number; inserted: boolean };
+
+/**
+ * Inserts one row per event_id. Retries with the same event_id do not overwrite (idempotent).
+ */
+export async function insertVirtualTradeHistory(input: InsertVirtualTradeHistoryInput): Promise<InsertVirtualTradeHistoryResult> {
+  /** No persistence without Postgres — treat as successful insert so execution pipeline is not blocked. */
+  if (!usePostgres()) return { id: 0, inserted: true };
   try {
     const ok = await ensureTable();
-    if (!ok) return 0;
+    if (!ok) return { id: 0, inserted: false };
     const { rows } = await sql`
       INSERT INTO virtual_trades_history (
         event_id, prediction_id, symbol, signal_side, confidence, mode, executed, execution_status, reason, overseer_summary, overseer_reasoning_path, expert_breakdown_json, execution_price, amount_usd, pnl_net_usd, virtual_trade_id
@@ -138,30 +183,19 @@ export async function insertVirtualTradeHistory(input: InsertVirtualTradeHistory
         ${input.pnlNetUsd ?? null},
         ${input.virtualTradeId ?? null}
       )
-      ON CONFLICT (event_id) DO UPDATE
-      SET
-        prediction_id = EXCLUDED.prediction_id,
-        symbol = EXCLUDED.symbol,
-        signal_side = EXCLUDED.signal_side,
-        confidence = EXCLUDED.confidence,
-        mode = EXCLUDED.mode,
-        executed = EXCLUDED.executed,
-        execution_status = EXCLUDED.execution_status,
-        reason = EXCLUDED.reason,
-        overseer_summary = EXCLUDED.overseer_summary,
-        overseer_reasoning_path = EXCLUDED.overseer_reasoning_path,
-        expert_breakdown_json = EXCLUDED.expert_breakdown_json,
-        execution_price = EXCLUDED.execution_price,
-        amount_usd = EXCLUDED.amount_usd,
-        pnl_net_usd = EXCLUDED.pnl_net_usd,
-        virtual_trade_id = EXCLUDED.virtual_trade_id
+      ON CONFLICT (event_id) DO NOTHING
       RETURNING id
     `;
     const id = (rows?.[0] as { id: number } | undefined)?.id;
-    return id != null ? Number(id) : 0;
+    if (id != null) return { id: Number(id), inserted: true };
+    const { rows: existing } = await sql`
+      SELECT id FROM virtual_trades_history WHERE event_id = ${input.eventId} LIMIT 1
+    `;
+    const existingId = (existing?.[0] as { id: number } | undefined)?.id;
+    return { id: existingId != null ? Number(existingId) : 0, inserted: false };
   } catch (err) {
     console.error('insertVirtualTradeHistory failed:', err);
-    return 0;
+    return { id: 0, inserted: false };
   }
 }
 
