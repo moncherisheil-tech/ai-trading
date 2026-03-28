@@ -35,7 +35,8 @@ function ilsRiskNoteHe(usdIls?: number): string {
   return 'שער USD/ILS בטווח מאוזן — סיכון המרה מתון.';
 }
 
-const DEFAULT_MACRO: MacroPulseResult = {
+/** Safe fallback when macro fetch or DB override path fails unexpectedly. */
+export const DEFAULT_MACRO: MacroPulseResult = {
   fearGreedIndex: 50,
   fearGreedClassification: 'Neutral',
   btcDominancePct: 50,

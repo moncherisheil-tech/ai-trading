@@ -8,6 +8,16 @@
 
 const QUANTUM_ADMIN = 'quantum_admin';
 
+/**
+ * Optional dev-only lock: when set, DATABASE_URL username must match (still never `postgres`).
+ * Aliases: QUANTUM_SOVEREIGN_DB_USER, QUANTUM_ADMIN.
+ */
+function devSovereignUserOverride(): string | null {
+  const raw =
+    process.env.QUANTUM_SOVEREIGN_DB_USER?.trim() || process.env.QUANTUM_ADMIN?.trim() || '';
+  return raw || null;
+}
+
 /** Same URL string → skip re-parse (hot paths: `lib/db/sql.ts` + this module). */
 let lastAuthorizedUrl: string | null = null;
 
@@ -105,7 +115,8 @@ export function runProductionDatabaseUrlGate(): void {
 
 /**
  * Strict enforcement — call only when opening DB connections (Prisma, pg Pool).
- * @throws Error when URL is missing, invalid, uses `postgres`, or identity is not `quantum_admin`.
+ * Production: URL user must be `quantum_admin` (never `postgres`).
+ * Development: any non-`postgres` URL user is allowed unless `QUANTUM_SOVEREIGN_DB_USER` / `QUANTUM_ADMIN` is set, then the URL user must match.
  */
 export function assertAuthorizedDatabaseUrl(url: string): void {
   const trimmed = normalizeDatabaseUrlEnv(url);
@@ -141,7 +152,12 @@ export function assertAuthorizedDatabaseUrl(url: string): void {
     throw new Error('Security Breach: Unauthorized DB User Attempted');
   }
 
-  if (dbUser !== QUANTUM_ADMIN) {
+  const devLock = devSovereignUserOverride();
+  if (devLock) {
+    if (dbUser !== devLock) {
+      throw new Error('Security Breach: Unauthorized DB User Attempted');
+    }
+  } else if (!dbUser) {
     throw new Error('Security Breach: Unauthorized DB User Attempted');
   }
 

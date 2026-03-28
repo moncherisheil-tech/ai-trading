@@ -119,6 +119,9 @@ const DEFAULTS: AppSettings = {
   },
 };
 
+/** Fallback when `getAppSettings` rejects (e.g. unexpected DB errors in workers). */
+export const DEFAULT_APP_SETTINGS: AppSettings = DEFAULTS;
+
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }

@@ -9,9 +9,9 @@ import { sendGemAlert, sendEliteAlert } from '@/lib/telegram';
 import { insertScannerAlert, getSymbolsAlertedSince, getLatestScannerAlertForSymbol } from '@/lib/db/scanner-alert-log';
 import { isSupportedBase } from '@/lib/symbols';
 import { writeAudit } from '@/lib/audit';
-import { getMacroPulse } from '@/lib/macro-service';
-import { getAppSettings } from '@/lib/db/app-settings';
-import { getMarketRiskSentiment } from '@/lib/market-sentinel';
+import { getMacroPulse, DEFAULT_MACRO } from '@/lib/macro-service';
+import { getAppSettings, DEFAULT_APP_SETTINGS } from '@/lib/db/app-settings';
+import { getMarketRiskSentiment, type MarketRiskSentiment } from '@/lib/market-sentinel';
 import { getBaseUrl } from '@/lib/config';
 import { insertAgentInsight } from '@/lib/db/agent-insights';
 import { checkRiskThresholds } from '@/lib/portfolio-logic';
@@ -36,6 +36,16 @@ const SCAN_CYCLE_HARD_LIMIT_MS = 35 * 60 * 1000; // 35 minutes
 const PER_SYMBOL_ANALYSIS_TIMEOUT_MS = 150_000;
 /** Delay between each symbol (reduced when using cached macro/sentiment to avoid rate limits with fewer API calls). */
 const DELAY_BETWEEN_SYMBOLS_MS = 1_500;
+
+const SCANNER_FALLBACK_MARKET_RISK: MarketRiskSentiment = {
+  status: 'SAFE',
+  reasoning: 'שירות סנטימנט סיכון לא זמין — ממשיך בסריקה עם ברירת מחדל בטוחה.',
+  btc24hVolatilityPct: null,
+  eth24hVolatilityPct: null,
+  btcAtrPct: null,
+  ethAtrPct: null,
+  checkedAt: new Date().toISOString(),
+};
 
 /** Build human-readable diagnostics: why no gems (e.g. filtered by RSI/confidence, analysis failed, already alerted). */
 function buildScannerDiagnosticsSummary(
@@ -129,11 +139,32 @@ export async function runOneCycle(): Promise<void> {
   let alreadyAlerted = 0;
 
   try {
-    const [appSettings, macro, marketRisk] = await Promise.all([
+    const [s0, s1, s2] = await Promise.allSettled([
       getAppSettings(),
       getMacroPulse(),
       getMarketRiskSentiment(),
     ]);
+    const appSettings = s0.status === 'fulfilled' ? s0.value : DEFAULT_APP_SETTINGS;
+    if (s0.status === 'rejected') {
+      const msg = s0.reason instanceof Error ? s0.reason.message : String(s0.reason);
+      console.warn('[Scanner] getAppSettings failed; using DEFAULT_APP_SETTINGS.', msg);
+      writeAudit({ event: 'scanner.app_settings_failed', level: 'warn', meta: { error: msg } });
+    }
+    const macro = s1.status === 'fulfilled' ? s1.value : DEFAULT_MACRO;
+    if (s1.status === 'rejected') {
+      const msg = s1.reason instanceof Error ? s1.reason.message : String(s1.reason);
+      console.warn('[Scanner] getMacroPulse failed; using DEFAULT_MACRO.', msg);
+      writeAudit({ event: 'scanner.macro_pulse_failed', level: 'warn', meta: { error: msg } });
+    }
+    const marketRisk =
+      s2.status === 'fulfilled'
+        ? s2.value
+        : { ...SCANNER_FALLBACK_MARKET_RISK, checkedAt: new Date().toISOString() };
+    if (s2.status === 'rejected') {
+      const msg = s2.reason instanceof Error ? s2.reason.message : String(s2.reason);
+      console.warn('[Scanner] getMarketRiskSentiment failed; using safe fallback.', msg);
+      writeAudit({ event: 'scanner.market_risk_failed', level: 'warn', meta: { error: msg } });
+    }
     const defaultAmountUsd = appSettings.trading?.defaultTradeSizeUsd ?? appSettings.risk.defaultPositionSizeUsd ?? 100;
     const marketSafetyStatus: 'Safe' | 'Caution' | 'Dangerous' =
       marketRisk.status === 'SAFE' ? 'Safe' : marketRisk.status === 'DANGEROUS' ? 'Dangerous' : 'Caution';
@@ -147,7 +178,14 @@ export async function runOneCycle(): Promise<void> {
       minLiquidityUsd: 50_000,
       minPriceChangePct: appSettings.scanner.minPriceChangePctForGem,
     };
-    const tickers = await getCachedGemsTicker24h(scannerOpts);
+    let tickers: Awaited<ReturnType<typeof getCachedGemsTicker24h>> = [];
+    try {
+      tickers = await getCachedGemsTicker24h(scannerOpts);
+    } catch (gemsErr) {
+      const msg = gemsErr instanceof Error ? gemsErr.message : String(gemsErr);
+      console.warn('[Scanner] getCachedGemsTicker24h failed; skipping gem candidates this cycle.', msg);
+      writeAudit({ event: 'scanner.gems_fetch_failed', level: 'warn', meta: { error: msg } });
+    }
     const recentlyAlerted = new Set(await getSymbolsAlertedSince(RECENTLY_ALERTED_WINDOW_MS));
 
     const candidates = tickers

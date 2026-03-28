@@ -614,21 +614,19 @@ export async function doAnalysisCore(
     }));
 
   /** Historical outcomes for same symbol (feedback loop). When SQLite is used, this populates from historical_predictions. */
-  let historicalPredictionOutcomes: HistoricalPredictionOutcome[] = [];
-  try {
-    const rows = await getHistoricalBySymbol(cleanSymbol, 10);
-    historicalPredictionOutcomes = rows.map((r) => ({
-      prediction_date: r.prediction_date,
-      predicted_direction: r.predicted_direction,
-      probability: r.probability ?? null,
-      target_percentage: r.target_percentage ?? null,
-      outcome_label: r.outcome_label,
-      absolute_error_pct: r.absolute_error_pct,
-      price_diff_pct: r.price_diff_pct,
-    }));
-  } catch {
-    // historical_predictions only available when DB_DRIVER=sqlite; ignore
-  }
+  const historicalRows = await getHistoricalBySymbol(cleanSymbol, 10).catch((err) => {
+    console.warn('[analysis-core] getHistoricalBySymbol failed:', err instanceof Error ? err.message : err);
+    return [] as Awaited<ReturnType<typeof getHistoricalBySymbol>>;
+  });
+  const historicalPredictionOutcomes: HistoricalPredictionOutcome[] = historicalRows.map((r) => ({
+    prediction_date: r.prediction_date,
+    predicted_direction: r.predicted_direction,
+    probability: r.probability ?? null,
+    target_percentage: r.target_percentage ?? null,
+    outcome_label: r.outcome_label,
+    absolute_error_pct: r.absolute_error_pct,
+    price_diff_pct: r.price_diff_pct,
+  }));
 
   const technicalIndicators: TechnicalIndicatorsInput = {
     rsi_14: rsiLevel,

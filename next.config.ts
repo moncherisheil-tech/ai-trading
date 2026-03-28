@@ -59,6 +59,16 @@ const nextConfig: NextConfig = {
         ignored: /.*/,
       };
     }
+    const prev = config.ignoreWarnings;
+    const ccxtCriticalDep = (warning: { message?: string; module?: { resource?: string } }) => {
+      const msg = warning.message ?? '';
+      const res = warning.module?.resource ?? '';
+      return (
+        /Critical dependency: the request of a dependency is an expression/.test(msg) &&
+        /[/\\]ccxt[/\\]/.test(res.replace(/\\/g, '/'))
+      );
+    };
+    config.ignoreWarnings = Array.isArray(prev) ? [...prev, ccxtCriticalDep] : prev ? [prev, ccxtCriticalDep] : [ccxtCriticalDep];
     return config;
   },
 };

@@ -13,12 +13,56 @@ const POST_MORTEMS_NAMESPACE = 'post-mortems';
 const BOARD_MEETINGS_NAMESPACE = 'board-meetings';
 const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
 const DEFAULT_TOP_K = 3;
-const PINECONE_QUERY_TIMEOUT_MS = 12_000;
+/** Outer race for embed + Pinecone query; must exceed embedding budget + RPC + retries. */
+const PINECONE_QUERY_TIMEOUT_MS = 40_000;
 const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = 10_000;
+const PINECONE_TRANSIENT_RETRY_ATTEMPTS = 3;
+const PINECONE_TRANSIENT_RETRY_BASE_MS = 800;
 type PineconeRecordMetadata = Record<string, unknown>;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isNonRetryablePineconeMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  if (/dimension mismatch|embedding dimension|vectors have a different dimension|pinecone index 1002|index 1002/i.test(m)) {
+    return true;
+  }
+  if (/embedding vector is empty|cannot embed empty|invalid api key|missing pinecone|not found.*index/i.test(m)) {
+    return true;
+  }
+  return false;
+}
+
+function isTransientPineconeError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  if (isNonRetryablePineconeMessage(message)) return false;
+  const m = message.toLowerCase();
+  return /timeout|timed out|econnreset|etimedout|enotfound|socket|network|502|503|504|429|fetch failed|aborted|unavailable|eai_again|enetwork/i.test(
+    m
+  );
+}
+
+async function withPineconeTransientRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= PINECONE_TRANSIENT_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastError = e;
+      if (attempt >= PINECONE_TRANSIENT_RETRY_ATTEMPTS || !isTransientPineconeError(e)) {
+        throw e;
+      }
+      const delay = PINECONE_TRANSIENT_RETRY_BASE_MS * 2 ** (attempt - 1);
+      console.warn(
+        `[vector-db] ${label} transient failure (attempt ${attempt}/${PINECONE_TRANSIENT_RETRY_ATTEMPTS}), retry in ${delay}ms:`,
+        e instanceof Error ? e.message : e
+      );
+      await sleep(delay);
+    }
+  }
+  throw lastError;
 }
 
 function getPineconeApiKey(): string | undefined {
@@ -57,7 +101,7 @@ export const GEMINI_EMBEDDING_MODEL_ID = 'gemini-embedding-001';
 
 /** Default vector size when Pinecone env dim unset (Matryoshka / reduced dim for gemini-embedding-001). */
 export const GEMINI_EMBEDDING_DIMENSION = 768;
-const EMBEDDING_FAILFAST_TIMEOUT_MS = 8_000;
+const EMBEDDING_FAILFAST_TIMEOUT_MS = 25_000;
 
 function getEmbeddingModelCandidates(): string[] {
   const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
@@ -235,21 +279,23 @@ export async function storePostMortem(
       });
       return;
     }
-    await index.namespace(POST_MORTEMS_NAMESPACE).upsert({
-      records: [
-        {
-          id,
-          values,
-          metadata: {
-            symbol: metadata.symbol,
-            trade_id: metadata.trade_id,
-            text: whyWinLose.slice(0, 1000),
-            created_at: metadata.created_at ?? new Date().toISOString(),
-            outcome: metadata.outcome ?? '',
+    await withPineconeTransientRetry('post-mortem.upsert', () =>
+      index.namespace(POST_MORTEMS_NAMESPACE).upsert({
+        records: [
+          {
+            id,
+            values,
+            metadata: {
+              symbol: metadata.symbol,
+              trade_id: metadata.trade_id,
+              text: whyWinLose.slice(0, 1000),
+              created_at: metadata.created_at ?? new Date().toISOString(),
+              outcome: metadata.outcome ?? '',
+            },
           },
-        },
-      ],
-    });
+        ],
+      })
+    );
     await setLastUpsertNow();
     if (devLog) {
       console.log('[vector-db] Upserted post-mortem to Pinecone.', {
@@ -313,11 +359,13 @@ export async function querySimilarTrades(
           embedTextWithGemini(`symbol ${symbol} trade post-mortem`),
           EMBEDDING_FAILFAST_TIMEOUT_MS
         );
-        return index.namespace(POST_MORTEMS_NAMESPACE).query({
-          vector: queryVector,
-          topK: Math.min(topK, 10),
-          includeMetadata: true,
-        });
+        return withPineconeTransientRetry('similar-trades.query', () =>
+          index.namespace(POST_MORTEMS_NAMESPACE).query({
+            vector: queryVector,
+            topK: Math.min(topK, 10),
+            includeMetadata: true,
+          })
+        );
       })(),
       new Promise<never>((_, rej) =>
         setTimeout(
@@ -396,22 +444,24 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
     if (!Array.isArray(values) || values.length === 0) {
       throw new Error('Embedding vector is empty.');
     }
-    await index.namespace(BOARD_MEETINGS_NAMESPACE).upsert({
-      records: [
-        {
-          id,
-          values,
-          metadata: {
-            symbol: input.symbol,
-            trigger_type: input.triggerType,
-            source: input.source,
-            final_consensus: input.finalConsensus.slice(0, 1000),
-            text: mergedSummary.slice(0, 1000),
-            occurred_at: input.occurredAt ?? new Date().toISOString(),
+    await withPineconeTransientRetry('board-meeting.upsert', () =>
+      index.namespace(BOARD_MEETINGS_NAMESPACE).upsert({
+        records: [
+          {
+            id,
+            values,
+            metadata: {
+              symbol: input.symbol,
+              trigger_type: input.triggerType,
+              source: input.source,
+              final_consensus: input.finalConsensus.slice(0, 1000),
+              text: mergedSummary.slice(0, 1000),
+              occurred_at: input.occurredAt ?? new Date().toISOString(),
+            },
           },
-        },
-      ],
-    });
+        ],
+      })
+    );
     await setLastUpsertNow();
     if (process.env.NODE_ENV !== 'production') {
       console.log('[vector-db] Upserted board meeting memory to Pinecone.', {
@@ -451,28 +501,32 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     const text = `Integration probe for ${symbol} at ${new Date().toISOString()}`;
     const vector = await embedTextWithGemini(text);
     const upsertStartTime = Date.now();
-    await index.namespace(DIAGNOSTICS_NAMESPACE).upsert({
-      records: [
-        {
-          id: probeId,
-          values: vector,
-          metadata: {
-            symbol,
-            probe_id: probeId,
-            text,
-            created_at: new Date().toISOString(),
+    await withPineconeTransientRetry('probe.upsert', () =>
+      index.namespace(DIAGNOSTICS_NAMESPACE).upsert({
+        records: [
+          {
+            id: probeId,
+            values: vector,
+            metadata: {
+              symbol,
+              probe_id: probeId,
+              text,
+              created_at: new Date().toISOString(),
+            },
           },
-        },
-      ],
-    });
-    
+        ],
+      })
+    );
+
     await sleep(PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS);
-    
-    const query = await index.namespace(DIAGNOSTICS_NAMESPACE).query({
-      vector,
-      topK: 5,
-      includeMetadata: true,
-    });
+
+    const query = await withPineconeTransientRetry('probe.query', () =>
+      index.namespace(DIAGNOSTICS_NAMESPACE).query({
+        vector,
+        topK: 5,
+        includeMetadata: true,
+      })
+    );
     const verifiedByQuery = (query.matches ?? []).some((m) => {
       const metadata = m.metadata as Record<string, unknown> | undefined;
       return String(metadata?.probe_id ?? '') === probeId;
@@ -552,11 +606,13 @@ export async function queryAcademyKnowledge(query: string, topK = 5): Promise<Ac
   try {
     const { index } = await getPineconeIndexOrThrow();
     const vector = await embedTextWithGemini(trimmed);
-    const result = await index.namespace('academy').query({
-      vector,
-      topK: Math.min(Math.max(topK, 1), 10),
-      includeMetadata: true,
-    });
+    const result = await withPineconeTransientRetry('academy.query', () =>
+      index.namespace('academy').query({
+        vector,
+        topK: Math.min(Math.max(topK, 1), 10),
+        includeMetadata: true,
+      })
+    );
     const matches = result?.matches ?? [];
     return matches
       .map((m) => {
