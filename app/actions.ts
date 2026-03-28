@@ -266,10 +266,6 @@ export async function analyzeCrypto(inputOrSymbol: AnalyzeInput | string) {
     }
 
     const cleanSymbol = normalizeSymbol(inputSymbol);
-    const incomingPrice = typeof input.price === 'number' ? input.price : Number(input.price);
-    if (Number.isFinite(incomingPrice) && incomingPrice > 0 && process.env.NODE_ENV === 'development') {
-      console.log('[Analysis] Ticker payload received', { symbol: cleanSymbol, price: incomingPrice });
-    }
     const requestLocale = input.locale ?? await getRequestLocale();
     return await doAnalysisCore(cleanSymbol, startedAt, true, { locale: requestLocale });
   } catch (error: unknown) {

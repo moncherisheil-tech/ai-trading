@@ -41,7 +41,6 @@ export async function POST(request: Request) {
     const result = await sendTelegramRaw({ token, chatId, text });
 
     if (result.ok) {
-      console.log('[Telegram Test API] Test message sent successfully, variant:', variant);
       return NextResponse.json({ ok: true, variant });
     }
     console.error('[Telegram Test API] Send failed:', result.error, 'statusCode:', result.statusCode);

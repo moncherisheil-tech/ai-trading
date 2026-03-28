@@ -16,7 +16,7 @@ import Groq from 'groq-sdk';
 import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { listAgentInsightsBySymbol } from '@/lib/db/agent-insights';
-import { getAppSettings } from '@/lib/db/app-settings';
+import { getAppSettings, type AppSettings } from '@/lib/db/app-settings';
 import { evaluateSystemCohesionAsync } from '@/lib/system-overseer';
 import { fetchTwitterSentiment } from '@/lib/twitter-sentiment';
 import { querySimilarTrades } from '@/lib/vector-db';
@@ -1278,6 +1278,8 @@ export async function runConsensusEngine(
     moeConfidenceThreshold?: number;
     /** When set, skip calling Groq for Macro Expert and use this summary (scanner pre-fetch). */
     precomputedMacro?: ExpertMacroOutput;
+    /** When set, skip duplicate getAppSettings() (caller already loaded settings — e.g. analysis-core). */
+    cachedAppSettings?: AppSettings;
     /** Local QA mode: bypass all live experts and use deterministic board payload. */
     mockPayload?: ConsensusMockPayload;
   }
@@ -1301,7 +1303,7 @@ export async function runConsensusEngine(
   let riskToleranceLevel: 'strict' | 'moderate' | 'aggressive' | undefined;
   let bestExpertFromDeepMemory: { bestExpertKey: string; accuracyPct: number } | null = null;
   try {
-    const settings = await getAppSettings();
+    const settings = options?.cachedAppSettings ?? (await getAppSettings());
     // Use DB-backed Overseer settings (saved from Supreme Inspector panel)
     if (threshold == null) threshold = settings.neural?.moeConfidenceThreshold ?? CONSENSUS_THRESHOLD;
     riskToleranceLevel = settings.risk?.riskToleranceLevel;

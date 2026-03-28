@@ -73,15 +73,6 @@ export async function runEveningSummary(): Promise<EveningSummaryResult> {
     const historicalToday = historicalRows.filter((r) => new Date(r.evaluated_at) >= dayStart);
     const closedLoop = computeClosedLoopAccuracy(historicalToday);
 
-    console.log('[Evening Summary] Day aggregates:', {
-      alertsLast24h,
-      recentSymbolsCount: recentSymbols.length,
-      ledgerTodayCount: ledgerToday.length,
-      ledgerTotal: ledgerRows.length,
-      closedLoopSamples: closedLoop.samples,
-      closedLoopAccuracyScore: closedLoop.accuracyScore,
-    });
-
     const learning = await runLearningFromBacktests();
 
     const boardLines = formatBoardMeetingForTelegram('Board Meeting — Evening Summary', board);

@@ -239,21 +239,7 @@ export async function storePostMortem(
 ): Promise<void> {
   const apiKey = getPineconeApiKey();
   const indexName = getPineconeIndexName();
-  const devLog = process.env.NODE_ENV !== 'production';
-  if (devLog) {
-    console.log(
-      '[vector-db] storePostMortem invoked',
-      { hasKey: !!apiKey, hasIndex: !!indexName, textLen: whyWinLose?.length ?? 0 }
-    );
-  }
   if (!apiKey || !indexName || !whyWinLose?.trim()) {
-    if (devLog) {
-      if (!apiKey) console.log('[vector-db] Skipping storePostMortem: missing PINECONE_API_KEY.');
-      if (!indexName) console.log('[vector-db] Skipping storePostMortem: missing PINECONE_INDEX_NAME.');
-      if (!whyWinLose?.trim()) {
-        console.log('[vector-db] Skipping storePostMortem: whyWinLose text is empty or whitespace.');
-      }
-    }
     return;
   }
   try {
@@ -297,13 +283,6 @@ export async function storePostMortem(
       })
     );
     await setLastUpsertNow();
-    if (devLog) {
-      console.log('[vector-db] Upserted post-mortem to Pinecone.', {
-        index: indexName,
-        namespace: POST_MORTEMS_NAMESPACE,
-        dimension: values.length,
-      });
-    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
@@ -463,13 +442,6 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
       })
     );
     await setLastUpsertNow();
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[vector-db] Upserted board meeting memory to Pinecone.', {
-        index: indexName,
-        namespace: BOARD_MEETINGS_NAMESPACE,
-        symbol: input.symbol,
-      });
-    }
   } catch (err) {
     console.error('[vector-db] Board meeting memory upsert failed:', err);
   }

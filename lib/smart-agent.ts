@@ -215,9 +215,6 @@ export async function generatePostMortem(
       const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
       if (raw) {
         const result = parseResponse(raw);
-        if (process.env.NODE_ENV !== 'production') {
-          console.log('[Learning Center] Logic executed by: GROQ');
-        }
         return result;
       }
     } catch (_) {
@@ -255,9 +252,6 @@ export async function generatePostMortem(
     const raw = res.response.text()?.trim() ?? '';
     if (raw) {
       const result = parseResponse(raw);
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('[Learning Center] FALLBACK executed by: GEMINI');
-      }
       return result;
     }
     console.warn('[Learning Center] Gemini fallback returned empty response.');
@@ -325,9 +319,6 @@ export async function runPostMortemForClosedTrade(
   closeReason: CloseReason,
   pnlPct: number
 ): Promise<void> {
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[Trace] Generating AI insight for trade ID:', trade.id);
-  }
   const entryConditions = `entry_price=${trade.entry_price}, target=${trade.target_profit_pct}%, stop=${trade.stop_loss_pct}%`;
   const outcome = `exit_price=${exitPrice}, reason=${closeReason}, pnl_pct=${pnlPct.toFixed(2)}%`;
   const rsiVal = closeReason === 'stop_loss' || pnlPct < 0 ? await fetchRsiForSymbol(trade.symbol) : null;
@@ -341,9 +332,6 @@ export async function runPostMortemForClosedTrade(
     insight = generated.insight;
     whyWinLose = generated.why_win_lose;
     agentVerdict = generated.agent_verdict;
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[Trace] AI generation complete. Text length:', whyWinLose?.length || 0);
-    }
   } catch {
     insight =
       closeReason === 'take_profit'
@@ -374,9 +362,6 @@ export async function runPostMortemForClosedTrade(
     agent_verdict: agentVerdict,
   });
   if (whyWinLose?.trim()) {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('[Trace] Attempting Pinecone upsert for post-mortem.');
-    }
     try {
       const ragText = `Trade Post-Mortem [${trade.symbol} trade_id=${trade.id}]: ${whyWinLose}`.trim();
       await storePostMortem(ragText, {

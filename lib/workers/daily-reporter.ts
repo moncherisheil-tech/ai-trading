@@ -95,7 +95,6 @@ export async function runMorningReport(): Promise<{ ok: boolean; error?: string 
     });
 
     if (result.ok) {
-      console.log('[Morning Report] Telegram message sent successfully.');
       return { ok: true };
     }
     console.error('[Morning Report] Telegram send failed:', result.error);

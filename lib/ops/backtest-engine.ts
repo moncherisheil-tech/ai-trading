@@ -126,9 +126,6 @@ export async function fetch4hKlines(
     )}/api/v3/klines?symbol=${encodeURIComponent(
       symbol
     )}&interval=4h&limit=${limit}&startTime=${from}&endTime=${finalEnd}`;
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Backtest] Fetching klines for: ${symbol}`);
-    }
     const res = await fetchWithBackoff(url, {
       timeoutMs: APP_CONFIG.fetchTimeoutMs,
       maxRetries: 3,
@@ -276,9 +273,6 @@ export async function runBacktest({
   let oiRows: OpenInterestRow[] = [];
   try {
     oiRows = await fetchOpenInterest(cleanSymbol, startTimeMs, endTimeMs);
-    if (oiRows.length > 0 && process.env.NODE_ENV !== 'production') {
-      console.log('[Backtest] Data Enrichment Complete: OI Active');
-    }
   } catch (oiErr) {
     console.warn('[Backtest] Open Interest fetch failed, continuing without OI.', oiErr instanceof Error ? oiErr.message : String(oiErr));
   }
@@ -594,9 +588,6 @@ export async function runMiniBacktest(params: {
   let oiRows: OpenInterestRow[] = [];
   try {
     oiRows = await fetchOpenInterest(cleanSymbol, startTimeMs, nowMs);
-    if (oiRows.length > 0 && process.env.NODE_ENV !== 'production') {
-      console.log('[Backtest] Data Enrichment Complete: OI Active');
-    }
   } catch (oiErr) {
     console.warn('[Mini Backtest] Open Interest fetch failed, continuing without OI.', oiErr instanceof Error ? oiErr.message : String(oiErr));
   }

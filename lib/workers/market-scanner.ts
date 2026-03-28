@@ -125,7 +125,7 @@ export function resetScannerDiagnostics(): void {
   state.lastScanTime = null;
   state.lastRunStats = null;
   state.lastHeartbeat = null;
-  console.log('[Scanner] אבחון אופס — המחזור הבא ייחשב כסריקה ראשונה.');
+  console.log('[HEARTBEAT] Scanner diagnostics reset; next cycle treated as first production scan.');
 }
 
 /** Exported for Vercel Cron: triggers one full scan cycle. */
@@ -442,10 +442,10 @@ export async function runOneCycle(): Promise<void> {
     };
 
     if (summaryWhenZeroGems) {
-      console.log('[Scanner] אבחון (אין ג\'מים):', summaryWhenZeroGems);
+      console.log('[HEARTBEAT] Scanner cycle: zero gems —', summaryWhenZeroGems);
     }
     console.log(
-      `[Scanner] פעיל: נסרקו ${coinsChecked} מטבעות, נמצאו ${gemsFound} ג'מים, נשלחו ${alertsSent} התראות.`
+      `[HEARTBEAT] Scanner cycle: checked=${coinsChecked} gems=${gemsFound} alerts=${alertsSent}`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -481,7 +481,7 @@ export function startMarketScanner(): void {
       void sendWorkerFailureAlert('scanner.interval', err);
     });
   }, SCAN_INTERVAL_MS);
-  console.log('[Scanner] סורק השוק הופעל — ריצה כל 20 דקות.');
+  console.log('[HEARTBEAT] Market scanner started (20m interval).');
 }
 
 export function stopMarketScanner(): void {
@@ -489,6 +489,6 @@ export function stopMarketScanner(): void {
     clearInterval(intervalId);
     intervalId = null;
     state.status = 'IDLE';
-    console.log('[Scanner] סורק השוק הופסק.');
+    console.log('[HEARTBEAT] Market scanner stopped.');
   }
 }

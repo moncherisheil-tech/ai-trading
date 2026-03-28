@@ -425,6 +425,17 @@ export async function doAnalysisCore(
     }
   }
 
+  /** Runs in parallel with the main market-data batch (no dependency on Binance OHLCV). */
+  const parallelContextPromise = Promise.all([
+    getSuccessFailureFeedback(cleanSymbol),
+    getHistoricalBySymbol(cleanSymbol, 10).catch((err) => {
+      console.warn('[analysis-core] getHistoricalBySymbol failed:', err instanceof Error ? err.message : err);
+      return [] as Awaited<ReturnType<typeof getHistoricalBySymbol>>;
+    }),
+    listStrategyInsights(),
+    getDbAsync(),
+  ]);
+
   const KLINES_LIMIT = 24;
   const binanceKlinesUrl = `https://api.binance.com/api/v3/klines?symbol=${cleanSymbol}&interval=1d&limit=${KLINES_LIMIT}`;
   const proxyKlinesUrl = APP_CONFIG.proxyBinanceUrl
@@ -581,7 +592,6 @@ export async function doAnalysisCore(
   const trend1h = getTimeframeTrend(klines1h.closes);
   const trend4h = getTimeframeTrend(klines4h.closes);
   const hvnLevels = computeHVN(highs, lows, volumes);
-  const agentFeedback = await getSuccessFailureFeedback(cleanSymbol);
 
   const atrVal = atr(highs, lows, closes, 14);
   const atrMultiplierSl = appSettings.risk.atrMultiplierSl ?? 2.5;
@@ -602,7 +612,7 @@ export async function doAnalysisCore(
   const sentiment_score = sentimentResult.score;
   const market_narrative = sentimentResult.narrative;
 
-  const db = await getDbAsync();
+  const [agentFeedback, historicalRows, allStrategyInsights, db] = await parallelContextPromise;
   const pastErrors = db
     .filter((p) => p.symbol === cleanSymbol && p.status === 'evaluated' && p.error_report)
     .slice(-5)
@@ -614,10 +624,6 @@ export async function doAnalysisCore(
     }));
 
   /** Historical outcomes for same symbol (feedback loop). When SQLite is used, this populates from historical_predictions. */
-  const historicalRows = await getHistoricalBySymbol(cleanSymbol, 10).catch((err) => {
-    console.warn('[analysis-core] getHistoricalBySymbol failed:', err instanceof Error ? err.message : err);
-    return [] as Awaited<ReturnType<typeof getHistoricalBySymbol>>;
-  });
   const historicalPredictionOutcomes: HistoricalPredictionOutcome[] = historicalRows.map((r) => ({
     prediction_date: r.prediction_date,
     predicted_direction: r.predicted_direction,
@@ -634,7 +640,6 @@ export async function doAnalysisCore(
     // Optional: set macd_signal when a real-time MACD (or other) indicator source is available
   };
 
-  const allStrategyInsights = await listStrategyInsights();
   const strategyInsights = allStrategyInsights.filter((i) => i.status === 'approved');
 
   /** Build consensus input for MoE + Debate Room (parallel to main Gemini). */
@@ -736,7 +741,11 @@ export async function doAnalysisCore(
         order_book_summary: orderBookSummary,
         institutional_whale_context: leviathanSnapshot.institutionalWhaleContext,
       },
-      { moeConfidenceThreshold: moeThreshold, precomputedMacro: options?.precomputedMacro }
+      {
+        moeConfidenceThreshold: moeThreshold,
+        precomputedMacro: options?.precomputedMacro,
+        cachedAppSettings: appSettings,
+      }
     );
   } catch (consensusErr) {
     if (typeof console !== 'undefined' && console.warn) {

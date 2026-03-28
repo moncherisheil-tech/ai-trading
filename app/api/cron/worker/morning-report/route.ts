@@ -22,7 +22,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const { ok, error } = await runMorningReport();
     if (ok) {
-      console.log('[Cron worker morning-report] Telegram message sent successfully.');
       return NextResponse.json({ ok: true, message: 'דוח בוקר נשלח' });
     }
     console.error('[Cron worker morning-report] Telegram send failed:', error);

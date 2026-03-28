@@ -22,11 +22,6 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const result = await runEveningSummary();
     if (result.ok) {
-      console.log('[Cron worker evening-summary] completed:', {
-        insightsCreated: result.insightsCreated,
-        alertsLast24h: result.alertsLast24h,
-        ledgerRows: result.ledgerRows,
-      });
       return NextResponse.json({
         ok: true,
         message: 'סיכום ערב הושלם',

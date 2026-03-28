@@ -12,7 +12,7 @@ interface AlertPayload {
 type AlertSink = (payload: AlertPayload) => void | Promise<void>;
 
 const defaultConsoleSink: AlertSink = (payload) => {
-  const header = `[MON-CHERI ALERT][${payload.severity}] ${payload.title}`;
+  const header = `[SYSTEM AUDIT][${payload.severity}] ${payload.title}`;
   const body = `${payload.message}\n@ ${payload.timestamp}`;
   console.log(`${header}\n${body}`);
 };

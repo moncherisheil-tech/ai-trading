@@ -24,11 +24,11 @@ export function writeAudit(event: AuditEvent): void {
   if (process.env.NODE_ENV === 'production') {
     // Vercel/read-only: no file I/O — use console so logs appear in Vercel dashboard
     if (event.level === 'error') {
-      console.error('[audit]', line);
+      console.error('[SYSTEM AUDIT]', line);
     } else if (event.level === 'warn') {
-      console.warn('[audit]', line);
+      console.warn('[SYSTEM AUDIT]', line);
     } else {
-      console.log('[audit]', line);
+      console.log('[SYSTEM AUDIT]', line);
     }
     return;
   }
@@ -39,6 +39,6 @@ export function writeAudit(event: AuditEvent): void {
     }
     fs.appendFileSync(auditPath, `${line}\n`, 'utf-8');
   } catch {
-    console.log('[audit]', line);
+    console.log('[SYSTEM AUDIT]', line);
   }
 }
