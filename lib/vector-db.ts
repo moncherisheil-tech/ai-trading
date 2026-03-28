@@ -517,11 +517,10 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
           consistency_delay_ms: PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS,
         });
         await sql`
-          INSERT INTO settings (id, key, value, "updatedAt")
+          INSERT INTO settings (key, value, "updatedAt")
           VALUES (
-            gen_random_uuid()::text,
             'pinecone_probe_success',
-            ${settingValue}::jsonb,
+            ${settingValue},
             NOW()
           )
           ON CONFLICT (key) DO UPDATE SET

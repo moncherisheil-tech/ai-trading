@@ -3,7 +3,6 @@
  * Used by diagnostics dashboard and vector-db to track last successful Pinecone upsert.
  */
 
-import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
@@ -35,8 +34,8 @@ export async function setLastPineconeUpsertAt(isoTimestamp: string): Promise<voi
   try {
     const jsonScalar = JSON.stringify(isoTimestamp);
     await sql`
-      INSERT INTO settings (id, key, value, "updatedAt")
-      VALUES (${randomUUID()}, ${PINECONE_UPSERT_KEY}, ${jsonScalar}::jsonb, NOW())
+      INSERT INTO settings (key, value, "updatedAt")
+      VALUES (${PINECONE_UPSERT_KEY}, ${jsonScalar}, NOW())
       ON CONFLICT (key) DO UPDATE SET
         value = EXCLUDED.value,
         "updatedAt" = NOW()

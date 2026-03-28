@@ -117,9 +117,8 @@ export async function initDB(): Promise<void> {
     await sql`CREATE INDEX IF NOT EXISTS idx_prediction_records_prediction_date ON prediction_records(prediction_date DESC)`;
     await sql`
       CREATE TABLE IF NOT EXISTS settings (
-        id TEXT PRIMARY KEY,
-        key TEXT NOT NULL,
-        value JSONB NOT NULL,
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `;

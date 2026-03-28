@@ -3,7 +3,6 @@
  * Key: app_settings, Value: JSON. Master Command Center schema.
  */
 
-import { randomUUID } from 'node:crypto';
 import { sql } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
@@ -172,10 +171,10 @@ export async function setAppSettings(partial: Partial<AppSettings>): Promise<Set
     ) as unknown as AppSettings;
     const value = JSON.stringify(next);
     await sql`
-      INSERT INTO settings (id, key, value, "updatedAt")
-      VALUES (${randomUUID()}, ${KEY}, ${value}::jsonb, NOW())
+      INSERT INTO settings (key, value, "updatedAt")
+      VALUES (${KEY}, ${value}, NOW())
       ON CONFLICT (key) DO UPDATE SET
-        value = ${value}::jsonb,
+        value = EXCLUDED.value,
         "updatedAt" = NOW()
     `;
     return { ok: true };

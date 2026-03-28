@@ -259,10 +259,10 @@ enum TradeExecutionStatus {
   FAILED
 }
 
+/// Key-value rows; PK is `key` (see migrations/postgres/002_settings_tables.sql).
 model Setting {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  value     Json
+  key       String   @id
+  value     String   @db.Text
   updatedAt DateTime @updatedAt
   @@map("settings")
 }
