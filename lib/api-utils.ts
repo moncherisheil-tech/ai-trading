@@ -23,10 +23,10 @@ export interface FetchWithBackoffOptions {
 }
 
 /**
- * Fetches with exponential backoff. On 429 or 418:
- * - Reads Retry-After header (seconds) and waits that long if present.
+ * Fetches with exponential backoff. Retries on 429, 418, and 5xx:
+ * - Reads Retry-After header (seconds) when present and waits (capped at maxDelayMs).
  * - Otherwise uses exponential backoff: baseDelay * 2^attempt, capped at maxDelayMs.
- * - Does not retry on 4xx (other than 429/418) or on parse errors.
+ * - Does not retry on other 4xx. Network/abort errors retry like transient failures.
  */
 export async function fetchWithBackoff(
   url: string,
@@ -49,11 +49,12 @@ export async function fetchWithBackoff(
       clearTimeout(timeoutId);
 
       const isRateLimited = res.status === BINANCE_429 || res.status === BINANCE_418;
-      if (!res.ok && !isRateLimited) {
+      const isServerError = res.status >= 500 && res.status <= 599;
+      if (!res.ok && !isRateLimited && !isServerError) {
         throw new Error(`Request failed: ${res.status}`);
       }
 
-      if (isRateLimited && attempt < maxRetries - 1) {
+      if ((isRateLimited || isServerError) && attempt < maxRetries - 1) {
         let waitMs = BASE_DELAY_MS * Math.pow(2, attempt);
         const retryAfter = res.headers.get('Retry-After');
         if (retryAfter != null) {
@@ -65,7 +66,8 @@ export async function fetchWithBackoff(
         waitMs = Math.min(waitMs, MAX_DELAY_MS);
         const waitSec = (waitMs / 1000).toFixed(1);
         if (typeof console !== 'undefined' && console.warn) {
-          console.warn(`[fetchWithBackoff] Rate limit hit (${res.status}), backing off for ${waitSec} seconds.`);
+          const label = isRateLimited ? 'Rate limit' : 'Server error';
+          console.warn(`[fetchWithBackoff] ${label} (${res.status}), backing off for ${waitSec} seconds.`);
         }
         const jitter = Math.min(400, attempt * 100);
         await new Promise((r) => setTimeout(r, waitMs + jitter));

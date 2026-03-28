@@ -241,6 +241,12 @@ select {
   flex: 1;
 }
 
+/* Stable-width crypto prices in the ticker (avoids digit jitter; compositor scroll stays in CSS). */
+.ticker-numeric {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
 @keyframes ticker-scroll {
   0% { transform: translate3d(0, 0, 0); }
   100% { transform: translate3d(-50%, 0, 0); }
@@ -248,6 +254,7 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .ticker-track,
+  .ticker-loop,
   .market-marquee-loop {
     animation: none;
   }

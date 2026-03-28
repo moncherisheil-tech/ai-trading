@@ -194,10 +194,17 @@ export default function CryptoAnalyzer() {
 
     return () => {
       mounted = false;
-      if (ws != null && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-        ws.close();
-      }
+      const sock = ws;
       ws = null;
+      if (sock != null) {
+        sock.onopen = null;
+        sock.onmessage = null;
+        sock.onerror = null;
+        sock.onclose = null;
+        if (sock.readyState === WebSocket.OPEN || sock.readyState === WebSocket.CONNECTING) {
+          sock.close();
+        }
+      }
       setLivePrice(null);
       setLivePriceConnected(false);
     };

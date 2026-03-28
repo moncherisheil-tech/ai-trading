@@ -18,6 +18,14 @@ type TickerSnapshot = {
 
 type TickerSubscriber = (snapshot: TickerSnapshot) => void;
 const RECONNECT_DELAY_MS = 5_000;
+const FLUSH_MS = 180;
+
+function detachWebSocketHandlers(socket: WebSocket): void {
+  socket.onopen = null;
+  socket.onmessage = null;
+  socket.onerror = null;
+  socket.onclose = null;
+}
 let globalWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,7 +67,7 @@ function scheduleFlush(): void {
   flushTimer = setTimeout(() => {
     flushTimer = null;
     flushPendingRows();
-  }, 120);
+  }, FLUSH_MS);
 }
 
 function scheduleReconnect(): void {
@@ -96,7 +104,9 @@ function ensureConnected(): void {
 
   ws.onerror = () => setSnapshot({ connectionState: 'error' });
   ws.onclose = () => {
+    const closed = globalWs;
     globalWs = null;
+    if (closed) detachWebSocketHandlers(closed);
     setSnapshot({ connectionState: 'error' });
     if (subscribers.size > 0) scheduleReconnect();
   };
@@ -118,10 +128,14 @@ function subscribeTicker(subscriber: TickerSubscriber): () => void {
       flushTimer = null;
     }
     pendingRows = null;
-    if (globalWs && (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING)) {
-      globalWs.close();
-    }
+    const sock = globalWs;
     globalWs = null;
+    if (sock) {
+      detachWebSocketHandlers(sock);
+      if (sock.readyState === WebSocket.OPEN || sock.readyState === WebSocket.CONNECTING) {
+        sock.close();
+      }
+    }
     snapshot = { ...snapshot, connectionState: 'connecting' };
   };
 }

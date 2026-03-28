@@ -11,6 +11,7 @@ import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { fetchLatestCryptoNews } from '@/lib/agents/news-agent';
 import { computeRSI } from '@/lib/prediction-formula';
+import { fetchWithBackoff } from '@/lib/api-utils';
 
 const WEIGHT_TECHNICAL = 0.4;
 const WEIGHT_NEWS = 0.35;
@@ -51,24 +52,31 @@ function normalizeSymbol(symbol: string): string {
   return s.endsWith('USDT') ? s : `${s}USDT`;
 }
 
+const NEWS_LAYER_FALLBACK: NewsSentimentLayer = {
+  sentiment: 'Neutral',
+  narrative_he: 'אין כרגע כותרות רלוונטיות — סנטימנט ניטרלי.',
+  score: 0,
+};
+
+const ONCHAIN_LAYER_FALLBACK: OnChainInsightsLayer = {
+  summary_he: 'שכבת On-chain לא זמינה — ניטרלי.',
+  signal: 'Neutral',
+  score: 50,
+};
+
 /**
  * News Sentiment Layer: fetch headlines and derive sentiment + Hebrew narrative via Gemini.
  */
 async function fetchNewsSentimentLayer(symbol: string): Promise<NewsSentimentLayer> {
-  const base = symbol.replace(/USDT$/i, '');
-  const headlines = await fetchLatestCryptoNews(symbol);
-  const fallback: NewsSentimentLayer = {
-    sentiment: 'Neutral',
-    narrative_he: 'אין כרגע כותרות רלוונטיות — סנטימנט ניטרלי.',
-    score: 0,
-  };
-
-  if (!headlines.length) return fallback;
-
   try {
-    const apiKey = getGeminiApiKey();
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const prompt = `אתה אנליסט סנטימנט שוק קריפטו. בהתבסס על הכותרות הבאות לגבי ${base}, החזר JSON בלבד עם שלושה שדות:
+    const base = symbol.replace(/USDT$/i, '');
+    const headlines = await fetchLatestCryptoNews(symbol);
+    if (!headlines.length) return NEWS_LAYER_FALLBACK;
+
+    try {
+      const apiKey = getGeminiApiKey();
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const prompt = `אתה אנליסט סנטימנט שוק קריפטו. בהתבסס על הכותרות הבאות לגבי ${base}, החזר JSON בלבד עם שלושה שדות:
 - "sentiment": אחד מהערכים Bullish, Bearish, Neutral
 - "narrative_he": משפט אחד בעברית המסכם את מצב החדשות (למשל: "חיובי חזק - אזכורים מרובים של שדרוג רשת")
 - "score": מספר בין -1 ל-1 (שלילי= bearish, חיובי= bullish)
@@ -78,36 +86,41 @@ ${headlines.slice(0, 10).map((h, i) => `${i + 1}. ${h}`).join('\n')}
 
 החזר רק JSON תקין, בלי מרכאות או טקסט נוסף.`;
 
-    const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
-    const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
-    const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
-    const res = await Promise.race([
-      model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
-      }),
-      new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error('Gemini request timeout')), timeoutMs)
-      ),
-    ]);
+      const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
+      const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+      const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
+      const res = await Promise.race([
+        model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 256 },
+        }),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error('Gemini request timeout')), timeoutMs)
+        ),
+      ]);
 
-    const text = (() => { try { return res.response.text(); } catch { return undefined; } })()?.trim();
-    if (!text) return fallback;
+      const text = (() => { try { return res.response.text(); } catch { return undefined; } })()?.trim();
+      if (!text) return NEWS_LAYER_FALLBACK;
 
-    const parsed = JSON.parse(text) as { sentiment?: string; narrative_he?: string; score?: number };
-    const sentiment: SentimentLabel =
-      parsed.sentiment === 'Bullish' || parsed.sentiment === 'Bearish' || parsed.sentiment === 'Neutral'
-        ? parsed.sentiment
-        : 'Neutral';
-    const score = typeof parsed.score === 'number' ? Math.max(-1, Math.min(1, parsed.score)) : 0;
-    const narrative_he =
-      typeof parsed.narrative_he === 'string' && parsed.narrative_he.length > 0
-        ? parsed.narrative_he
-        : fallback.narrative_he;
+      const parsed = JSON.parse(text) as { sentiment?: string; narrative_he?: string; score?: number };
+      const sentiment: SentimentLabel =
+        parsed.sentiment === 'Bullish' || parsed.sentiment === 'Bearish' || parsed.sentiment === 'Neutral'
+          ? parsed.sentiment
+          : 'Neutral';
+      const score = typeof parsed.score === 'number' ? Math.max(-1, Math.min(1, parsed.score)) : 0;
+      const narrative_he =
+        typeof parsed.narrative_he === 'string' && parsed.narrative_he.length > 0
+          ? parsed.narrative_he
+          : NEWS_LAYER_FALLBACK.narrative_he;
 
-    return { sentiment, narrative_he, score };
-  } catch {
-    return fallback;
+      return { sentiment, narrative_he, score };
+    } catch (inner) {
+      console.error('[deep-analysis] news layer (Gemini/parse)', { symbol, error: inner });
+      return NEWS_LAYER_FALLBACK;
+    }
+  } catch (err) {
+    console.error('[deep-analysis] news layer', { symbol, error: err });
+    return NEWS_LAYER_FALLBACK;
   }
 }
 
@@ -116,37 +129,47 @@ ${headlines.slice(0, 10).map((h, i) => `${i + 1}. ${h}`).join('\n')}
  * In production this could be replaced by a real on-chain or whale-tracking API.
  */
 async function fetchOnChainInsightsLayer(symbol: string): Promise<OnChainInsightsLayer> {
-  const base = symbol.replace(/USDT$/i, '');
-  const daySeed = new Date().toISOString().slice(0, 10);
-  let hash = 0;
-  for (let i = 0; i < symbol.length; i++) hash = (hash * 31 + symbol.charCodeAt(i)) | 0;
-  for (let i = 0; i < daySeed.length; i++) hash = (hash * 31 + daySeed.charCodeAt(i)) | 0;
-  const r = Math.abs(hash % 100) / 100;
+  try {
+    const base = symbol.replace(/USDT$/i, '');
+    const daySeed = new Date().toISOString().slice(0, 10);
+    let hash = 0;
+    for (let i = 0; i < symbol.length; i++) hash = (hash * 31 + symbol.charCodeAt(i)) | 0;
+    for (let i = 0; i < daySeed.length; i++) hash = (hash * 31 + daySeed.charCodeAt(i)) | 0;
+    const r = Math.abs(hash % 100) / 100;
 
-  if (r < 0.35) {
+    if (r < 0.35) {
+      return {
+        summary_he: `תנועת לווייתנים חיובית — צבירה בארנקים קרים. זרימת ${base} לבורסות ירדה.`,
+        signal: 'Bullish',
+        score: 65 + Math.floor(r * 30),
+      };
+    }
+    if (r < 0.65) {
+      return {
+        summary_he: `תנועת לווייתנים מעורבת. העברות לבורסות ולמשמרת קרובה לממוצע.`,
+        signal: 'Neutral',
+        score: 45 + Math.floor(r * 20),
+      };
+    }
     return {
-      summary_he: `תנועת לווייתנים חיובית — צבירה בארנקים קרים. זרימת ${base} לבורסות ירדה.`,
-      signal: 'Bullish',
-      score: 65 + Math.floor(r * 30),
+      summary_he: `זוהתה העברת לווייתנים לבורסה — אספקה ברשימת הארנקים הגדולים עלתה.`,
+      signal: 'Bearish',
+      score: Math.floor(r * 45),
     };
+  } catch (err) {
+    console.error('[deep-analysis] on-chain layer', { symbol, error: err });
+    return ONCHAIN_LAYER_FALLBACK;
   }
-  if (r < 0.65) {
-    return {
-      summary_he: `תנועת לווייתנים מעורבת. העברות לבורסות ולמשמרת קרובה לממוצע.`,
-      signal: 'Neutral',
-      score: 45 + Math.floor(r * 20),
-    };
-  }
-  return {
-    summary_he: `זוהתה העברת לווייתנים לבורסה — אספקה ברשימת הארנקים הגדולים עלתה.`,
-    signal: 'Bearish',
-    score: Math.floor(r * 45),
-  };
 }
 
 /**
  * Technical Layer: RSI from Binance daily klines (last 15+ candles).
  */
+const TECHNICAL_LAYER_FALLBACK: TechnicalLayer = {
+  score: 50,
+  label_he: 'נתונים טכניים לא זמינים — מוחזר ערך ניטרלי.',
+};
+
 async function fetchTechnicalLayer(symbol: string): Promise<TechnicalLayer> {
   const clean = normalizeSymbol(symbol);
   const url = `https://api.binance.com/api/v3/klines?symbol=${clean}&interval=1d&limit=20`;
@@ -155,8 +178,12 @@ async function fetchTechnicalLayer(symbol: string): Promise<TechnicalLayer> {
     : '';
 
   try {
-    const res = await fetch(proxyUrl || url, { cache: 'no-store' });
-    if (!res.ok) throw new Error('Klines failed');
+    const res = await fetchWithBackoff(proxyUrl || url, {
+      timeoutMs: APP_CONFIG.fetchTimeoutMs ?? 12_000,
+      maxRetries: 4,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Klines failed: ${res.status}`);
     const data = (await res.json()) as Array<[number, string, string, string, string, string]>;
     const closes = data.map((c) => parseFloat(c[4] ?? '0')).filter((n) => Number.isFinite(n));
     const rsi = computeRSI(closes, 14);
@@ -169,18 +196,10 @@ async function fetchTechnicalLayer(symbol: string): Promise<TechnicalLayer> {
     else label_he = 'RSI באזור oversold — אפשרית התאוששות';
 
     return { score: rsi, label_he };
-  } catch {
-    return {
-      score: 50,
-      label_he: 'נתונים טכניים לא זמינים — מוחזר ערך ניטרלי.',
-    };
+  } catch (err) {
+    console.error('[deep-analysis] technical layer', { symbol: clean, error: err });
+    return TECHNICAL_LAYER_FALLBACK;
   }
-}
-
-function sentimentToScore(s: SentimentLabel): number {
-  if (s === 'Bullish') return 70;
-  if (s === 'Bearish') return 30;
-  return 50;
 }
 
 /**
@@ -191,9 +210,18 @@ export async function performDeepAnalysis(symbol: string): Promise<DeepAnalysisR
   const base = clean.replace(/USDT$/i, '');
 
   const [news, onchain, technical] = await Promise.all([
-    fetchNewsSentimentLayer(clean),
-    fetchOnChainInsightsLayer(clean),
-    fetchTechnicalLayer(clean),
+    fetchNewsSentimentLayer(clean).catch((err) => {
+      console.error('[deep-analysis] news layer (Promise boundary)', { symbol: clean, error: err });
+      return NEWS_LAYER_FALLBACK;
+    }),
+    fetchOnChainInsightsLayer(clean).catch((err) => {
+      console.error('[deep-analysis] on-chain layer (Promise boundary)', { symbol: clean, error: err });
+      return ONCHAIN_LAYER_FALLBACK;
+    }),
+    fetchTechnicalLayer(clean).catch((err) => {
+      console.error('[deep-analysis] technical layer (Promise boundary)', { symbol: clean, error: err });
+      return TECHNICAL_LAYER_FALLBACK;
+    }),
   ]);
 
   const newsNorm = (news.score + 1) * 50;

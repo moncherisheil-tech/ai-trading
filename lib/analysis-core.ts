@@ -357,6 +357,17 @@ async function fetchKlinesForInterval(
   };
 }
 
+function emptyKlinesSeries(): {
+  opens: number[];
+  highs: number[];
+  lows: number[];
+  closes: number[];
+  volumes: number[];
+  openTimes: number[];
+} {
+  return { opens: [], highs: [], lows: [], closes: [], volumes: [], openTimes: [] };
+}
+
 /** High Volume Nodes: price levels (bins) with highest cumulative volume. Returns up to 5 levels. */
 function computeHVN(highs: number[], lows: number[], volumes: number[], buckets = 30): number[] {
   if (highs.length === 0 || lows.length === 0 || volumes.length === 0) return [];
@@ -498,10 +509,19 @@ export async function doAnalysisCore(
     fetchBinanceWithFallback(),
     fetchJson('https://api.alternative.me/fng/?limit=1', 'force-cache', fearGreedSchema).catch(() => ({ data: [] as { value?: string; value_classification?: string }[] })),
     getMarketSentiment(cleanSymbol).catch(() => ({ score: 0, narrative: 'No news-based sentiment available.' })),
-    fetchKlinesForInterval(cleanSymbol, '1h', 24),
-    fetchKlinesForInterval(cleanSymbol, '4h', 24),
+    fetchKlinesForInterval(cleanSymbol, '1h', 24).catch((err) => {
+      console.error('[analysis-core] klines 1h', { symbol: cleanSymbol, error: err });
+      return emptyKlinesSeries();
+    }),
+    fetchKlinesForInterval(cleanSymbol, '4h', 24).catch((err) => {
+      console.error('[analysis-core] klines 4h', { symbol: cleanSymbol, error: err });
+      return emptyKlinesSeries();
+    }),
     getAppSettings(),
-    fetchKlinesForInterval(cleanSymbol, '4h', 250),
+    fetchKlinesForInterval(cleanSymbol, '4h', 250).catch((err) => {
+      console.error('[analysis-core] klines 4h context', { symbol: cleanSymbol, error: err });
+      return emptyKlinesSeries();
+    }),
     fetchOpenInterest(cleanSymbol, oiStartMs, nowMs).catch(() => [] as { timestamp: number; sumOpenInterest: number }[]),
     getRecentWhaleMovements(assetTicker).catch(() => ({
       assetTicker,
