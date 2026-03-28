@@ -213,6 +213,72 @@ export function summarizeOrderBookDepth(depth: BinanceDepthSnapshot | null, symb
   return `Order book (${symbol}): best bid ${bestBid}, best ask ${bestAsk}, spread ${spread}. Bid/Ask volume ratio (top 10): ${bidPct}% bids. ${bidVol > askVol ? 'Bid-heavy.' : askVol > bidVol ? 'Ask-heavy.' : 'Balanced.'}`;
 }
 
+/** Binance /api/v3/aggTrades row (subset of fields used for CVD). */
+export interface BinanceAggTradeRow {
+  p?: string;
+  q?: string;
+  T?: number;
+  m?: boolean;
+}
+
+/** Normalized trade for Signal Core (aggressor-signed CVD convention matches Python). */
+export interface NormalizedAggTrade {
+  price: number;
+  qty: number;
+  is_buyer_maker: boolean;
+  time: number;
+}
+
+/**
+ * Maps raw aggTrades JSON to strict numeric payloads. Drops invalid rows.
+ * Binance: m=true => buyer was maker => seller aggressor.
+ */
+export function normalizeBinanceAggTrades(rows: unknown): NormalizedAggTrade[] {
+  if (!Array.isArray(rows)) return [];
+  const out: NormalizedAggTrade[] = [];
+  for (const row of rows) {
+    if (row === null || typeof row !== 'object') continue;
+    const o = row as BinanceAggTradeRow;
+    const price = Number.parseFloat(String(o.p ?? ''));
+    const qty = Number.parseFloat(String(o.q ?? ''));
+    const time = typeof o.T === 'number' ? o.T : Number(o.T);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(qty) || qty < 0 || !Number.isFinite(time)) {
+      continue;
+    }
+    out.push({
+      price,
+      qty,
+      is_buyer_maker: Boolean(o.m),
+      time: Math.round(time),
+    });
+  }
+  return out;
+}
+
+/**
+ * Fetches Binance spot aggregate trades (recent window). Max limit 1000.
+ * Uses same proxy base and backoff as order book.
+ */
+export async function fetchBinanceAggTrades(
+  symbol: string,
+  limit: number = 500,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS
+): Promise<NormalizedAggTrade[]> {
+  const base = APP_CONFIG.proxyBinanceUrl || 'https://api.binance.com';
+  const sym = symbol.toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+  const normalized = sym.endsWith('USDT') ? sym : `${sym}USDT`;
+  const lim = Math.min(1000, Math.max(1, Math.floor(limit)));
+  const url = `${base.replace(/\/$/, '')}/api/v3/aggTrades?symbol=${encodeURIComponent(normalized)}&limit=${lim}`;
+  try {
+    const res = await fetchWithBackoff(url, { timeoutMs, maxRetries: 3, cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = (await res.json()) as unknown;
+    return normalizeBinanceAggTrades(data);
+  } catch {
+    return [];
+  }
+}
+
 /** Basic macro context: DXY proxy or sentiment for Macro expert. */
 export interface MacroContextSnapshot {
   dxyNote: string;

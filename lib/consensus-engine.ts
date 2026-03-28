@@ -293,6 +293,8 @@ export interface ConsensusEngineInput {
   macro_context?: string | null;
   /** Optional: Order book depth summary (bids/asks, imbalance) for Macro & Technician. */
   order_book_summary?: string | null;
+  /** Optional: CVD / entropy / Kalman microstructure line from Python Signal Core. */
+  microstructure_signal?: string | null;
 }
 
 export interface ConsensusResult {
@@ -756,7 +758,7 @@ ${NO_MISSING_EMA_BB_RULE}
 
 ${liquidityBlock}
 
-Input: Symbol ${input.symbol}, price ${input.current_price}, RSI(14)=${input.rsi_14}, MACD_signal=${input.macd_signal ?? 'N/A'}, Volume profile: ${input.volume_profile_summary}. HVN (S/R): ${input.hvn_levels.join(', ') || 'none'}. Momentum vs EMA: ${input.asset_momentum ?? 'N/A'}. Technical context: ${techCtx}. Open Interest: ${oi}. Funding: ${funding}. Liquidity context: ${sweeps}. Order book depth: ${input.order_book_summary ?? 'לא צוין'}.
+Input: Symbol ${input.symbol}, price ${input.current_price}, RSI(14)=${input.rsi_14}, MACD_signal=${input.macd_signal ?? 'N/A'}, Volume profile: ${input.volume_profile_summary}. HVN (S/R): ${input.hvn_levels.join(', ') || 'none'}. Momentum vs EMA: ${input.asset_momentum ?? 'N/A'}. Technical context: ${techCtx}. Open Interest: ${oi}. Funding: ${funding}. Liquidity context: ${sweeps}. Order book depth: ${input.order_book_summary ?? 'לא צוין'}. Microstructure (CVD/entropy/Kalman): ${input.microstructure_signal ?? 'לא צוין'}.
 ${input.deep_memory_context}
 
 Mandate: (1) TREND (EMA200) is the top priority: use technical_context for EMA200. If Price > EMA200, the regime is bullish — Bearish predictions require MUCH higher conviction and MULTIPLE exhaustion signals (e.g. clear distribution, failed breakout, reversal structure); do not flip Bearish solely on RSI overbought or single indicator. (2) Liquidity Sweeps — identify whether recent price action has swept equal highs/lows or swept liquidity below support / above resistance before reversal (stop-hunt); score higher when sweep is complete and structure supports continuation. (3) Fair Value Gaps (FVG) — note any unfilled FVGs (bullish/bearish) and whether price is respecting or filling them; use for entry zones. (4) Order Block Mitigation — assess if order blocks (last bullish/bearish candle before a move) are mitigated or still in play; precise entry zones around OB + FVG. (5) HVN and volume profile define institutional levels; align entries with OB mitigation and FVG fill. (6) OI and funding: divergence vs price = caution; confirmation = higher score.
@@ -798,6 +800,7 @@ async function runExpertRisk(
 ${NO_MISSING_EMA_BB_RULE}
 
 נתונים: סמל ${input.symbol}, מחיר ${input.current_price}, ATR=${input.atr_value ?? 'לא זמין'}, ATR% מהמחיר=${atrPct}%, מרחק ל-S/R הקרוב (%)=${input.nearest_sr_distance_pct?.toFixed(2) ?? '?'}, תנודתיות реализד/משוערת (%)=${input.volatility_pct.toFixed(2)}.
+Microstructure (CVD / entropy / Kalman): ${input.microstructure_signal ?? 'לא צוין'}
 Leviathan (CryptoQuant + CoinMarketCap): ${institutional}
 ${input.deep_memory_context}
 
@@ -838,6 +841,7 @@ ${psychTruthBlock}
 חשוב: אל תשתמש ב-RSI, MACD, FVG או הוראות טכניות מהטכנאי — אלה נשארים אצל מומחה הטכני בלבד. אל תסיק סנטימנט מספרי מחיר או אינדיקטורים שלא הופיעו בנתוני סושיאל/on-chain/funding/OI שלהלן.
 
 נתונים: סמל ${input.symbol}, מחיר ${input.current_price}. טרנד BTC: ${input.btc_trend ?? 'לא צוין'}. מומנטום הנכס (תיאור בלבד, לא לציון טכני): ${input.asset_momentum ?? 'לא צוין'}.
+Order-flow micro (CVD/entropy/Kalman, אם סופק): ${input.microstructure_signal ?? 'לא צוין'}
 מדדים: שינויי מדדים on-chain: ${onchain}. נפח/דומיננטיות סושיאל: ${social}. Funding Rates/Perps: ${funding}. Open Interest: ${oi}.
 טוויטר/סושיאל בזמן אמת (Real-time): ${twitterTweets}
 ${input.deep_memory_context}
@@ -957,6 +961,7 @@ async function runExpertMacro(
   const macroCtx = data.macro_context ?? 'לא צוין';
   const orderBookCtx = data.order_book_summary ?? 'לא צוין';
   const oiSignal = data.open_interest_signal ?? 'לא צוין';
+  const microCtx = data.microstructure_signal ?? 'לא צוין';
   const dataSummary = [
     `symbol: ${data.symbol}`,
     `current_price: ${data.current_price}`,
@@ -969,11 +974,12 @@ async function runExpertMacro(
     `btc_trend: ${data.btc_trend ?? 'N/A'}`,
     `macro_context (USDT dominance, ETF flows, DXY, Fear & Greed): ${macroCtx}`,
     `order_book_summary: ${orderBookCtx}`,
+    `microstructure_signal (CVD, Shannon entropy on returns, Kalman smooth): ${microCtx}`,
     `open_interest: ${oiSignal}`,
   ].join('; ');
   const userPrompt = `You are the Macro Expert in a hedge-fund grade MoE. Domain: DXY correlation, yield curves, FED pivot expectations, and order book liquidity. Output in professional Hebrew; no generic chatbot language.
 
-Focus: (1) DXY Correlation — inverse correlation with risk assets; DXY strength = headwind for crypto; DXY breakdown/weakness = tailwind; note regime (range vs trend). (2) Yield Curves — 2s10s inversion, front-end vs long-end; implications for liquidity and risk appetite; curve steepening post-inversion often precedes risk-on. (3) FED Pivot expectations — market-implied vs your read; earlier pivot = bullish for crypto; "higher for longer" = pressure; data dependency (CPI, NFP) and how it affects the setup. (4) When macro_context is provided (USDT dominance, ETF flows, Fear & Greed, BTC dominance), integrate: USDT dominance down = liquidity into crypto; ETF net inflows = institutional demand; outflows = selling pressure; Fear & Greed extreme fear = potential reversal, extreme greed = caution. (5) Order book — when order_book_summary is provided, use bid/ask imbalance and spread: bid-heavy = support, ask-heavy = resistance; thin spread = liquidity; use alongside macro. (6) Open Interest — use OI as a proxy for market participation and "Crowded Trades": rising OI with price = new money/leverage; falling OI = unwinding or liquidations; elevated OI in a weak market = crowded long risk. (7) SPOOFING / LIQUIDITY DECAY — flag likely spoofed walls (size vanishes as price tests the level); do not validate breakouts on evaporating depth; integrate with Psych Truth Matrix when headlines conflict with book integrity.
+Focus: (1) DXY Correlation — inverse correlation with risk assets; DXY strength = headwind for crypto; DXY breakdown/weakness = tailwind; note regime (range vs trend). (2) Yield Curves — 2s10s inversion, front-end vs long-end; implications for liquidity and risk appetite; curve steepening post-inversion often precedes risk-on. (3) FED Pivot expectations — market-implied vs your read; earlier pivot = bullish for crypto; "higher for longer" = pressure; data dependency (CPI, NFP) and how it affects the setup. (4) When macro_context is provided (USDT dominance, ETF flows, Fear & Greed, BTC dominance), integrate: USDT dominance down = liquidity into crypto; ETF net inflows = institutional demand; outflows = selling pressure; Fear & Greed extreme fear = potential reversal, extreme greed = caution. (5) Order book — when order_book_summary is provided, use bid/ask imbalance and spread: bid-heavy = support, ask-heavy = resistance; thin spread = liquidity; use alongside macro. (6) Microstructure — when microstructure_signal is provided, use CVD slope/end, order-flow imbalance, entropy (high = noisy/choppy regime), Kalman vs spot, and NOISE_FLAG to temper breakout conviction. (7) Open Interest — use OI as a proxy for market participation and "Crowded Trades": rising OI with price = new money/leverage; falling OI = unwinding or liquidations; elevated OI in a weak market = crowded long risk. (8) SPOOFING / LIQUIDITY DECAY — flag likely spoofed walls (size vanishes as price tests the level); do not validate breakouts on evaporating depth; integrate with Psych Truth Matrix when headlines conflict with book integrity.
 
 Data: ${dataSummary}
 

@@ -17,7 +17,14 @@ import { recordAuditLog } from '@/lib/db/audit-logs';
 import { getMarketSentiment, checkSentimentGuardrail } from '@/lib/agents/news-agent';
 import { computeRSI, getRiskLevelHe, buildHebrewReport } from '@/lib/prediction-formula';
 import { sendTelegramMessage, sendGemAlert } from '@/lib/telegram';
-import { fetchWithBackoff, fetchBinanceOrderBookDepth, summarizeOrderBookDepth, fetchMacroContext } from '@/lib/api-utils';
+import {
+  fetchWithBackoff,
+  fetchBinanceOrderBookDepth,
+  summarizeOrderBookDepth,
+  fetchMacroContext,
+  fetchBinanceAggTrades,
+} from '@/lib/api-utils';
+import { fetchMicrostructureSummary } from '@/lib/microstructure/signal-core-client';
 import type { BinanceKline } from '@/lib/actions-types';
 import { getSuccessFailureFeedback } from '@/lib/smart-agent';
 import { ema, atr } from '@/lib/indicators';
@@ -701,11 +708,17 @@ export async function doAnalysisCore(
   const moeThreshold = appSettings.neural.moeConfidenceThreshold ?? 75;
   let consensusResult: ConsensusResult | null = null;
   const useCachedMacro = options?.precomputedMacro != null;
-  const [orderBookDepth, macroContext] = await Promise.all([
+  const [orderBookDepth, macroContext, aggTrades] = await Promise.all([
     fetchBinanceOrderBookDepth(cleanSymbol, 50),
     useCachedMacro ? Promise.resolve(null) : fetchMacroContext(),
+    fetchBinanceAggTrades(cleanSymbol, 500),
   ]);
   const orderBookSummary = summarizeOrderBookDepth(orderBookDepth, cleanSymbol);
+  const microstructure_signal = await fetchMicrostructureSummary({
+    trades: aggTrades,
+    closes: klines1h.closes,
+    volumes: klines1h.volumes,
+  });
   const macroContextStr = useCachedMacro
     ? 'Global macro (cached for this cycle).'
     : (macroContext!.dxyNote +
@@ -739,6 +752,7 @@ export async function doAnalysisCore(
         onchain_metric_shift: leviathanSnapshot.institutionalWhaleContext,
         macro_context: macroContextStr,
         order_book_summary: orderBookSummary,
+        microstructure_signal: microstructure_signal ?? null,
         institutional_whale_context: leviathanSnapshot.institutionalWhaleContext,
       },
       {
