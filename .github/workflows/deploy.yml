@@ -18,7 +18,7 @@ jobs:
             cat << 'EOF' > .env
             ${{ secrets.ENV_FILE }}
             EOF
-            # DATABASE_URL must come from secrets.ENV_FILE (user quantum_admin — never overwrite with postgres).
+            # DATABASE_URL must come from secrets.ENV_FILE (full provider connection string).
             if ! docker ps -a --format '{{.Names}}' | grep -Fxq moncheri-db; then
               docker run --name moncheri-db -e POSTGRES_PASSWORD=moncheri_admin -e POSTGRES_DB=quantum -p 5432:5432 -d postgres:15
             elif [ "$(docker inspect -f '{{.State.Running}}' moncheri-db)" != "true" ]; then

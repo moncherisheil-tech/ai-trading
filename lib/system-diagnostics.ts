@@ -73,5 +73,6 @@ export function runSystemDiagnostics(): void {
   console.log(footer);
   console.log('');
   console.log('[SYSTEM AUDIT] All architectural components verified. Audit complete.');
+  console.log('[HEARTBEAT] Process ready for traffic.');
   console.log('');
 }

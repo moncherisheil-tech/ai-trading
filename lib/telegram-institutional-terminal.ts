@@ -99,25 +99,25 @@ function mainKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: '💼 Portfolio & PnL', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}p` },
-        { text: '🦅 Hawk-Eye Ops', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}h` },
+        { text: '💼 תיק ורווח/הפסד', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}p` },
+        { text: '🦅 Hawk-Eye', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}h` },
       ],
       [
-        { text: '🧠 Neural Board', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}n` },
-        { text: '🛡️ Risk & Control', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
+        { text: '🧠 לוח מומחים', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}n` },
+        { text: '🛡️ סיכון ובקרה', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
       ],
     ],
   };
 }
 
 function backRow() {
-  return [{ text: '⬅️ Main', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}m` }];
+  return [{ text: '⬅️ ראשי', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}m` }];
 }
 
 function portfolioKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: '🔄 Refresh Ledger', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}pr` }],
+      [{ text: '🔄 רענון תיק', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}pr` }],
       backRow(),
     ],
   };
@@ -127,8 +127,8 @@ function hawkKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: '⚡ Flash Scan', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}fs` },
-        { text: '🎯 Sniper Mode', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}sn` },
+        { text: '⚡ סריקת מצב', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}fs` },
+        { text: '🎯 מצב צלף', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}sn` },
       ],
       backRow(),
     ],
@@ -138,7 +138,7 @@ function hawkKeyboard() {
 function neuralKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: '⚖️ Force Re-Calibration', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}fc` }],
+      [{ text: '⚖️ איפוס משקלים', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}fc` }],
       backRow(),
     ],
   };
@@ -149,8 +149,8 @@ function riskKeyboard(settings: { mode: string; pendingToggle?: boolean; pending
     return {
       inline_keyboard: [
         [
-          { text: '✅ Yes, toggle mode', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}ty` },
-          { text: '⬅️ Cancel', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
+          { text: '✅ אשר החלפת מצב', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}ty` },
+          { text: '⬅️ ביטול', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
         ],
       ],
     };
@@ -159,8 +159,8 @@ function riskKeyboard(settings: { mode: string; pendingToggle?: boolean; pending
     return {
       inline_keyboard: [
         [
-          { text: '✅ Confirm LIQUIDATE', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}hy` },
-          { text: '⬅️ Cancel', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
+          { text: '✅ אשר ניקוי מלא', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}hy` },
+          { text: '⬅️ ביטול', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}k` },
         ],
       ],
     };
@@ -168,9 +168,9 @@ function riskKeyboard(settings: { mode: string; pendingToggle?: boolean; pending
   const modeLabel = settings.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
   return {
     inline_keyboard: [
-      [{ text: `🔄 Toggle: ${modeLabel} → ${modeLabel === 'LIVE' ? 'SHADOW' : 'LIVE'}`, callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}wt` }],
-      [{ text: '🟡 SOFT KILL', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}sk` }],
-      [{ text: '🔴 HARD KILL (LIQUIDATE)', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}wh` }],
+      [{ text: `🔄 החלף מצב: ${modeLabel} ⇄ ${modeLabel === 'LIVE' ? 'SHADOW' : 'LIVE'}`, callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}wt` }],
+      [{ text: '🟡 עצירה רכה', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}sk` }],
+      [{ text: '🔴 ניקוי שוק (מכירה)', callback_data: `${INSTITUTIONAL_FLOOR_CB_PREFIX}wh` }],
       backRow(),
     ],
   };
@@ -192,32 +192,33 @@ async function auditTerminalAction(payload: Record<string, unknown>): Promise<vo
 function databaseProbeLabel(s: DatabaseProbeStatus): string {
   switch (s) {
     case 'ok':
-      return 'OK';
+      return 'תקין';
     case 'absent':
-      return 'ABSENT';
+      return 'חסר';
     case 'misconfigured':
-      return 'BAD_URL';
+      return 'כתובת שגויה';
     case 'unreachable':
-      return 'DOWN';
+      return 'לא זמין';
     default:
-      return 'UNKNOWN';
+      return 'לא ידוע';
   }
 }
 
 async function buildMainText(): Promise<string> {
   const [settings, health] = await Promise.all([getAppSettings(), getLiveInfraHealth()]);
   const mode = settings.execution.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
+  const apiOk = (on: boolean) => (on ? 'תקין' : 'לא זמין');
   const lines = [
-    '*INSTITUTIONAL FLOOR 1000*',
-    'Executive Terminal — Mon Chéri',
+    '*מסוף מוסדי — Mon Chéri Quant*',
+    'מרכז פיקוד ניהולי',
     '',
     monoBlock([
-      'Session'.padEnd(16) + 'OK',
-      'Exec Mode'.padEnd(16) + mode.padEnd(8),
-      'Master Switch'.padEnd(16) + (settings.execution.masterSwitchEnabled ? 'ON ' : 'OFF'),
+      'סשן'.padEnd(16) + 'OK',
+      'מצב ביצוע'.padEnd(16) + mode.padEnd(8),
+      'מתג ראשי'.padEnd(16) + (settings.execution.masterSwitchEnabled ? 'דלוק' : 'כבוי'),
       'PostgreSQL'.padEnd(16) + databaseProbeLabel(health.database),
-      'Gemini API'.padEnd(16) + (health.gemini ? 'OK' : 'DOWN'),
-      'Groq API'.padEnd(16) + (health.groq ? 'OK' : 'DOWN'),
+      'Gemini API'.padEnd(16) + apiOk(health.gemini),
+      'Groq API'.padEnd(16) + apiOk(health.groq),
     ]),
   ];
   return lines.join('\n');
@@ -225,21 +226,21 @@ async function buildMainText(): Promise<string> {
 
 async function buildPortfolioText(): Promise<string> {
   if (!APP_CONFIG.postgresUrl?.trim()) {
-    return '*💼 Portfolio*\n\n' + monoBlock(['DB unavailable', 'Connect DATABASE_URL']);
+    return '*💼 תיק*\n\n' + monoBlock(['DB לא זמין', 'הגדר DATABASE_URL']);
   }
   const [summary, open] = await Promise.all([getVirtualPortfolioSummary(), listOpenTrades()]);
   const longUsd = open.reduce((s, t) => s + t.amount_usd, 0);
   const table = [
-    'Metric'.padEnd(18) + 'Value',
+    'מדד'.padEnd(18) + 'ערך',
     '-'.repeat(32),
-    'Daily ROI %'.padEnd(18) + fmtPct(summary.dailyPnlPct, 10).trimStart(),
-    'Exposure $'.padEnd(18) + fmtUsd(summary.totalInvestedUsd, 12).trimStart(),
-    'Book'.padEnd(18) + 'long-only sim',
-    'Long notional $'.padEnd(18) + fmtUsd(longUsd, 12).trimStart(),
-    'Open positions'.padEnd(18) + String(summary.openCount),
-    'Win rate %'.padEnd(18) + summary.winRatePct.toFixed(2),
+    'תשואה יומית %'.padEnd(18) + fmtPct(summary.dailyPnlPct, 10).trimStart(),
+    'חשיפה $'.padEnd(18) + fmtUsd(summary.totalInvestedUsd, 12).trimStart(),
+    'ספר'.padEnd(18) + 'סימולציה לונג',
+    'נומינל לונג $'.padEnd(18) + fmtUsd(longUsd, 12).trimStart(),
+    'פוזיציות פתוחות'.padEnd(18) + String(summary.openCount),
+    'אחוז הצלחה %'.padEnd(18) + summary.winRatePct.toFixed(2),
   ];
-  return ['*💼 Portfolio & PnL*', '', monoBlock(table)].join('\n');
+  return ['*💼 תיק ורווח/הפסד*', '', monoBlock(table)].join('\n');
 }
 
 async function buildNeuralText(settings: AppSettings): Promise<string> {
@@ -250,21 +251,21 @@ async function buildNeuralText(settings: AppSettings): Promise<string> {
   entries.sort((a, b) => b.v - a.v);
   const top = entries.slice(0, 3);
   const labels: Record<string, string> = {
-    tech: 'Technical',
-    risk: 'Risk',
-    psych: 'Psychology',
-    macro: 'Macro',
+    tech: 'טכני',
+    risk: 'סיכון',
+    psych: 'פסיכולוגיה',
+    macro: 'מאקרו',
   };
   const table = [
-    'Expert'.padEnd(14) + 'Weight %',
+    'מומחה'.padEnd(14) + 'משקל %',
     '-'.repeat(24),
     ...top.map((e) => (labels[e.k] ?? e.k).padEnd(14) + (e.v * 100).toFixed(2).padStart(8)),
   ];
-  return ['*🧠 Neural Board*', '', 'Top 3 experts \\(by weight\\):', '', monoBlock(table)].join('\n');
+  return ['*🧠 לוח מומחים*', '', 'שלושת המובילים \\(לפי משקל\\):', '', monoBlock(table)].join('\n');
 }
 
 function sessionExpiredMessage(): string {
-  return '🔒 Terminal Session Expired\\. Send /terminal to open a new one\\.';
+  return '🔒 פג תוקף המסוף\\. שלח /terminal לפתיחה מחדש\\.';
 }
 
 function isMessageExpired(messageDateUnix: number | undefined): boolean {

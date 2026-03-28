@@ -250,8 +250,10 @@ async function handleStatus(): Promise<string> {
   if (fx) {
     parts.push(
       '',
-      '<b>פורקס (uplink):</b>',
-      `<pre>DXY ${fx.dxy != null ? fx.dxy.toFixed(2) : '—'} | EUR/USD ${fx.eurUsd != null ? fx.eurUsd.toFixed(4) : '—'} | USD/ILS ${fx.usdIls != null ? fx.usdIls.toFixed(3) : '—'}</pre>`,
+      '<b>מדד דולר ושערי חליפין:</b>',
+      `<pre>מדד DXY: ${fx.dxy != null ? fx.dxy.toFixed(2) : '—'}
+יורו/דולר: ${fx.eurUsd != null ? fx.eurUsd.toFixed(4) : '—'}
+דולר/שקל: ${fx.usdIls != null ? fx.usdIls.toFixed(3) : '—'}</pre>`,
       escapeHtml(fx.ilsRiskNoteHe)
     );
   }

@@ -12,7 +12,8 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
+/** Exported for ops-metadata and any module that needs the singleton row + columns. */
+export async function ensureSystemSettingsTable(): Promise<boolean> {
   if (!usePostgres()) return false;
   try {
     await sql`
@@ -28,6 +29,8 @@ async function ensureTable(): Promise<boolean> {
       VALUES (${ROW_ID}, true)
       ON CONFLICT (id) DO NOTHING
     `;
+    // Pinecone / vector ops timestamp on singleton row (avoids legacy `settings` DDL conflicts).
+    await sql`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS last_pinecone_upsert_at TEXT`;
     return true;
   } catch {
     return false;
@@ -42,7 +45,7 @@ export interface ScannerSettingsRow {
 export async function getScannerSettings(): Promise<ScannerSettingsRow | null> {
   if (!usePostgres()) return null;
   try {
-    await ensureTable();
+    await ensureSystemSettingsTable();
     const { rows } = await sql`
       SELECT scanner_is_active, last_scan_timestamp
       FROM system_settings
@@ -69,7 +72,7 @@ export async function setScannerActive(active: boolean): Promise<SetScannerResul
     return { ok: false, error: msg };
   }
   try {
-    await ensureTable();
+    await ensureSystemSettingsTable();
     await sql`
       UPDATE system_settings
       SET scanner_is_active = ${active}, updated_at = NOW()
@@ -90,7 +93,7 @@ export async function setLastScanTimestamp(ts: number): Promise<SetScannerResult
     return { ok: false, error: msg };
   }
   try {
-    await ensureTable();
+    await ensureSystemSettingsTable();
     await sql`
       UPDATE system_settings
       SET last_scan_timestamp = ${ts}, updated_at = NOW()

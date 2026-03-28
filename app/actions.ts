@@ -1034,7 +1034,7 @@ export async function getTradingSignalsAction(): Promise<AdminActionResult<unkno
 }
 
 /**
- * Alpha Signals: loads forecasts directly (no ADMIN_SECRET round-trip). Requires QUANTUM_ADMIN session when auth is on.
+ * Alpha Signals: loads forecasts directly (no ADMIN_SECRET round-trip). Requires admin session when auth is on.
  */
 export async function getAlphaSignalsForecastsAction(): Promise<
   | { success: true; data: import('@/lib/trading/forecast-engine').AssetForecast[] }
@@ -1045,7 +1045,7 @@ export async function getAlphaSignalsForecastsAction(): Promise<
       await requireQuantumAdmin();
     }
   } catch {
-    return { success: false, error: 'Unauthorized request.' };
+    return { success: false, error: 'נדרשת הרשאת מנהל (התחברות מחדש).' };
   }
   try {
     const { getAlphaSignalForecasts } = await import('@/lib/trading/forecast-engine');

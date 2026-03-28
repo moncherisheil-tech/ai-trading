@@ -407,13 +407,22 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
         if (!res.ok) return;
         const text = await res.text();
         const v = parseYahooChartLastClose(text);
-        if (v != null) out[key] = Math.round(v * 10_000) / 10_000;
+        if (v == null) return;
+        const rounded = Math.round(v * 10_000) / 10_000;
+        // Reject cross-ticker garbage (e.g. wrong slot) so DXY / FX pairs never mix scales.
+        if (key === 'dxy' && (rounded < 72 || rounded > 140)) return;
+        if (key === 'eurUsd' && (rounded < 0.65 || rounded > 1.65)) return;
+        if (key === 'usdIls' && (rounded < 2 || rounded > 8)) return;
+        out[key] = rounded;
       } catch {
         // skip symbol
       }
     })
   );
   const dxySnap = await fetchDxySnapshot(timeoutMs).catch(() => null);
-  if (dxySnap && out.dxy == null) out.dxy = dxySnap.value;
+  if (dxySnap && out.dxy == null) {
+    const v = dxySnap.value;
+    if (v >= 72 && v <= 140) out.dxy = v;
+  }
   return out;
 }

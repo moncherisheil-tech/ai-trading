@@ -31,6 +31,8 @@ export interface ForecastEngineOptions {
 }
 
 const TOP_ASSETS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT'] as const;
+/** Relaxed vs 40 so proxies / partial history still produce Alpha cards. */
+const MIN_KLINES_FOR_FORECAST = 28;
 
 type KlineTuple = [number, string, string, string, string, string];
 
@@ -50,6 +52,37 @@ function buildRationale(parts: string[]): string {
 
 function normalizeAsset(symbol: string): string {
   return symbol.endsWith('USDT') ? symbol.slice(0, -4) : symbol;
+}
+
+/** When live klines or consensus are unavailable — keeps Alpha UI populated with honest HOLD staging. */
+function buildStalledForecast(symbol: string): AssetForecast {
+  const asset = normalizeAsset(symbol);
+  return {
+    asset,
+    hawkEye: {
+      liquidityGapDetected: false,
+      highVelocityPriority: false,
+      gapStrengthPct: 0,
+    },
+    flashOutlook: {
+      signal: 'HOLD',
+      probability: 58,
+      timeframe: '⚡ FLASH',
+      rationale: 'זרימת נתונים זמנית חלשה — ממתינים לאיכון מחדש.',
+    },
+    shortTermOutlook: {
+      signal: 'HOLD',
+      probability: 56,
+      timeframe: '1-4 Hours',
+      rationale: 'אין מספיק נרות לאימות קצר — מוצג רף המתנה בלבד.',
+    },
+    swingOutlook: {
+      signal: 'HOLD',
+      probability: 55,
+      timeframe: '1-3 Days',
+      rationale: 'נדרש איסוף מלא לתרחיש Swing.',
+    },
+  };
 }
 
 function detectLiquidityGap(closes: number[]): { detected: boolean; strengthPct: number } {
@@ -104,7 +137,7 @@ async function buildLiveForecastForAsset(symbol: string): Promise<AssetForecast 
     fetchMacroContext(),
   ]);
 
-  if (klines1h.length < 40 || klines4h.length < 40) return null;
+  if (klines1h.length < MIN_KLINES_FOR_FORECAST || klines4h.length < MIN_KLINES_FOR_FORECAST) return null;
 
   const closes1h = klines1h.map((k) => Number.parseFloat(k[4]));
   const highs1h = klines1h.map((k) => Number.parseFloat(k[2]));
@@ -237,5 +270,6 @@ export async function getAlphaSignalForecasts(options: ForecastEngineOptions = {
 
   const liveResults = await Promise.all(TOP_ASSETS.map((symbol) => buildLiveForecastForAsset(symbol).catch(() => null)));
   const valid = liveResults.filter((item): item is AssetForecast => item != null);
-  return valid;
+  if (valid.length > 0) return valid;
+  return TOP_ASSETS.map((symbol) => buildStalledForecast(symbol));
 }

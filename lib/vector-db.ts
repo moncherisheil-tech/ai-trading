@@ -92,7 +92,7 @@ async function setLastUpsertNow(): Promise<void> {
     const { setLastPineconeUpsertAt } = await import('@/lib/db/ops-metadata');
     await setLastPineconeUpsertAt(new Date().toISOString());
   } catch (err) {
-    console.error('[vector-db] Failed to update last upsert timestamp:', err);
+    console.error('[SYSTEM AUDIT] vector-db: last upsert timestamp not persisted (non-fatal):', err);
   }
 }
 
@@ -528,7 +528,7 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
             "updatedAt" = NOW();
         `;
       } catch (settingErr) {
-        console.warn('[vector-db] Failed to log probe success to settings table:', settingErr);
+        console.warn('[SYSTEM AUDIT] vector-db: probe log row skipped (settings optional):', settingErr);
       }
     }
     

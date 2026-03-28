@@ -507,7 +507,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
       >
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-[10px] text-amber-500 font-medium">לוגו</div>
+            <div className="w-12 h-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-[11px] text-amber-500 font-bold tracking-tight" aria-hidden>MC</div>
             <div>
               <h2 className="text-lg font-bold text-white">{REPORT_BRANDING} — מסוף פיננסי</h2>
               <p className="text-xs text-zinc-500" suppressHydrationWarning>
@@ -720,8 +720,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-slate-100">Neural Attribution Dashboard</h3>
-            <span className="text-xs text-slate-400">Agent Accuracy Correlation</span>
+            <h3 className="text-sm font-semibold text-slate-100">ייחוס נוירוני — דיוק לפי סוכן</h3>
+            <span className="text-xs text-slate-400">מתאם ביצועים</span>
           </div>
           <div className="space-y-3">
             {attribution.map((item, idx) => (
@@ -745,8 +745,8 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
 
         <section className="rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-slate-100">Deep Memory Insights</h3>
-            <span className="text-xs text-slate-400">Vector Matches</span>
+            <h3 className="text-sm font-semibold text-slate-100">תובנות זיכרון עמוק</h3>
+            <span className="text-xs text-slate-400">התאמות היסטוריות</span>
           </div>
           <div className="overflow-auto rounded-lg border border-slate-800">
             <table className="w-full text-xs">
@@ -769,7 +769,7 @@ function PnlTerminalInner({ data }: PnlTerminalProps) {
                       {m.confidenceLiftPct >= 0 ? '+' : ''}{m.confidenceLiftPct.toFixed(1)}%
                     </td>
                     <td className={`px-3 py-2 text-end ${m.outcome === 'win' ? 'text-emerald-400' : 'text-rose-300'}`}>
-                      {m.outcome === 'win' ? 'Win-aligned' : 'Loss-aligned'}
+                      {m.outcome === 'win' ? 'בהתאמה לרווח' : 'בהתאמה להפסד'}
                     </td>
                   </tr>
                 ))}

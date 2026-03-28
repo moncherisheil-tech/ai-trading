@@ -1,9 +1,9 @@
 import 'dotenv/config';
 import { defineConfig } from 'prisma/config';
 
-/** Placeholder for Prisma CLI (generate/migrate) when DATABASE_URL is unset — no validation, no DB connect. */
+/** Synthetic URL for Prisma CLI when DATABASE_URL is unset — never connects unless you run migrate against it. */
 const PRISMA_SCHEMA_TOOLING_URL =
-  'postgresql://quantum_admin:sovereign_build@127.0.0.1:5432/_prisma_schema_tooling?schema=public';
+  'postgresql://postgres:postgres@127.0.0.1:5432/_prisma_schema_tooling?schema=public';
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',

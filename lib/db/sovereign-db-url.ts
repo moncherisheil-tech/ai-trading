@@ -1,5 +1,6 @@
 /**
  * DATABASE_URL validation: accepts any postgres:// or postgresql:// URL from the environment.
+ * There is no enforced database username — trust your hosting provider and connection string.
  * Parses with the WHATWG `URL` API; last authorized URL string is cached for hot paths.
  * Enforced when opening DB connections (`lib/prisma.ts`, `lib/db/sql.ts`).
  * Do not import from `prisma.config.ts` — Prisma CLI loads config outside app runtime.

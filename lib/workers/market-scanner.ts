@@ -359,22 +359,22 @@ export async function runOneCycle(): Promise<void> {
           }
         } else {
           const messageText = [
-            '🏛 *Quantum Scanner — Institutional*',
+            '🔔 *התראת סורק — פעולה מומלצת*',
             '━━━━━━━━━━━━━━━━',
-            `📌 *Symbol:* ${base}`,
-            `📊 *Signal strength:* \`${formatTelegramPercent(probability)}%\` confidence`,
-            `🛡 *Risk profile:* ${riskLabel}`,
+            `📌 *נכס:* ${base}`,
+            `📊 *עוצמת אות:* \`${formatTelegramPercent(probability)}%\``,
+            `🛡 *פרופיל סיכון:* ${riskLabel}`,
             '',
-            '📍 *Key levels*',
-            `• Entry: \`${formatTelegramPrice(entryPrice)}\``,
-            `• Target: \`${formatTelegramPrice(targetPrice)}\``,
-            `• Support / invalidation: \`${formatTelegramPrice(supportPrice)}\``,
+            '📍 *רמות מפתח*',
+            `• כניסה: \`${formatTelegramPrice(entryPrice)}\``,
+            `• יעד: \`${formatTelegramPrice(targetPrice)}\``,
+            `• תמיכה / ביטול: \`${formatTelegramPrice(supportPrice)}\``,
             '',
-            '🧠 *Logic*',
-            (logicSnippet || 'No thesis text available.').slice(0, 320),
+            '🧠 *תמצית*',
+            (logicSnippet || 'אין תמליל תזה זמין — בדוק בגרף ובמסוף.').slice(0, 320),
             '',
             '━━━━━━━━━━━━━━━━',
-            '_Action:_ chart · approve/reject · deep analysis',
+            '_פעולה:_ גרף · אישור/דחייה · ניתוח מעמיק',
           ].join('\n');
 
           const sendResult = await sendGemAlert({
