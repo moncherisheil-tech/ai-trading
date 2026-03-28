@@ -31,6 +31,11 @@ rm -rf .next
 echo "[build-production] next build ..."
 npx next build
 
+echo "[build-production] Copy static assets into standalone output ..."
+mkdir -p .next/standalone/.next
+cp -r public .next/standalone/public
+cp -r .next/static .next/standalone/.next/static
+
 echo "[build-production] PM2: ecosystem.config.js with --update-env (reload if already running) ..."
 if pm2 describe quantum-mon-cheri >/dev/null 2>&1; then
   pm2 reload ecosystem.config.js --update-env
