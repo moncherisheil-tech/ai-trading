@@ -85,8 +85,8 @@ export default function AcademyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] overflow-x-hidden pb-20 sm:pb-0 max-w-full" dir="rtl" lang="he">
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16 pb-6 sm:pb-8 min-w-0 space-y-10">
+    <div className="min-h-screen bg-[var(--background)] overflow-x-hidden pb-20 sm:pb-0 max-w-full text-zinc-100" dir="rtl" lang="he">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 sm:pt-16 pb-6 sm:pb-8 min-w-0 space-y-10">
         {/* Hero */}
         <section className="rounded-2xl border border-white/10 bg-black/40 frosted-obsidian p-6 sm:p-8 overflow-hidden" aria-labelledby="academy-hero-heading">
           <div className="flex items-center gap-3 mb-4">
@@ -134,8 +134,11 @@ export default function AcademyPage() {
             </button>
           </form>
           <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4">
-            <p className="text-xs font-mono text-zinc-400">STATUS: {ragStatus ?? 'IDLE'}</p>
-            <p className="mt-2 text-sm text-zinc-200 whitespace-pre-wrap">{ragAnswer || 'No response yet.'}</p>
+            <p className="text-xs font-mono text-zinc-400 ticker-numeric">STATUS: {ragStatus ?? 'IDLE'}</p>
+            <p className="mt-2 text-sm text-zinc-200 whitespace-pre-wrap">
+              {ragAnswer ||
+                'טרם הופעלה שאילתה. הרץ RAG כדי לשלוף הקשר מהזיכרון העמוק — ללא נתונים מדומים.'}
+            </p>
             <div className="mt-3 space-y-2">
               {retrieved.map((item) => (
                 <div key={`${item.symbol}-${item.trade_id}`} className="rounded-md border border-white/10 p-2 text-xs text-zinc-300">

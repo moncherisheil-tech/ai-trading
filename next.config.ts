@@ -31,6 +31,13 @@ const nextConfig: NextConfig = {
     ],
   },
   transpilePackages: ['motion', 'lightweight-charts'],
+  async redirects() {
+    return [
+      { source: '/dashboard', destination: '/ops', permanent: false },
+      { source: '/alpha', destination: '/admin/signals', permanent: false },
+      { source: '/pnl', destination: '/ops/pnl', permanent: false },
+    ];
+  },
   // Security headers tuned to support non-SSL environments when needed.
   async headers() {
     return [

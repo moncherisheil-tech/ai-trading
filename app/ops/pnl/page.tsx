@@ -34,8 +34,11 @@ export default async function PnlOpsPage() {
   ]);
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 p-3 sm:p-6 overflow-x-hidden max-w-full pb-20 sm:pb-6" dir="rtl">
-      <div className="max-w-7xl mx-auto min-w-0 w-full space-y-6">
+    <main
+      className="min-h-screen bg-[var(--background)] text-zinc-100 overflow-x-hidden max-w-full pb-20 sm:pb-6"
+      dir="rtl"
+    >
+      <div className="max-w-7xl mx-auto min-w-0 w-full space-y-6 px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
         <ManualTradeForm />
         <PnlTerminal data={data} />
       </div>

@@ -47,9 +47,9 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#030f1c] text-cyan-50" dir="rtl" data-theme="deep-sea">
-      <header className="border-b border-cyan-900/50 bg-[#07192d]/95">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+    <div className="min-h-screen bg-[var(--background)] text-cyan-50" dir="rtl" data-theme="deep-sea">
+      <header className="border-b border-cyan-900/50 bg-[var(--app-surface)]/95 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between">
           <Link
             href="/ops"
             prefetch={true}
@@ -60,7 +60,7 @@ export default async function SettingsPage() {
           </Link>
         </div>
       </header>
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         <h1 className="text-2xl font-bold text-cyan-50 mb-2">{t.botSettings}</h1>
         <p className="text-sm text-cyan-200/80 mb-4">
           מרכז שליטה אסטרטגי — משקלים אוטומטיים, דיוק והתראות. הגדרות סיכון, סורק ומערכת.

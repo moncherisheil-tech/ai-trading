@@ -60,11 +60,28 @@ import {
 
 const TELEGRAM_API = 'https://api.telegram.org';
 
-/** Main menu keyboard for /start — sends command as button text. */
+/**
+ * Reply-keyboard labels (Hebrew) → slash command. Telegram sends the button text as the message body.
+ */
+const MENU_BUTTON_TO_COMMAND: Record<string, string> = {
+  '📊 מצב מערכת': '/status',
+  '🛑 עצירת חירום': '/halt',
+  '🚀 אותות אחרונים': '/brief',
+  '📋 דוח מנהלים': '/report',
+  '⚙️ הגדרות ניהול': '/strategy',
+  '❓ עזרה ופקודות': '/help',
+};
+
+function resolveMenuOrCommandText(raw: string): string {
+  const t = (raw || '').trim();
+  return MENU_BUTTON_TO_COMMAND[t] ?? t;
+}
+
+/** Main menu keyboard for /start — professional Hebrew labels; mapped to real handlers above. */
 const MAIN_MENU_KEYBOARD = [
-  ['/status', '/brief'],
-  ['/halt', '/report'],
-  ['/analyze', '/help'],
+  ['📊 מצב מערכת', '🛑 עצירת חירום'],
+  ['🚀 אותות אחרונים', '📋 דוח מנהלים'],
+  ['⚙️ הגדרות ניהול', '❓ עזרה ופקודות'],
 ];
 
 /** Telegram Update: message (commands) and/or callback_query (buttons). */
@@ -161,20 +178,26 @@ function parseCommand(text: string): { cmd: string; arg: string } {
   return { cmd, arg };
 }
 
-/** /start — Welcome message and main menu keyboard */
+/** /start — Elite welcome + main menu keyboard */
 function handleStart(): string {
   return [
-    '🟢 <b>מרכז פקודות טלגרם — Mon Chéri</b>',
+    '💎 <b>Quantum Mon Chéri — מסוף פיקוד מוסדי</b>',
     '',
-    'שלום! הבוט מחובר ומאפשר שליטה מלאה באיתותים ובתיק הסימולציה.',
+    'ברוכים הבאים. הבוט מספק תמונת מצב מדויקת, תיעוד ביצועים וכלים להנהלה — בשפה נקייה ובסטנדרט מוסדי.',
     '',
-    'השתמש בתפריט למטה או שלח פקודה:',
-    '• <code>/status</code> — סיכום ארנק סימולציה + מאקרו + סורק + פורקס',
+    '<b>תפריט מהיר</b> (למטה): מצב מערכת, אותות אחרונים, דוחות, הגדרות ועזרה.',
+    '',
+    '<b>פקודות טקסט</b> (ניתן להקליד ישירות):',
+    '• <code>/status</code> — ארנק סימולציה, מאקרו, סורק ופורקס',
     '• <code>/halt</code> — עצירת חירום (כיבוי ביצוע אוטונומי)',
-    '• <code>/brief</code> — תמונת מצב שעה אחרונה (ביצועים)',
-    '• <code>/report</code> — דוח מנהלים: 5 העסקאות האחרונות',
-    '• <code>/analyze BTC</code> — ניתוח MoE לסימבול',
+    '• <code>/brief</code> — פעילות ואירועים בשעה האחרונה',
+    '• <code>/report</code> — דוח מנהלים: חמש העסקאות הסגורות האחרונות',
+    '• <code>/analyze BTC</code> — ניתוח MoE לנכס (למשל BTC, ETH)',
+    '• <code>/strategy</code> — סף כניסה (standard / conservative / aggressive)',
+    '• <code>/terminal</code> — מסוף ניהול מתקדם (מנהלים בלבד)',
     '• <code>/help</code> — רשימת פקודות מלאה',
+    '',
+    '<i>המידע לצורכי תפעול וסימולציה בלבד — אינו ייעוץ השקעות.</i>',
   ].join('\n');
 }
 
@@ -402,6 +425,8 @@ async function handleHelp(): Promise<string> {
   const text = [
     '📋 <b>מרכז פקודות — עזרה</b>',
     '',
+    'ניתן להשתמש בכפתורי התפריט העבריים (מצב מערכת, אותות אחרונים, דוח מנהלים, הגדרות, עזרה) או בפקודות למטה.',
+    '',
     'פקודות זמינות:',
     '• <code>/start</code> — הודעת פתיחה ותפריט ראשי.',
     '• <code>/status</code> — סיכום ארנק סימולציה (מאזן, אחוז הצלחה, רווח/הפסד יומי) + מאקרו + סורק + פורקס.',
@@ -440,7 +465,7 @@ async function handleCommand(cmd: string, arg: string): Promise<string> {
     case 'help':
       return handleHelp();
     default:
-      return 'פקודה לא מוכרת. שלח <code>/help</code> לרשימת הפקודות.';
+      return 'פקודה לא מוכרת. בחרו מהתפריט למטה או שלחו <code>/help</code> לרשימת הפקודות.';
   }
 }
 
@@ -495,7 +520,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const msg = update.message;
   if (msg?.text && msg.chat?.id != null) {
     const chatId = msg.chat.id;
-    const { cmd, arg } = parseCommand(msg.text);
+    const effectiveText = resolveMenuOrCommandText(msg.text);
+    const { cmd, arg } = parseCommand(effectiveText);
     if (cmd === 'terminal') {
       if (!(await isInstitutionalTerminalAdmin(msg.from?.id))) {
         return NextResponse.json({ ok: true });
@@ -538,7 +564,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               text: reply,
               parse_mode: 'HTML',
               reply_markup: {
-                keyboard: MAIN_MENU_KEYBOARD.map((row) => row.map((text) => ({ text }))),
+                keyboard: MAIN_MENU_KEYBOARD.map((row) =>
+                  row.map((label) => ({ text: label }))
+                ),
                 resize_keyboard: true,
               },
             });
@@ -548,7 +576,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'שגיאה לא צפויה';
-        await sendToChat(chatId, `❌ שגיאה: ${errMsg}`);
+        await sendToChat(
+          chatId,
+          [
+            '❌ <b>לא ניתן להשלים את הבקשה</b>',
+            '',
+            'אירעה תקלה בעיבוד הפקודה. נסו שוב בעוד רגע.',
+            `אם הבעיה נמשכת, פנו להנהלה עם צילום המסך (<code>${escapeHtml(errMsg.slice(0, 200))}</code>).`,
+          ].join('\n')
+        );
       }
       return NextResponse.json({ ok: true });
     }
@@ -559,7 +595,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         await sendToChat(chatId, reply);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : 'שגיאה לא צפויה';
-        await sendToChat(chatId, `❌ מפקח עליון: ${errMsg}`);
+        await sendToChat(
+          chatId,
+          [
+            '❌ <b>מפקח עליון — התגובה לא הושלמה</b>',
+            '',
+            'נסו לנסח מחדש את ההודעה או לחכות רגע ולשלוח שוב.',
+            `<code>${escapeHtml(errMsg.slice(0, 220))}</code>`,
+          ].join('\n')
+        );
       }
     }
     return NextResponse.json({ ok: true });

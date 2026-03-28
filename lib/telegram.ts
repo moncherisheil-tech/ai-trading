@@ -518,6 +518,90 @@ export async function sendEliteAlert(params: {
   return lastResult;
 }
 
+export type SignalOfGoldParams = {
+  /** e.g. BTC/USDT */
+  symbolDisplay: string;
+  /** Binance symbol e.g. BTCUSDT (for chart links). */
+  symbolBinance: string;
+  strengthPct: number;
+  bias: 'Bullish' | 'Bearish';
+  /** Live reference mid (display only). */
+  spotPrice: number;
+  entryLow: number;
+  entryHigh: number;
+  takeProfit: number;
+  stopLoss: number;
+  consensusExcerpt: string;
+};
+
+/**
+ * Floor 1000 — institutional "Signal of Gold" alert (HTML).
+ * Includes symbol, strength, entry zone, TP/SL, consensus excerpt.
+ */
+export async function sendSignalOfGoldAlert(params: SignalOfGoldParams): Promise<TelegramSendResult> {
+  const token = getToken();
+  if (!token) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+  const chatIds = await getBroadcastChatIds();
+  if (chatIds.length === 0) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+
+  const biasLabelHe =
+    params.bias === 'Bullish' ? 'לונג (Bullish)' : 'שורט (Bearish)';
+  const excerpt = escapeHtml(params.consensusExcerpt.trim().slice(0, 420));
+  const sym = escapeHtml(params.symbolDisplay);
+  const strength = Math.max(0, Math.min(100, Math.round(params.strengthPct)));
+  const spot = formatPrice(params.spotPrice);
+  const lo = formatPrice(params.entryLow);
+  const hi = formatPrice(params.entryHigh);
+  const tp = formatPrice(params.takeProfit);
+  const sl = formatPrice(params.stopLoss);
+
+  const text = [
+    '💎 <b>אות אלפא - קואנטום מון שרי</b> 💎',
+    '',
+    `<b>נכס</b>: <code>${sym}</code>`,
+    `<b>כיוון</b>: <code>${escapeHtml(biasLabelHe)}</code>`,
+    `<b>עוצמת סיגנל</b>: <code>${strength}%</code>`,
+    `<b>מחיר ייחוס (שוק)</b>: <code>${spot}</code>`,
+    '',
+    '<b>אזור כניסה</b>',
+    `<code>${lo}</code> — <code>${hi}</code>`,
+    '',
+    '<b>יעדי רווח (TP) / סטופ לוס (SL)</b>',
+    `<code>${tp}</code> · <code>${sl}</code>`,
+    '',
+    '<b>רציונל הקונסנזוס</b>',
+    excerpt || '<code>—</code>',
+  ].join('\n');
+
+  const baseUrl = getBaseUrl();
+  const safeRoot = baseUrl.startsWith('http://localhost')
+    ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com').replace(/\/$/, '')
+    : baseUrl.replace(/\/$/, '');
+  const strategyUrl = `${safeRoot}/settings`;
+  const tradingViewUrl = getTradingViewChartUrl(params.symbolBinance);
+  const reply_markup: TelegramReplyMarkup = {
+    inline_keyboard: [
+      [
+        { text: '📊 גרף TradingView', url: tradingViewUrl },
+        { text: '⚙️ אסטרטגיה והגדרות', url: strategyUrl },
+      ],
+    ],
+  };
+
+  let lastResult: TelegramSendResult = { ok: false, error: 'NO_RECIPIENTS', statusCode: 0 };
+  for (const chatId of chatIds) {
+    const result = await sendTelegramRaw({
+      token,
+      chatId,
+      text,
+      parse_mode: 'HTML',
+      reply_markup,
+    });
+    lastResult = result;
+  }
+  return lastResult;
+}
+
 export { GEM_CALLBACK_PREFIX_CONFIRM, GEM_CALLBACK_PREFIX_REJECT, GEM_CALLBACK_DEEP, GEM_CALLBACK_IGNORE };
 
 /**

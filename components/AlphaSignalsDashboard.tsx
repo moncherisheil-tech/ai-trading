@@ -109,7 +109,7 @@ function ProbabilityRing({ probability, signal }: { probability: number; signal:
           strokeDashoffset={offset}
         />
       </svg>
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-zinc-100">
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums text-zinc-100 ticker-numeric">
         {p}%
       </div>
     </div>
@@ -385,7 +385,11 @@ export default function AlphaSignalsDashboard() {
   const tFlat = t as Record<string, string | undefined>;
 
   return (
-    <section className="mx-auto w-full max-w-7xl px-4 pb-12 pt-6 md:px-8">
+    <section
+      className="min-h-screen bg-[var(--background)] overflow-x-hidden pb-20 sm:pb-0 text-zinc-100"
+      dir="rtl"
+    >
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 pb-12 pt-6 sm:pt-8">
       <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-white md:text-4xl">{t.alphaSignalsAdvisory ?? 'Alpha Signals Advisory'}</h1>
@@ -467,7 +471,7 @@ export default function AlphaSignalsDashboard() {
             <div className="relative z-10 mb-3 flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="text-xl font-black tracking-tight text-white">{item.asset}</p>
-                <p className="ui-label mt-0.5 text-[10px] font-semibold tracking-wide text-slate-500">AI Advisory</p>
+                <p className="ui-label mt-0.5 text-[10px] font-semibold tracking-wide text-zinc-400">AI Advisory</p>
               </div>
               <ProbabilityRing probability={st.probability} signal={st.signal} />
             </div>
@@ -516,11 +520,11 @@ export default function AlphaSignalsDashboard() {
         ))}
       </div>
       {!loading && items.length === 0 && (
-        <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-900/80 px-5 py-8 text-center text-slate-300">
-          <p className="text-sm font-medium">
+        <div className="mt-6 rounded-2xl border border-cyan-500/20 bg-black/40 frosted-obsidian px-5 py-8 text-center text-zinc-200">
+          <p className="text-sm font-medium text-zinc-100">
             {t.alphaSignalsEmptyStateHe ?? 'אין איתותים פעילים כרגע. המערכת ממתינה לסיום הניתוח המלא של מועצת הבינה המלאכותית.'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-zinc-400">
             {t.alphaSignalsEmptyStateEn ?? 'No active signals. Awaiting full analysis from the AI council.'}
           </p>
         </div>
@@ -581,6 +585,7 @@ export default function AlphaSignalsDashboard() {
           </div>
         </div>
       )}
+      </div>
     </section>
   );
 }

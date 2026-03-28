@@ -126,7 +126,7 @@ export default function MainDashboard() {
       {isBootstrapping ? (
         <div className="relative z-[3] mx-auto mb-4 max-w-[1680px] px-4 sm:px-6 lg:px-8">
           <div className="rounded-xl border border-cyan-400/25 bg-cyan-950/35 px-4 py-2 text-sm text-cyan-200">
-            Loading...
+            <span className="ui-label tracking-wide">מסנכרן מדדי סיכון שוק…</span>
           </div>
         </div>
       ) : null}
@@ -226,7 +226,7 @@ export default function MainDashboard() {
               </div>
             </div>
             <div className="h-px bg-white/5" />
-            <p className="text-xs text-zinc-500 leading-relaxed">
+            <p className="text-xs text-zinc-400 leading-relaxed">
               הנתונים מסונכרנים עם מנוע הקונצנזוס והזיכרון העמוק. לפרטים מלאים — לוח הביצועים.
             </p>
           </div>
