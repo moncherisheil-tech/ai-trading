@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 
 const AUTH_COOKIE_NAME = 'app_auth_token';
 
@@ -75,10 +74,17 @@ async function verifyAuthCookie(request: NextRequest): Promise<boolean> {
 }
 
 /**
- * Paths that are always allowed without authentication (whitelist).
- * Everything else requires a valid app_auth_token cookie.
- * Cron paths: no longer accept URL query secrets; headers only.
+ * Next.js internals and common static URLs — never gate (defense in depth alongside matcher).
  */
+function shouldBypassAuthForPath(pathname: string): boolean {
+  if (pathname.startsWith('/_next/static')) return true;
+  if (pathname.startsWith('/_next/image')) return true;
+  if (pathname.startsWith('/_next/data')) return true;
+  if (pathname === '/favicon.ico') return true;
+  if (/\.(?:svg|png|jpg|jpeg|gif|webp)$/i.test(pathname)) return true;
+  return false;
+}
+
 function isWhitelisted(pathname: string, request: NextRequest): boolean {
   if (pathname === '/login') return true;
   if (pathname.startsWith('/api/health/')) return true;
@@ -90,17 +96,6 @@ function isWhitelisted(pathname: string, request: NextRequest): boolean {
   if (pathname === '/icon' || pathname === '/apple-icon') return true;
   if (pathname.startsWith('/api/auth/login') || pathname.startsWith('/api/auth/logout')) return true;
   return false;
-}
-
-function isStrictOperationalApi(pathname: string): boolean {
-  return (
-    pathname.startsWith('/api/ops/') ||
-    pathname === '/api/admin/terminal' ||
-    pathname === '/api/portfolio/virtual' ||
-    pathname === '/api/simulation/reset' ||
-    pathname === '/api/trading/execute-signal' ||
-    pathname === '/api/academy/rag'
-  );
 }
 
 function isProtectedPath(pathname: string): boolean {
@@ -116,8 +111,8 @@ function isProtectedPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (isStrictOperationalApi(pathname) && !validateAdminOrCronAuth(request)) {
-    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+  if (shouldBypassAuthForPath(pathname)) {
+    return NextResponse.next();
   }
 
   if (isWhitelisted(pathname, request)) {
@@ -139,14 +134,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/',
-    '/ops/:path*',
-    '/admin/:path*',
-    '/api/ops/:path*',
-    '/api/admin/terminal',
-    '/api/portfolio/virtual',
-    '/api/simulation/reset',
-    '/api/trading/execute-signal',
-    '/api/academy/rag',
+    '/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
