@@ -212,10 +212,20 @@ export default function QuantumCommandCenter() {
 
   const refresh = useCallback(async () => {
     try {
-      const [dash, telem] = await Promise.all([
-        getExecutionDashboardSnapshotAction() as Promise<DashboardSnap>,
+      const [dashRaw, telem] = await Promise.all([
+        getExecutionDashboardSnapshotAction() as Promise<Partial<DashboardSnap> | null>,
         getSignalCoreTelemetryAction({ symbol: tickSymbol }),
       ]);
+      const dash: DashboardSnap | null =
+        dashRaw && typeof dashRaw === 'object'
+          ? {
+              mode: dashRaw.mode === 'LIVE' ? 'LIVE' : 'PAPER',
+              masterSwitchEnabled: Boolean(dashRaw.masterSwitchEnabled),
+              minConfidenceToExecute: dashRaw.minConfidenceToExecute ?? 80,
+              activeTrades: Array.isArray(dashRaw.activeTrades) ? dashRaw.activeTrades : [],
+              recentExecutions: Array.isArray(dashRaw.recentExecutions) ? dashRaw.recentExecutions : [],
+            }
+          : null;
       setSnap(dash);
       if (telem.ok) {
         setTelemetry(telem);
@@ -250,30 +260,30 @@ export default function QuantumCommandCenter() {
 
   const expertBreakdown = useMemo(() => {
     if (!snap) return null;
-    const trade = snap.activeTrades[0];
+    const trade = snap.activeTrades?.[0];
     const fromTrade = trade?.analysisReasoning?.expertBreakdown;
     if (fromTrade) return fromTrade;
-    const last = snap.recentExecutions[0];
+    const last = snap.recentExecutions?.[0];
     return last?.expertBreakdown ?? null;
   }, [snap]);
 
   const robotChassis = useMemo(() => {
     if (!snap) return 'INITIALIZING…';
-    if (snap.activeTrades.length > 0) return 'IN POSITION';
+    if ((snap.activeTrades?.length ?? 0) > 0) return 'IN POSITION';
     if (!snap.masterSwitchEnabled) return 'MANUAL OVERSIGHT · AUTO HALTED';
-    const r = (snap.recentExecutions[0]?.reason || '').toLowerCase();
+    const r = (snap.recentExecutions?.[0]?.reason || '').toLowerCase();
     if (r.includes('cvd') || r.includes('microstructure')) return 'WAITING FOR CVD CONFIRMATION';
     return 'ARMED · SCANNING';
   }, [snap]);
 
-  const primaryTrade = snap?.activeTrades[0];
+  const primaryTrade = snap?.activeTrades?.[0];
   const strikeHint = useMemo(() => {
     if (!snap?.recentExecutions?.length) {
       return { symbol: tickSymbol, side: 'BUY' as const, confidence: snap?.minConfidenceToExecute ?? 78 };
     }
+    const rows = snap.recentExecutions ?? [];
     const row =
-      snap.recentExecutions.find((e) => e.signal === 'BUY' || e.signal === 'SELL') ??
-      snap.recentExecutions[0];
+      rows.find((e) => e.signal === 'BUY' || e.signal === 'SELL') ?? rows[0];
     return {
       symbol: row.symbol || tickSymbol,
       side: row.signal,
@@ -293,10 +303,11 @@ export default function QuantumCommandCenter() {
   };
 
   const liquidateAll = async () => {
-    if (!snap?.activeTrades.length) return;
+    const open = snap?.activeTrades ?? [];
+    if (!open.length) return;
     setBusy('kill');
     try {
-      await Promise.all(snap.activeTrades.map((t) => closeVirtualPortfolioTradeAction({ symbol: t.symbol })));
+      await Promise.all(open.map((t) => closeVirtualPortfolioTradeAction({ symbol: t.symbol })));
       await refresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Kill sequence failed');
@@ -489,7 +500,7 @@ export default function QuantumCommandCenter() {
             <div className="flex flex-col items-stretch gap-2 sm:items-end">
               <button
                 type="button"
-                disabled={busy !== null || !snap?.activeTrades.length}
+                disabled={busy !== null || !(snap?.activeTrades?.length ?? 0)}
                 onClick={() => void liquidateAll()}
                 className="rounded-lg border px-4 py-2.5 font-inter-tight text-xs font-bold uppercase tracking-[0.2em] transition enabled:hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-35"
                 style={{

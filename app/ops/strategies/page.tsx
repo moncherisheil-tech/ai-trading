@@ -5,6 +5,7 @@ import { getBaseUrl } from '@/lib/config';
 import PerformanceTrendsCharts from '@/components/PerformanceTrendsCharts';
 import TriggerRetrospectiveButton from '@/components/TriggerRetrospectiveButton';
 import { getT } from '@/lib/i18n';
+import { updateStrategyInsightRowAction } from '@/app/actions';
 
 const t = getT('he');
 
@@ -38,20 +39,6 @@ async function fetchAccuracyMetrics() {
   }
 
   return response.json();
-}
-
-async function updateInsightStatus(id: string, status: 'pending' | 'approved' | 'rejected') {
-  const baseUrl = getBaseUrl();
-  const response = await fetch(`${baseUrl}/api/ops/strategies`, {
-    method: 'POST',
-    cache: 'no-store',
-    headers: {
-      'content-type': 'application/json',
-      cookie: (await cookies()).toString(),
-    },
-    body: JSON.stringify({ id, status }),
-  });
-  return response.ok;
 }
 
 export default async function StrategyOpsPage() {
@@ -149,13 +136,7 @@ export default async function StrategyOpsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-end space-x-2">
-                        <form
-                          action={async () => {
-                            'use server';
-                            await updateInsightStatus(item.id, 'approved');
-                          }}
-                          className="inline"
-                        >
+                        <form action={updateStrategyInsightRowAction.bind(null, item.id, 'approved')} className="inline">
                           <button
                             type="submit"
                             className="rounded-lg bg-emerald-500/20 border border-emerald-500/30 px-2 py-1 text-xs font-medium text-emerald-400 hover:bg-emerald-500/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
@@ -163,13 +144,7 @@ export default async function StrategyOpsPage() {
                             {t.approve}
                           </button>
                         </form>
-                        <form
-                          action={async () => {
-                            'use server';
-                            await updateInsightStatus(item.id, 'rejected');
-                          }}
-                          className="inline"
-                        >
+                        <form action={updateStrategyInsightRowAction.bind(null, item.id, 'rejected')} className="inline">
                           <button
                             type="submit"
                             className="rounded-lg bg-rose-500/20 border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-400 hover:bg-rose-500/30 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"

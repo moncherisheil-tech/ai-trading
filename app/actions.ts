@@ -13,6 +13,7 @@ import { aiPredictionSchema, aiPredictionPartialSchema, binanceKlinesSchema, fea
 import { listStrategyInsights, updateStrategyInsightStatus } from '@/lib/db/strategy-repository';
 import { z } from 'zod';
 import { cookies, headers } from 'next/headers';
+import { revalidatePath } from 'next/cache';
 import { writeAudit } from '@/lib/audit';
 import { enqueueByKey } from '@/lib/task-queue';
 import {
@@ -628,6 +629,22 @@ export async function getStrategyDashboard(): Promise<{
     weightChangeLog,
     accuracyByConfidence,
   };
+}
+
+/**
+ * Strategy ops table: stable server action for approve/reject.
+ * Inline `action={async () => { 'use server'; ... }}` inside `.map()` yields broken action IDs
+ * ("Failed to find Server Action") after deploy or across rows.
+ */
+export async function updateStrategyInsightRowAction(
+  id: string,
+  status: 'pending' | 'approved' | 'rejected'
+): Promise<void> {
+  if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
+    await requireAuth('admin');
+  }
+  await updateStrategyInsightStatus(id, status);
+  revalidatePath('/ops/strategies');
 }
 
 /**
