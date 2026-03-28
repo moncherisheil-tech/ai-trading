@@ -113,6 +113,11 @@ export interface ExecutionDashboardSnapshot {
     amountUsd: number;
     unrealizedPnlUsd: number;
     unrealizedPnlPct: number;
+    /** Virtual book: TP/SL as % from entry; prices derived for long-style display. */
+    targetProfitPct: number;
+    stopLossPct: number;
+    takeProfitPrice: number;
+    stopLossPrice: number;
     analysisReasoning: {
       reason: string | null;
       overseerSummary: string | null;
@@ -756,14 +761,21 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
     const unrealized = computeUnrealized(t, currentPrice);
     totalUnrealizedPnlUsd += unrealized.usd;
     const reasonRow = tradeReasoningByVirtualTradeId.get(t.id) ?? null;
+    const tpPct = t.target_profit_pct ?? 2;
+    const slPct = t.stop_loss_pct ?? -1.5;
+    const entry = t.entry_price;
     return {
       id: t.id,
       symbol: t.symbol,
-      entryPrice: t.entry_price,
+      entryPrice: entry,
       currentPrice,
       amountUsd: t.amount_usd,
       unrealizedPnlUsd: unrealized.usd,
       unrealizedPnlPct: unrealized.pct,
+      targetProfitPct: tpPct,
+      stopLossPct: slPct,
+      takeProfitPrice: round2(entry * (1 + tpPct / 100)),
+      stopLossPrice: round2(entry * (1 + slPct / 100)),
       analysisReasoning: reasonRow
         ? {
             reason: reasonRow.reason,

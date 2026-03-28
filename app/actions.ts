@@ -639,6 +639,94 @@ export async function getExecutionDashboardSnapshotAction(): Promise<unknown> {
   return getExecutionDashboardSnapshot();
 }
 
+export type SignalCoreTelemetryPayload = {
+  ok: true;
+  enabled: boolean;
+  symbol: string;
+  metrics: {
+    cvd_slope: number;
+    entropy_returns: number | null;
+    kalman_velocity: number | null;
+    noise_flag: boolean;
+    cvd_last_n: number;
+  } | null;
+  message?: string;
+};
+
+/**
+ * Live Python Signal-Core microstructure (CVD slope, entropy, Kalman) for the Quantum deck.
+ * Admin-gated; requires SIGNAL_CORE_URL + SIGNAL_CORE_ENABLED on the server.
+ */
+export async function getSignalCoreTelemetryAction(input?: {
+  symbol?: string;
+}): Promise<SignalCoreTelemetryPayload | { ok: false; error: string }> {
+  try {
+    if (isSessionEnabled() && !isDevelopmentAuthBypass()) {
+      await requireQuantumAdmin();
+    }
+  } catch {
+    return { ok: false, error: 'Admin session required.' };
+  }
+
+  const raw = (input?.symbol || 'BTCUSDT').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const symbol = raw.endsWith('USDT') ? raw : `${raw}USDT`;
+
+  const { isSignalCoreEnabled, postMicrostructure } = await import('@/lib/microstructure/signal-core-client');
+  const { fetchBinanceAggTrades } = await import('@/lib/api-utils');
+
+  if (!isSignalCoreEnabled()) {
+    return {
+      ok: true,
+      enabled: false,
+      symbol,
+      metrics: null,
+      message: 'Signal Core disabled (set SIGNAL_CORE_URL + SIGNAL_CORE_ENABLED).',
+    };
+  }
+
+  const trades = await fetchBinanceAggTrades(symbol, 500, 12_000);
+  if (trades.length < 8) {
+    return {
+      ok: true,
+      enabled: true,
+      symbol,
+      metrics: null,
+      message: 'Insufficient agg trades for microstructure window.',
+    };
+  }
+
+  const bodyTrades = trades.map((t) => ({
+    price: t.price,
+    qty: t.qty,
+    is_buyer_maker: t.is_buyer_maker,
+    time: t.time,
+  }));
+
+  const res = await postMicrostructure({ trades: bodyTrades });
+  if (!res) {
+    return {
+      ok: true,
+      enabled: true,
+      symbol,
+      metrics: null,
+      message: 'Signal Core unreachable or returned invalid payload.',
+    };
+  }
+
+  return {
+    ok: true,
+    enabled: true,
+    symbol,
+    metrics: {
+      cvd_slope: res.cvd_slope,
+      entropy_returns: res.entropy_returns,
+      kalman_velocity: res.kalman_velocity,
+      noise_flag: res.noise_flag,
+      cvd_last_n: res.cvd_last_n,
+    },
+  };
+}
+
 export async function getMarketRiskSentinelAction(): Promise<unknown> {
   const { getMarketRiskSentiment } = await import('@/lib/market-sentinel');
   return getMarketRiskSentiment();
