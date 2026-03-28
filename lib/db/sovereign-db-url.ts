@@ -85,8 +85,8 @@ export function runProductionDatabaseUrlGate(): void {
   if (!isProduction()) return;
   const trimmed = normalizeDatabaseUrlEnv(process.env.DATABASE_URL);
   if (!trimmed) {
-    console.warn(formatDatabaseUrlRemediation('missing'));
-    return;
+    console.error(formatDatabaseUrlRemediation('missing'));
+    process.exit(1);
   }
   const { username, parseError } = parseDatabaseUrlIdentity(trimmed);
   if (parseError) {
