@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { initDB } from '@/lib/db';
 import { APP_CONFIG } from '@/lib/config';
 import { getPrisma } from '@/lib/prisma';
 
@@ -104,6 +105,7 @@ export async function setSubscriberActive(chatId: string, isActive: boolean): Pr
  */
 export async function isChatIdActiveSubscriber(chatId: string): Promise<boolean> {
   if (!hasPostgres()) return false;
+  await initDB();
   const prisma = getPrisma();
   if (!prisma) return false;
   try {
@@ -123,6 +125,7 @@ export async function isChatIdActiveSubscriber(chatId: string): Promise<boolean>
  */
 export async function isChatIdActiveAdmin(chatId: string): Promise<boolean> {
   if (!hasPostgres()) return false;
+  await initDB();
   const prisma = getPrisma();
   if (!prisma) return false;
   try {

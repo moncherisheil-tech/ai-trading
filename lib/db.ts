@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db/sql';
+import { queryRaw } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
 // --- 1. הגדרות טיפוסים (חובה עבור שאר האתר) ---
@@ -94,8 +94,9 @@ export async function getPredictionRepository() {
 }
 
 /**
- * אתחול בסיס הנתונים - יוצר את טבלת prediction_records ב־PostgreSQL.
- * Serverless-safe: לא מפיל את ה-route אם חסר postgresUrl או אם יצירת הטבלאות נכשלת.
+ * אתחול בסיס הנתונים — יוצר טבלאות חסרות ומתקן עמודות חסרות (self-heal) ב־PostgreSQL.
+ * נקרא מ־instrumentation, מ־`/api/ops/init-db`, ולפני כל שאילתת `sql()` ראשונה בתהליך.
+ * Serverless-safe: לא זורק החוצה; שגיאות נרשמות ללוג.
  */
 export async function initDB(): Promise<void> {
   if (!hasPostgres()) {
@@ -103,7 +104,7 @@ export async function initDB(): Promise<void> {
     return;
   }
   try {
-    await sql`
+    await queryRaw(`
       CREATE TABLE IF NOT EXISTS prediction_records (
         id TEXT PRIMARY KEY,
         symbol TEXT NOT NULL,
@@ -111,31 +112,63 @@ export async function initDB(): Promise<void> {
         prediction_date TIMESTAMPTZ NOT NULL,
         payload JSONB NOT NULL
       )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_prediction_records_symbol ON prediction_records(symbol)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_prediction_records_status ON prediction_records(status)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_prediction_records_prediction_date ON prediction_records(prediction_date DESC)`;
-    await sql`
+    `);
+    await queryRaw(
+      'CREATE INDEX IF NOT EXISTS idx_prediction_records_symbol ON prediction_records(symbol)'
+    );
+    await queryRaw(
+      'CREATE INDEX IF NOT EXISTS idx_prediction_records_status ON prediction_records(status)'
+    );
+    await queryRaw(
+      'CREATE INDEX IF NOT EXISTS idx_prediction_records_prediction_date ON prediction_records(prediction_date DESC)'
+    );
+    await queryRaw(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
-    `;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS settings_key_key ON settings(key)`;
-    await sql`
+    `);
+    await queryRaw(
+      'CREATE UNIQUE INDEX IF NOT EXISTS settings_key_key ON settings(key)'
+    );
+    // Legacy DBs: table existed without Prisma-aligned "updatedAt" (Paper Trade / app_settings saves).
+    await queryRaw(
+      'ALTER TABLE settings ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()'
+    );
+    await queryRaw(`
       CREATE TABLE IF NOT EXISTS telegram_subscribers (
         id SERIAL PRIMARY KEY,
         chat_id TEXT NOT NULL UNIQUE,
         username TEXT,
         is_active BOOLEAN NOT NULL DEFAULT true,
         role TEXT NOT NULL DEFAULT 'subscriber',
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_telegram_subscribers_is_active ON telegram_subscribers(is_active)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_telegram_subscribers_chat_id ON telegram_subscribers(chat_id)`;
+    `);
+    await queryRaw(
+      'CREATE INDEX IF NOT EXISTS idx_telegram_subscribers_is_active ON telegram_subscribers(is_active)'
+    );
+    await queryRaw(
+      'CREATE INDEX IF NOT EXISTS idx_telegram_subscribers_chat_id ON telegram_subscribers(chat_id)'
+    );
+    // Partial / hand-rolled tables: add any missing columns expected by lib/db/telegram-subscribers.ts + Prisma.
+    await queryRaw(
+      'ALTER TABLE telegram_subscribers ADD COLUMN IF NOT EXISTS username TEXT'
+    );
+    await queryRaw(
+      "ALTER TABLE telegram_subscribers ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true"
+    );
+    await queryRaw(
+      "ALTER TABLE telegram_subscribers ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'subscriber'"
+    );
+    await queryRaw(
+      'ALTER TABLE telegram_subscribers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP'
+    );
+    await queryRaw(
+      'ALTER TABLE telegram_subscribers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP'
+    );
   } catch (err) {
     console.error('DB initialization failed:', err);
   }

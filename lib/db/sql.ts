@@ -38,6 +38,30 @@ function getPool(): Pool {
   return pool;
 }
 
+/** Ensures core DDL (settings, telegram_subscribers, etc.) once per process; avoids recursion with initDB. */
+let coreSchemaInitPromise: Promise<void> | null = null;
+
+function runCoreSchemaInitOnce(): Promise<void> {
+  if (!coreSchemaInitPromise) {
+    coreSchemaInitPromise = import('@/lib/db')
+      .then((m) => m.initDB())
+      .catch((err) => {
+        coreSchemaInitPromise = null;
+        console.error('[sql] Core schema initialization failed:', err);
+        throw err;
+      });
+  }
+  return coreSchemaInitPromise;
+}
+
+/**
+ * Raw parameterized query without schema bootstrap — used only by `initDB` to avoid deadlocks.
+ */
+export function queryRaw(text: string, params: unknown[] = []): Promise<QueryResult> {
+  ensureDatabaseAuthorizedForQuery();
+  return getPool().query(text, params);
+}
+
 /**
  * Tagged-template query helper, API-compatible with the former `@vercel/postgres` `sql` export.
  * Values are passed as parameterized query arguments ($1, $2, …).
@@ -53,5 +77,5 @@ export function sql(
     params.push(values[i]);
     text += `$${params.length}` + (strings[i + 1] ?? '');
   }
-  return getPool().query(text, params);
+  return runCoreSchemaInitOnce().then(() => getPool().query(text, params));
 }

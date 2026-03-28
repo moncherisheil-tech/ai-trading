@@ -8,6 +8,8 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { initDB } = await import('@/lib/db');
+    await initDB();
     const { runSystemDiagnostics } = await import('@/lib/system-diagnostics');
     runSystemDiagnostics();
     const { startMarketScanner } = await import('@/lib/workers/market-scanner');
