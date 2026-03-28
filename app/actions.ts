@@ -37,7 +37,7 @@ import { appendHistoricalPrediction } from '@/lib/db/historical-predictions';
 import { sendTelegramMessage, sendGemAlert } from '@/lib/telegram';
 import { isSupportedBase } from '@/lib/symbols';
 import { doAnalysisCore } from '@/lib/analysis-core';
-import { DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
+import { DEFAULT_MOE_THRESHOLD, getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 import type { SimulationResult, LoginResult, BinanceKline } from '@/lib/actions-types';
 import { getRequestLocale } from '@/lib/locale.server';
 import type { Locale } from '@/lib/i18n';
@@ -425,9 +425,10 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
 
           const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
           const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
+          const learnTemp = resolveLlmTemperature(await getAppSettings());
           const geminiPromise = model.generateContent({
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.2 },
+            generationConfig: { temperature: learnTemp },
           });
           const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
           const response = await Promise.race([

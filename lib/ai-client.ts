@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { APP_CONFIG } from '@/lib/config';
+import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 import { getGeminiApiKey, getOpenAiApiKey, getRequiredGroqApiKey } from '@/lib/env';
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
@@ -31,7 +32,8 @@ export async function generateLiveText(params: {
   assertLiveModeEnabled();
   const provider = resolveProvider();
   const maxOutputTokens = params.maxOutputTokens ?? 500;
-  const temperature = params.temperature ?? 0.3;
+  const settings = await getAppSettings();
+  const temperature = params.temperature ?? resolveLlmTemperature(settings);
   const forceHebrew = params.locale === 'he';
   const localeDirective = 'CRITICAL: You MUST answer in Hebrew. Do not use English.';
   const systemInstruction = forceHebrew

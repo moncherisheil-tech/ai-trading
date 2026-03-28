@@ -17,6 +17,7 @@ import { APP_CONFIG } from '@/lib/config';
 import { rsi, ema20, ema50 } from '@/lib/indicators';
 import { toDecimal } from '@/lib/decimal';
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
+import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
 const POST_MORTEM_LLM_TIMEOUT_MS = 12_000;
@@ -167,6 +168,7 @@ export async function generatePostMortem(
   pnlPct: number,
   rsiVal: number | null
 ): Promise<GeneratedPostMortem> {
+  const pmTemp = resolveLlmTemperature(await getAppSettings());
   const entryConditions = `entry_price=${trade.entry_price}, target=${trade.target_profit_pct}%, stop=${trade.stop_loss_pct}%`;
   const outcome = `exit_price=${exitPrice}, reason=${closeReason}, pnl_pct=${pnlPct.toFixed(2)}%`;
   const prompt = buildPostMortemPrompt({
@@ -205,7 +207,7 @@ export async function generatePostMortem(
             },
             { role: 'user', content: prompt },
           ],
-          temperature: 0.2,
+          temperature: pmTemp,
           max_tokens: 1024,
         }),
         new Promise<never>((_, rej) =>
@@ -243,7 +245,7 @@ export async function generatePostMortem(
           role: 'user',
           parts: [{ text: `You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).\n\n${prompt}` }],
         }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+        generationConfig: { temperature: pmTemp, maxOutputTokens: 1024 },
       }),
       new Promise<never>((_, rej) =>
         setTimeout(() => rej(new Error('Gemini post-mortem timeout')), POST_MORTEM_LLM_TIMEOUT_MS)

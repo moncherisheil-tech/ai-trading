@@ -4,7 +4,7 @@
  * Provides getSystemContextForChat() for Web and Telegram Executive Hotline.
  */
 
-import { getAppSettings, DEFAULT_MOE_THRESHOLD } from '@/lib/db/app-settings';
+import { getAppSettings, DEFAULT_MOE_THRESHOLD, resolveLlmTemperature } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { computePortfolioAllocation } from '@/lib/portfolio-math';
 import { getVirtualPortfolioSummary } from '@/lib/simulation-service';
@@ -216,6 +216,7 @@ export async function getOverseerChatReply(userMessage: string, locale?: Locale)
   const { resolveGeminiModel } = await import('@/lib/gemini-model');
 
   const context = await getSystemContextForChat();
+  const chatTemp = resolveLlmTemperature(await getAppSettings());
   const dataBlob = JSON.stringify(
     {
       globalExposurePct: context.globalExposurePct,
@@ -244,7 +245,7 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
   const res = await Promise.race([
     model.generateContent({
       contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nMessage from CEO: ${userMessage}` }] }],
-      generationConfig: { temperature: 0.3, maxOutputTokens: 300 },
+      generationConfig: { temperature: chatTemp, maxOutputTokens: 300 },
     }),
     new Promise<never>((_, rej) =>
       setTimeout(() => rej(new Error('Overseer chat timeout')), timeoutMs)
@@ -273,6 +274,7 @@ export async function getDailyCioSummary(locale?: Locale): Promise<string> {
   const { resolveGeminiModel } = await import('@/lib/gemini-model');
 
   const context = await getSystemContextForChat();
+  const cioTemp = resolveLlmTemperature(await getAppSettings());
   const dataBlob = JSON.stringify(
     {
       globalExposurePct: context.globalExposurePct,
@@ -302,7 +304,7 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
   const res = await Promise.race([
     model.generateContent({
       contents: [{ role: 'user', parts: [{ text: `${systemInstruction}\n\nProvide today’s CIO summary.` }] }],
-      generationConfig: { temperature: 0.4, maxOutputTokens: 80 },
+      generationConfig: { temperature: cioTemp, maxOutputTokens: 80 },
     }),
     new Promise<never>((_, rej) => setTimeout(() => rej(new Error('Overseer CIO timeout')), timeoutMs)),
   ]);

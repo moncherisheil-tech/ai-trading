@@ -8,7 +8,12 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
-import { getAppSettings, setAppSettings, type AppSettings } from '@/lib/db/app-settings';
+import {
+  getAppSettings,
+  getAppSettingsUpdatedAt,
+  setAppSettings,
+  type AppSettings,
+} from '@/lib/db/app-settings';
 import { recordAuditLog } from '@/lib/db/audit-logs';
 
 export const dynamic = 'force-dynamic';
@@ -62,6 +67,9 @@ function validateAndNormalize(body: Record<string, unknown>): Partial<AppSetting
     const n = body.neural as Record<string, unknown>;
     const neuralPart: Record<string, unknown> = {};
     if (n.moeConfidenceThreshold !== undefined) neuralPart.moeConfidenceThreshold = clampPct(n.moeConfidenceThreshold, 75);
+    if (n.llmTemperature !== undefined) {
+      neuralPart.llmTemperature = clampNum(n.llmTemperature, 0, 2, 0.2);
+    }
     if (n.ragEnabled !== undefined) neuralPart.ragEnabled = typeof n.ragEnabled === 'boolean' ? n.ragEnabled : Boolean(n.ragEnabled);
     if (n.autoPostMortemEnabled !== undefined) neuralPart.autoPostMortemEnabled = typeof n.autoPostMortemEnabled === 'boolean' ? n.autoPostMortemEnabled : Boolean(n.autoPostMortemEnabled);
     if (Object.keys(neuralPart).length) out.neural = neuralPart as AppSettings['neural'];
@@ -112,6 +120,12 @@ function validateAndNormalize(body: Record<string, unknown>): Partial<AppSetting
       executionPart.liveApiKeyConfigured =
         typeof e.liveApiKeyConfigured === 'boolean' ? e.liveApiKeyConfigured : Boolean(e.liveApiKeyConfigured);
     }
+    if (e.goLiveSafetyAcknowledged !== undefined) {
+      executionPart.goLiveSafetyAcknowledged =
+        typeof e.goLiveSafetyAcknowledged === 'boolean'
+          ? e.goLiveSafetyAcknowledged
+          : Boolean(e.goLiveSafetyAcknowledged);
+    }
     if (Object.keys(executionPart).length) out.execution = executionPart as AppSettings['execution'];
   }
   return out as Partial<AppSettings>;
@@ -154,7 +168,7 @@ function redactPayloadDiffForAudit(diff: Record<string, unknown>): Record<string
   return { ...diff, system: sub };
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
     const cookieStore = await cookies();
     const token = cookieStore.get('app_auth_token')?.value ?? '';
@@ -166,8 +180,13 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
+  const includeMeta = request.nextUrl.searchParams.get('includeMeta') === '1';
   try {
     const settings = await getAppSettings();
+    if (includeMeta) {
+      const updatedAt = await getAppSettingsUpdatedAt();
+      return NextResponse.json({ settings, meta: { updatedAt } });
+    }
     return NextResponse.json(settings);
   } catch (e) {
     const message = e instanceof Error ? e.message : 'Failed to load settings';
@@ -177,6 +196,7 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  let actorRole: string | null = null;
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
     const cookieStore = await cookies();
     const token = cookieStore.get('app_auth_token')?.value ?? '';
@@ -187,6 +207,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    actorRole = session.role;
+  } else if (isDevelopmentAuthBypass()) {
+    actorRole = 'dev_bypass';
   }
   let body: Record<string, unknown> = {};
   try {
@@ -210,12 +233,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     const updated = await getAppSettings();
     const diff = payloadDiff(current, updated);
-    const safeDiff = Object.keys(diff).length ? redactPayloadDiffForAudit(diff) : { updated: true };
+    const safePatch = Object.keys(diff).length ? redactPayloadDiffForAudit(diff) : { updated: true };
     await recordAuditLog({
       action_type: 'settings_update',
       actor_ip: request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? null,
       user_agent: request.headers.get('user-agent') ?? null,
-      payload_diff: safeDiff,
+      payload_diff: { patch: safePatch, actorRole },
     });
     revalidatePath('/settings');
     revalidatePath('/');

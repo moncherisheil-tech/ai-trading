@@ -13,6 +13,7 @@ import { recordBoardMeetingLog } from '@/lib/db/board-meeting-logs';
 import { escapeHtml } from '@/lib/telegram';
 import { rsi } from '@/lib/indicators';
 import { storeBoardMeetingMemory } from '@/lib/vector-db';
+import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 const RSS_FEEDS = [
@@ -389,6 +390,7 @@ async function callExpert(
   domainGuardrail: string,
   dataset: Record<string, unknown>
 ): Promise<ExpertOutput> {
+  const boardTemp = resolveLlmTemperature(await getAppSettings());
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
   const model = genAI.getGenerativeModel({ model: selectedExpert.model }, selectedExpert.requestOptions);
@@ -441,6 +443,7 @@ Output strictly as JSON with these keys exactly:
 }
 
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
+  const overseerTemp = resolveLlmTemperature(await getAppSettings());
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
   const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
@@ -468,7 +471,7 @@ Output JSON exactly:
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.15,
+          temperature: overseerTemp,
           maxOutputTokens: 700,
         },
       })

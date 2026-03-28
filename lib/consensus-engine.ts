@@ -16,7 +16,14 @@ import Groq from 'groq-sdk';
 import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { listAgentInsightsBySymbol } from '@/lib/db/agent-insights';
-import { getAppSettings, type AppSettings } from '@/lib/db/app-settings';
+import { DEFAULT_APP_SETTINGS, getAppSettings, resolveLlmTemperature, type AppSettings } from '@/lib/db/app-settings';
+
+/** Per-request sampling temperature for MoE experts (set around runConsensusEngine). */
+let consensusEngineLlmTemperature: number | null = null;
+
+function getConsensusEngineLlmTemperature(): number {
+  return consensusEngineLlmTemperature ?? 0.25;
+}
 import { evaluateSystemCohesionAsync } from '@/lib/system-overseer';
 import { fetchTwitterSentiment } from '@/lib/twitter-sentiment';
 import { querySimilarTrades } from '@/lib/vector-db';
@@ -587,7 +594,7 @@ async function callOpenAiCompatJson<T>(
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        temperature: 0.2,
+        temperature: getConsensusEngineLlmTemperature(),
         messages: [
           { role: 'system', content: CONSENSUS_SYSTEM_INSTRUCTION },
           { role: 'user', content: prompt },
@@ -650,7 +657,7 @@ async function callGeminiJson<T>(
                   { role: 'user', parts: [{ text: fullPrompt }] },
                 ],
                 generationConfig: {
-                  temperature: 0.25,
+                  temperature: getConsensusEngineLlmTemperature(),
                   maxOutputTokens: 8192,
                 },
               }),
@@ -999,7 +1006,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
           },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.25,
+        temperature: getConsensusEngineLlmTemperature(),
         max_tokens: 1024,
         response_format: { type: 'json_object' },
       }),
@@ -1284,6 +1291,16 @@ export async function runConsensusEngine(
     mockPayload?: ConsensusMockPayload;
   }
 ): Promise<ConsensusResult> {
+  const prevConsensusTemp = consensusEngineLlmTemperature;
+  let settingsForConsensus: AppSettings = DEFAULT_APP_SETTINGS;
+  try {
+    settingsForConsensus = options?.cachedAppSettings ?? (await getAppSettings());
+  } catch {
+    settingsForConsensus = DEFAULT_APP_SETTINGS;
+  }
+  consensusEngineLlmTemperature = resolveLlmTemperature(settingsForConsensus);
+
+  try {
   const requestedRaw = options?.model ?? APP_CONFIG.primaryModel ?? GEMINI_DEFAULT_FLASH_MODEL_ID;
   const isGeminiLike =
     /gemini/i.test(String(requestedRaw)) || String(requestedRaw).startsWith('models/gemini');
@@ -1303,7 +1320,7 @@ export async function runConsensusEngine(
   let riskToleranceLevel: 'strict' | 'moderate' | 'aggressive' | undefined;
   let bestExpertFromDeepMemory: { bestExpertKey: string; accuracyPct: number } | null = null;
   try {
-    const settings = options?.cachedAppSettings ?? (await getAppSettings());
+    const settings = settingsForConsensus;
     // Use DB-backed Overseer settings (saved from Supreme Inspector panel)
     if (threshold == null) threshold = settings.neural?.moeConfidenceThreshold ?? CONSENSUS_THRESHOLD;
     riskToleranceLevel = settings.risk?.riskToleranceLevel;
@@ -1713,4 +1730,7 @@ export async function runConsensusEngine(
       ? { debate_resolution: judgeResult.debate_resolution.trim() }
       : {}),
   };
+  } finally {
+    consensusEngineLlmTemperature = prevConsensusTemp;
+  }
 }

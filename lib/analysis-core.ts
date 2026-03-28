@@ -30,7 +30,7 @@ import {
 } from '@/lib/consensus-engine';
 import { getLeviathanSnapshot } from '@/lib/leviathan';
 import { storeBoardMeetingMemory } from '@/lib/vector-db';
-import { getAppSettings } from '@/lib/db/app-settings';
+import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine';
 import { calculatePositionSize, calculateTradeLevels } from '@/lib/trading/risk-manager';
 import { getRecentWhaleMovements } from '@/lib/trading/whale-tracker';
@@ -815,7 +815,7 @@ RULES:
   const geminiTimeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
 
   const promptText = JSON.stringify(promptData, null, 2);
-  const generationConfig = { temperature: 0.2, maxOutputTokens: 8192 };
+  const generationConfig = { temperature: resolveLlmTemperature(appSettings), maxOutputTokens: 8192 };
 
   let apiResult: { response: { text: () => string } };
   try {

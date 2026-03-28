@@ -32,6 +32,8 @@ export interface AppSettings {
   };
   neural: {
     moeConfidenceThreshold: number;
+    /** Global LLM sampling temperature (0–2); used by analysis, consensus, and secondary generators unless overridden. */
+    llmTemperature: number;
     ragEnabled: boolean;
     autoPostMortemEnabled: boolean;
     /** God-Mode: Optional MoE weight overrides (0-1 each; sum 1). E.g. more Macro during news weeks. */
@@ -93,6 +95,7 @@ const DEFAULTS: AppSettings = {
   },
   neural: {
     moeConfidenceThreshold: DEFAULT_MOE_THRESHOLD,
+    llmTemperature: 0.2,
     ragEnabled: true,
     autoPostMortemEnabled: true,
   },
@@ -120,6 +123,15 @@ const DEFAULTS: AppSettings = {
 
 /** Fallback when `getAppSettings` rejects (e.g. unexpected DB errors in workers). */
 export const DEFAULT_APP_SETTINGS: AppSettings = DEFAULTS;
+
+const DEFAULT_LLM_TEMPERATURE = 0.2;
+
+/** Resolved LLM temperature from settings (clamped 0–2). Pass cached settings when already loaded. */
+export function resolveLlmTemperature(cached?: AppSettings | null): number {
+  const raw = cached?.neural?.llmTemperature;
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? raw : DEFAULT_LLM_TEMPERATURE;
+  return Math.max(0, Math.min(2, n));
+}
 
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
@@ -155,6 +167,22 @@ export async function getAppSettings(): Promise<AppSettings> {
 }
 
 export type SetAppSettingsResult = { ok: true } | { ok: false; error: string };
+
+/** ISO timestamp of last settings row update, or null if missing / no DB. */
+export async function getAppSettingsUpdatedAt(): Promise<string | null> {
+  if (!usePostgres()) return null;
+  try {
+    const { rows } = await sql`
+      SELECT "updatedAt" FROM settings WHERE key = ${KEY} LIMIT 1
+    `;
+    const row = rows?.[0] as { updatedAt?: Date | string } | undefined;
+    const v = row?.updatedAt;
+    if (v == null) return null;
+    return typeof v === 'string' ? v : v.toISOString();
+  } catch {
+    return null;
+  }
+}
 
 export async function setAppSettings(partial: Partial<AppSettings>): Promise<SetAppSettingsResult> {
   if (!usePostgres()) {
