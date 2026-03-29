@@ -1,9 +1,13 @@
 /**
  * Tri-Core Alpha Matrix — Groq (Hourly / order book), Anthropic (Daily / whales), Gemini (Weekly + Long / macro + memory).
  * ATR-based stop and minimum 1:2 R:R use hardcoded policy constants.
+ *
+ * Circuit breaker wraps each LLM leg so transient endpoint failures
+ * are automatically routed to a Gemini/Groq fallback without dropping the job.
  */
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { withCircuitBreaker } from '@/lib/queue/circuit-breaker';
 import { Prisma } from '@prisma/client';
 import type { AlphaDirection, AlphaTimeframe } from '@prisma/client';
 import { z } from 'zod';
@@ -358,10 +362,33 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
     }
   }
 
+  /** Gemini fallback used when Groq or Anthropic circuit breaker is OPEN. */
+  async function geminiFallbackHourly(): Promise<z.infer<typeof coreSignalSchema>> {
+    const dual = await callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry);
+    return { ...dual.weekly, rationaleHebrew: `[CB-Fallback·Groq→Gemini] ${dual.weekly.rationaleHebrew}` };
+  }
+
+  async function geminiFallbackDaily(): Promise<z.infer<typeof coreSignalSchema>> {
+    const dual = await callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry);
+    return { ...dual.long, rationaleHebrew: `[CB-Fallback·Anthropic→Gemini] ${dual.long.rationaleHebrew}` };
+  }
+
+  async function groqFallbackWeeklyLong(): Promise<z.infer<typeof geminiDualSchema>> {
+    const hourly = await callGroqHourly(obSummary, pair, entry);
+    const fallback = { ...hourly, rationaleHebrew: `[CB-Fallback·Gemini→Groq] ${hourly.rationaleHebrew}` };
+    return { weekly: fallback, long: fallback };
+  }
+
   const [groqLeg, anthropicLeg, geminiLeg] = await Promise.all([
-    runTriCoreLeg('Groq hourly', () => callGroqHourly(obSummary, pair, entry)),
-    runTriCoreLeg('Anthropic daily', () => callAnthropicDaily(leviathan.institutionalWhaleContext, whaleJson, pair, entry)),
-    runTriCoreLeg('Gemini weekly/long', () => callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry)),
+    runTriCoreLeg('Groq hourly (CB)', () =>
+      withCircuitBreaker('groq', () => callGroqHourly(obSummary, pair, entry), geminiFallbackHourly)
+    ),
+    runTriCoreLeg('Anthropic daily (CB)', () =>
+      withCircuitBreaker('anthropic', () => callAnthropicDaily(leviathan.institutionalWhaleContext, whaleJson, pair, entry), geminiFallbackDaily)
+    ),
+    runTriCoreLeg('Gemini weekly/long (CB)', () =>
+      withCircuitBreaker('gemini', () => callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry), groqFallbackWeeklyLong)
+    ),
   ]);
 
   const tfMap: Array<{

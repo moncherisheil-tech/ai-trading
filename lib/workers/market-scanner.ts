@@ -128,6 +128,110 @@ export function resetScannerDiagnostics(): void {
   console.log('[HEARTBEAT] Scanner diagnostics reset; next cycle treated as first production scan.');
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Extracted helpers — also used by the BullMQ enqueue route
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface CandidateListResult {
+  candidates: string[];
+  macroCtx: Awaited<ReturnType<typeof runGlobalMacroExpertOnce>> | null;
+  appSettings: Awaited<ReturnType<typeof getAppSettings>>;
+  confidenceThreshold: number;
+  marketSafetyStatus: 'Safe' | 'Caution' | 'Dangerous';
+  defaultAmountUsd: number;
+}
+
+/**
+ * Fetch, filter, and return the coin candidates for a scan cycle
+ * together with the shared macro context.
+ * Used by both runOneCycle() (legacy) and enqueueScanCycle() (queue mode).
+ */
+export async function buildCandidateList(): Promise<CandidateListResult> {
+  const [s0, s1, s2] = await Promise.allSettled([
+    getAppSettings(),
+    getMacroPulse(),
+    getMarketRiskSentiment(),
+  ]);
+  const appSettings = s0.status === 'fulfilled' ? s0.value : DEFAULT_APP_SETTINGS;
+  if (s0.status === 'rejected') {
+    const msg = s0.reason instanceof Error ? s0.reason.message : String(s0.reason);
+    console.warn('[Scanner] getAppSettings failed; using DEFAULT_APP_SETTINGS.', msg);
+    writeAudit({ event: 'scanner.app_settings_failed', level: 'warn', meta: { error: msg } });
+  }
+  const macro = s1.status === 'fulfilled' ? s1.value : DEFAULT_MACRO;
+  if (s1.status === 'rejected') {
+    const msg = s1.reason instanceof Error ? s1.reason.message : String(s1.reason);
+    console.warn('[Scanner] getMacroPulse failed; using DEFAULT_MACRO.', msg);
+    writeAudit({ event: 'scanner.macro_pulse_failed', level: 'warn', meta: { error: msg } });
+  }
+  const marketRisk =
+    s2.status === 'fulfilled'
+      ? s2.value
+      : { ...SCANNER_FALLBACK_MARKET_RISK, checkedAt: new Date().toISOString() };
+  if (s2.status === 'rejected') {
+    const msg = s2.reason instanceof Error ? s2.reason.message : String(s2.reason);
+    console.warn('[Scanner] getMarketRiskSentiment failed; using safe fallback.', msg);
+    writeAudit({ event: 'scanner.market_risk_failed', level: 'warn', meta: { error: msg } });
+  }
+
+  const defaultAmountUsd = appSettings.trading?.defaultTradeSizeUsd ?? appSettings.risk.defaultPositionSizeUsd ?? 100;
+  const marketSafetyStatus: 'Safe' | 'Caution' | 'Dangerous' =
+    marketRisk.status === 'SAFE' ? 'Safe' : marketRisk.status === 'DANGEROUS' ? 'Dangerous' : 'Caution';
+
+  const confidenceThreshold =
+    appSettings.scanner.aiConfidenceThreshold ??
+    macro.minimumConfidenceThreshold ??
+    DEFAULT_CONFIDENCE_THRESHOLD;
+
+  const scannerOpts = {
+    minVolume24hUsd: Math.max(appSettings.scanner.minVolume24hUsd ?? 0, PROFESSIONAL_MIN_24H_VOLUME_USD),
+    minLiquidityUsd: 50_000,
+    minPriceChangePct: appSettings.scanner.minPriceChangePctForGem,
+  };
+
+  let tickers: Awaited<ReturnType<typeof getCachedGemsTicker24h>> = [];
+  try {
+    tickers = await getCachedGemsTicker24h(scannerOpts);
+  } catch (gemsErr) {
+    const msg = gemsErr instanceof Error ? gemsErr.message : String(gemsErr);
+    console.warn('[Scanner] getCachedGemsTicker24h failed; skipping gem candidates this cycle.', msg);
+    writeAudit({ event: 'scanner.gems_fetch_failed', level: 'warn', meta: { error: msg } });
+  }
+
+  const candidates = tickers
+    .filter((t) => t.symbol.endsWith('USDT'))
+    .map((t) => t.symbol.replace('USDT', ''))
+    .filter((base) => isSupportedBase(base))
+    .slice(0, MAX_GEMS_PER_CYCLE)
+    .map((base) => `${base}USDT`);
+
+  let macroCtx: Awaited<ReturnType<typeof runGlobalMacroExpertOnce>> | null = null;
+  try {
+    const macroContext = await fetchMacroContext();
+    const macroContextStr =
+      macroContext.dxyNote +
+      (macroContext.fearGreedIndex != null ? ` Fear & Greed: ${macroContext.fearGreedIndex} (${macroContext.fearGreedLabel ?? 'N/A'}).` : '') +
+      (macroContext.btcDominancePct != null ? ` BTC dominance: ${macroContext.btcDominancePct}%.` : '');
+    macroCtx = await runGlobalMacroExpertOnce(macroContextStr);
+  } catch (macroErr) {
+    console.warn('[Scanner] Global macro pre-fetch failed:', macroErr instanceof Error ? macroErr.message : macroErr);
+  }
+
+  return { candidates, macroCtx, appSettings, confidenceThreshold, marketSafetyStatus, defaultAmountUsd };
+}
+
+/**
+ * Alias kept for backwards-compat with the enqueue route.
+ * Returns candidates + macroCtx only.
+ */
+export async function buildCycleMacroContext(): Promise<{
+  candidates: string[];
+  macroCtx: Awaited<ReturnType<typeof runGlobalMacroExpertOnce>> | null;
+}> {
+  const { candidates, macroCtx } = await buildCandidateList();
+  return { candidates, macroCtx };
+}
+
 /** Exported for Vercel Cron: triggers one full scan cycle. */
 export async function runOneCycle(): Promise<void> {
   state.status = 'ACTIVE';
@@ -139,77 +243,18 @@ export async function runOneCycle(): Promise<void> {
   let alreadyAlerted = 0;
 
   try {
-    const [s0, s1, s2] = await Promise.allSettled([
-      getAppSettings(),
-      getMacroPulse(),
-      getMarketRiskSentiment(),
-    ]);
-    const appSettings = s0.status === 'fulfilled' ? s0.value : DEFAULT_APP_SETTINGS;
-    if (s0.status === 'rejected') {
-      const msg = s0.reason instanceof Error ? s0.reason.message : String(s0.reason);
-      console.warn('[Scanner] getAppSettings failed; using DEFAULT_APP_SETTINGS.', msg);
-      writeAudit({ event: 'scanner.app_settings_failed', level: 'warn', meta: { error: msg } });
-    }
-    const macro = s1.status === 'fulfilled' ? s1.value : DEFAULT_MACRO;
-    if (s1.status === 'rejected') {
-      const msg = s1.reason instanceof Error ? s1.reason.message : String(s1.reason);
-      console.warn('[Scanner] getMacroPulse failed; using DEFAULT_MACRO.', msg);
-      writeAudit({ event: 'scanner.macro_pulse_failed', level: 'warn', meta: { error: msg } });
-    }
-    const marketRisk =
-      s2.status === 'fulfilled'
-        ? s2.value
-        : { ...SCANNER_FALLBACK_MARKET_RISK, checkedAt: new Date().toISOString() };
-    if (s2.status === 'rejected') {
-      const msg = s2.reason instanceof Error ? s2.reason.message : String(s2.reason);
-      console.warn('[Scanner] getMarketRiskSentiment failed; using safe fallback.', msg);
-      writeAudit({ event: 'scanner.market_risk_failed', level: 'warn', meta: { error: msg } });
-    }
-    const defaultAmountUsd = appSettings.trading?.defaultTradeSizeUsd ?? appSettings.risk.defaultPositionSizeUsd ?? 100;
-    const marketSafetyStatus: 'Safe' | 'Caution' | 'Dangerous' =
-      marketRisk.status === 'SAFE' ? 'Safe' : marketRisk.status === 'DANGEROUS' ? 'Dangerous' : 'Caution';
-
-    const confidenceThreshold =
-      appSettings.scanner.aiConfidenceThreshold ??
-      macro.minimumConfidenceThreshold ??
-      DEFAULT_CONFIDENCE_THRESHOLD;
-    const scannerOpts = {
-      minVolume24hUsd: Math.max(appSettings.scanner.minVolume24hUsd ?? 0, PROFESSIONAL_MIN_24H_VOLUME_USD),
-      minLiquidityUsd: 50_000,
-      minPriceChangePct: appSettings.scanner.minPriceChangePctForGem,
-    };
-    let tickers: Awaited<ReturnType<typeof getCachedGemsTicker24h>> = [];
-    try {
-      tickers = await getCachedGemsTicker24h(scannerOpts);
-    } catch (gemsErr) {
-      const msg = gemsErr instanceof Error ? gemsErr.message : String(gemsErr);
-      console.warn('[Scanner] getCachedGemsTicker24h failed; skipping gem candidates this cycle.', msg);
-      writeAudit({ event: 'scanner.gems_fetch_failed', level: 'warn', meta: { error: msg } });
-    }
-    const recentlyAlerted = new Set(await getSymbolsAlertedSince(RECENTLY_ALERTED_WINDOW_MS));
-
-    const candidates = tickers
-      .filter((t) => t.symbol.endsWith('USDT'))
-      .map((t) => t.symbol.replace('USDT', ''))
-      .filter((base) => isSupportedBase(base))
-      .slice(0, MAX_GEMS_PER_CYCLE)
-      .map((base) => `${base}USDT`);
+    const {
+      candidates,
+      macroCtx: cycleMacroSummary,
+      appSettings,
+      confidenceThreshold,
+      marketSafetyStatus,
+      defaultAmountUsd,
+    } = await buildCandidateList();
 
     coinsChecked = candidates.length;
     const simulationBaseUrl = getBaseUrl();
-
-    // Pre-fetch global macro context and run Macro Expert once per cycle (reused for all symbols to avoid 12 Groq calls and rate limits).
-    let cycleMacroSummary: Awaited<ReturnType<typeof runGlobalMacroExpertOnce>> | null = null;
-    try {
-      const macroContext = await fetchMacroContext();
-      const macroContextStr =
-        macroContext.dxyNote +
-        (macroContext.fearGreedIndex != null ? ` Fear & Greed: ${macroContext.fearGreedIndex} (${macroContext.fearGreedLabel ?? 'N/A'}).` : '') +
-        (macroContext.btcDominancePct != null ? ` BTC dominance: ${macroContext.btcDominancePct}%.` : '');
-      cycleMacroSummary = await runGlobalMacroExpertOnce(macroContextStr);
-    } catch (macroErr) {
-      console.warn('[Scanner] Global macro pre-fetch failed, each symbol will call Macro Expert:', macroErr instanceof Error ? macroErr.message : macroErr);
-    }
+    const recentlyAlerted = new Set(await getSymbolsAlertedSince(RECENTLY_ALERTED_WINDOW_MS));
 
     // Sequential execution: one symbol at a time with delay between to avoid rate limiting.
     type SymbolOutcome =

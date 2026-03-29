@@ -1,10 +1,13 @@
 /**
  * Secured GET endpoint for Vercel Cron or external cron (e.g. cron-job.org).
- * Returns immediately via redirect to /cron-success (~100ms); triggers actual scan via
- * fire-and-forget fetch to /api/cron/worker with 50ms timeout so the main function can close.
- * Node runtime is sufficient here because the route exits immediately after dispatching the worker fetch.
- * Authorization: CRON_SECRET (Bearer or query secret=).
- * Scanner on/off is enforced in the worker; this route only validates auth and triggers.
+ *
+ * Routing logic:
+ *   QUEUE_ENABLED=true  → fire-and-forget to /api/cron/enqueue (BullMQ path)
+ *   QUEUE_ENABLED=false → fire-and-forget to /api/cron/worker  (legacy path, default)
+ *
+ * Returns immediately (~100ms); actual work happens asynchronously.
+ * Authorization: CRON_SECRET or ADMIN_SECRET (Bearer header or x-cron-secret).
+ * Scanner on/off is enforced in the downstream handler.
  */
 
 import { NextResponse } from 'next/server';
@@ -19,12 +22,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const workerUrl = new URL('/api/cron/worker', request.url);
-  workerUrl.searchParams.set('secret', token);
+  const useQueue = process.env.QUEUE_ENABLED === 'true';
+  const targetPath = useQueue ? '/api/cron/enqueue' : '/api/cron/worker';
+  const targetUrl = new URL(targetPath, request.url);
 
   const ac = new AbortController();
   const timeoutId = setTimeout(() => ac.abort(), 50);
-  fetch(workerUrl.toString(), { signal: ac.signal })
+  fetch(targetUrl.toString(), {
+    signal: ac.signal,
+    headers: { Authorization: `Bearer ${token}` },
+  })
     .catch(() => {})
     .finally(() => clearTimeout(timeoutId));
 
