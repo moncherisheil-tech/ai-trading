@@ -18,6 +18,8 @@ import { ANTHROPIC_SONNET_MODEL } from '@/lib/anthropic-model';
 import { APP_CONFIG } from '@/lib/config';
 import { listAgentInsightsBySymbol } from '@/lib/db/agent-insights';
 import { DEFAULT_APP_SETTINGS, getAppSettings, resolveLlmTemperature, type AppSettings } from '@/lib/db/app-settings';
+import { computeExpert7dDecayFactors, type BoardExpertKey } from '@/lib/learning/recursive-optimizer';
+import { getUsdtIlsRate } from '@/lib/market/oracle';
 
 /** Per-request sampling temperature for MoE experts (set around runConsensusEngine). */
 let consensusEngineLlmTemperature: number | null = null;
@@ -76,7 +78,7 @@ interface RetryContext {
   provider?: string;
 }
 
-type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory';
+// BoardExpertKey is the canonical type — imported from lib/learning/recursive-optimizer (single source of truth).
 type ModelProvider = 'gemini' | 'groq';
 type ModelHealthStatus = 'healthy' | 'degraded' | 'unstable';
 type MarketRegime = 'trending' | 'high-volatility' | 'range';
@@ -641,8 +643,8 @@ async function callOpenAiCompatJson<T>(
 /** System instruction at model level: strict JSON-only output to avoid contradictory structures and hallucinated fields. */
 const CONSENSUS_SYSTEM_INSTRUCTION =
   'You must output ONLY a raw JSON object. Do not include markdown formatting like ```json or ```. Do not include any introductory text, explanation, or text after the JSON. Output exactly the requested keys and nothing else.';
-const EXPERT_7D_DECAY_THRESHOLD_PCT = 55;
-const EXPERT_7D_DECAY_FACTOR = 0.85;
+// Decay constants have been moved to lib/learning/recursive-optimizer.ts (computeExpert7dDecayFactors).
+// consensus-engine.ts only consumes the pre-calculated decay factors — never computes them inline.
 const CONTRARIAN_STRONG_TRAP_CONFIDENCE = 70;
 const CONTRARIAN_REFUTATION_MIN_LEN = 40;
 
@@ -1022,6 +1024,9 @@ async function runExpertMacro(
   const orderBookCtx = data.order_book_summary ?? 'לא צוין';
   const oiSignal = data.open_interest_signal ?? 'לא צוין';
   const microCtx = data.microstructure_signal ?? 'לא צוין';
+  // O(1) read from the in-memory oracle — zero network latency during consensus phase.
+  // The oracle singleton polls Binance in the background; Expert 4 never blocks on a REST call.
+  const usdtIlsCached = getUsdtIlsRate();
   const dataSummary = [
     `symbol: ${data.symbol}`,
     `current_price: ${data.current_price}`,
@@ -1036,6 +1041,7 @@ async function runExpertMacro(
     `order_book_summary: ${orderBookCtx}`,
     `microstructure_signal (CVD, Shannon entropy on returns, Kalman smooth): ${microCtx}`,
     `open_interest: ${oiSignal}`,
+    usdtIlsCached != null ? `usdt_ils_rate (oracle_cache): ${usdtIlsCached}` : 'usdt_ils_rate: not_available',
   ].join('; ');
   const userPrompt = `You are the Macro Expert in a hedge-fund grade MoE. Domain: DXY correlation, yield curves, FED pivot expectations, and order book liquidity. Output in professional Hebrew; no generic chatbot language.
 
@@ -1824,8 +1830,9 @@ export async function runConsensusEngine(
     const x = Math.max(0.38, Math.min(0.92, pct / 100));
     return x ** 1.35;
   };
-  const decay7d = (k: BoardExpertKey): number =>
-    (hitRates7d[k] ?? 50) < EXPERT_7D_DECAY_THRESHOLD_PCT ? EXPERT_7D_DECAY_FACTOR : 1;
+  // Decay factors are computed by the Architectural Learning Loop (recursive-optimizer.ts).
+  // consensus-engine.ts only consumes the pre-calculated result — clean separation of concerns.
+  const decayFactors = computeExpert7dDecayFactors(hitRates7d);
   const regimeBase: Record<BoardExpertKey, number> =
     marketRegime === 'high-volatility'
       ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9 }
@@ -1845,12 +1852,12 @@ export async function runConsensusEngine(
   };
 
   const weightByExpert: Record<BoardExpertKey, number> = {
-    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('groq') * decay7d('technician'),
-    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini') * decay7d('risk'),
-    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini') * decay7d('psych'),
-    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('gemini') * decay7d('macro'),
-    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini') * decay7d('onchain'),
-    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini') * decay7d('deepMemory'),
+    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('groq') * decayFactors.technician,
+    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini') * decayFactors.risk,
+    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini') * decayFactors.psych,
+    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('gemini') * decayFactors.macro,
+    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini') * decayFactors.onchain,
+    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini') * decayFactors.deepMemory,
   };
 
   shadowPredictions.set(`${input.symbol}:technician`, {
@@ -1916,7 +1923,19 @@ export async function runConsensusEngine(
     judgeResult.contrarian_addressed && refutation.length >= CONTRARIAN_REFUTATION_MIN_LEN;
   const contrarianGateBlocked =
     strongContrarianTrap && weightedDirection === trapDir && !contrarianCoverageOk;
-  const consensus_approved = final_confidence >= effectiveThreshold && !contrarianGateBlocked;
+
+  // ── IRON CONTRARIAN GATE (CEO Override) ─────────────────────────────────────────────────────
+  // If Expert 7 flags ANY trap with confidence >70% AND the refutation is empty or generic
+  // (< CONTRARIAN_REFUTATION_MIN_LEN chars), consensus_approved is HARD-BLOCKED to false.
+  // No AI inference overrides this — the human/CEO mandate takes precedence over model confidence.
+  // "No robust refutation = Trade Blocked."
+  const ironGateBlocked =
+    expert7.trap_type !== 'none' &&
+    expert7.contrarian_confidence > CONTRARIAN_STRONG_TRAP_CONFIDENCE &&
+    refutation.length < CONTRARIAN_REFUTATION_MIN_LEN;
+
+  const consensus_approved =
+    final_confidence >= effectiveThreshold && !contrarianGateBlocked && !ironGateBlocked;
   const votes = {
     technician: scoreToDirection(expert1.tech_score),
     risk: scoreToDirection(expert2.risk_score),
@@ -1977,7 +1996,7 @@ export async function runConsensusEngine(
     contrarian_trap_type: expert7.trap_type,
     contrarian_attack_he: expert7.attack_on_consensus_he,
     contrarian_refutation_he: judgeResult.contrarian_refutation_he,
-    contrarian_gate_blocked: contrarianGateBlocked,
+    contrarian_gate_blocked: contrarianGateBlocked || ironGateBlocked,
     master_insight_he: judgeResult.master_insight_he,
     reasoning_path: judgeResult.reasoning_path,
     final_confidence: Math.round(final_confidence * 10) / 10,

@@ -1,3 +1,11 @@
+/**
+ * Execute Signal Route — VERIFIER ONLY (Public Key).
+ *
+ * RSA Architecture (Air-Gapped):
+ *   This route ONLY verifies signatures using EXECUTION_RSA_PUBLIC_KEY_PEM.
+ *   It MUST NEVER import signExecutionHandshake or access EXECUTION_RSA_PRIVATE_KEY.
+ *   The Signer lives in the internal signal-generation service (lib/trading/execution-auth.ts).
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 import { verifyExecutionHandshake } from '@/lib/trading/execution-auth';
