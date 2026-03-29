@@ -1,5 +1,5 @@
-/** Dated Sonnet snapshots (e.g. 20241022) may 404 on some API tiers; `-latest` tracks the current 3.5 Sonnet. Haiku uses a stable dated ID. */
-export const ANTHROPIC_SONNET_MODEL = 'claude-3-5-sonnet-latest';
-export const ANTHROPIC_HAIKU_MODEL = 'claude-3-haiku-20240307';
+/** Claude 4.5 generation — primary Sonnet, Haiku for fast paths and heartbeat failover. */
+export const ANTHROPIC_SONNET_MODEL = 'claude-4-5-sonnet';
+export const ANTHROPIC_HAIKU_MODEL = 'claude-4-5-haiku';
 
 export const ANTHROPIC_MODEL_CANDIDATES = [ANTHROPIC_SONNET_MODEL, ANTHROPIC_HAIKU_MODEL] as const;
