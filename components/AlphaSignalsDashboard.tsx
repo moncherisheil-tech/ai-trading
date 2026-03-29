@@ -113,6 +113,206 @@ function ProbabilityBar({ value }: { value: number }) {
   );
 }
 
+// ─── Executive Summary Drawer ────────────────────────────────────────────────
+
+function SignalDrawer({ row, onClose }: { row: AlphaSignalDTO; onClose: () => void }) {
+  const isLong   = (row.direction ?? '') === 'Long';
+  const entry    = row.entryPrice    ?? 0;
+  const target   = row.targetPrice   ?? 0;
+  const stop     = row.stopLoss      ?? 0;
+  const prob     = row.winProbability ?? 0;
+
+  // Direction-aware ROI %
+  const targetRoi = entry > 0 ? ((isLong ? target - entry : entry - target) / entry) * 100 : 0;
+  const stopRoi   = entry > 0 ? ((isLong ? stop - entry  : entry - stop)   / entry) * 100 : 0;
+  const rrRatio   = Math.abs(stopRoi) > 0.001 ? Math.abs(targetRoi / stopRoi) : 0;
+
+  // Risk level (traffic-light)
+  const riskLabel = prob >= 80 ? 'נמוך' : prob >= 65 ? 'בינוני' : 'גבוה';
+  const riskCls   = prob >= 80
+    ? 'text-emerald-300 border-emerald-500/40 bg-emerald-500/10'
+    : prob >= 65
+    ? 'text-amber-300  border-amber-500/40  bg-amber-500/10'
+    : 'text-rose-300   border-rose-500/40   bg-rose-500/10';
+
+  // Recommended action
+  const action = (() => {
+    if (isLong  && prob >= 80) return { label: 'STRONG BUY',  labelHe: 'קנייה חזקה',  cls: 'from-emerald-900/80 to-emerald-950  border-emerald-400/50 text-emerald-100  shadow-[0_0_30px_rgba(52,211,153,0.25)]' };
+    if (isLong  && prob >= 65) return { label: 'BUY',         labelHe: 'קנייה',        cls: 'from-emerald-950   to-slate-950     border-emerald-600/40 text-emerald-200  shadow-[0_0_16px_rgba(52,211,153,0.10)]' };
+    if (!isLong && prob >= 80) return { label: 'STRONG SELL', labelHe: 'מכירה חזקה',  cls: 'from-rose-900/80   to-rose-950      border-rose-400/50    text-rose-100    shadow-[0_0_30px_rgba(239,68,68,0.25)]'  };
+    if (!isLong && prob >= 65) return { label: 'SELL',        labelHe: 'מכירה',        cls: 'from-rose-950      to-slate-950     border-rose-600/40    text-rose-200    shadow-[0_0_16px_rgba(239,68,68,0.10)]'  };
+    return                            { label: 'WAIT',        labelHe: 'המתן / בחינה', cls: 'from-amber-950     to-slate-950     border-amber-500/40   text-amber-200   shadow-[0_0_16px_rgba(245,158,11,0.10)]' };
+  })();
+
+  const dirBadgeCls = isLong
+    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.30)]'
+    : 'border-rose-400/60    bg-rose-500/20    text-rose-300    shadow-[0_0_12px_rgba(239,68,68,0.30)]';
+
+  const headerBg = isLong
+    ? 'bg-gradient-to-l from-emerald-950/50 to-slate-950'
+    : 'bg-gradient-to-l from-rose-950/50    to-slate-950';
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-start" dir="rtl">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={onClose} aria-hidden />
+
+      <motion.aside
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        transition={{ type: 'spring', damping: 28, stiffness: 320 }}
+        className="relative z-[60] flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-white/10 bg-slate-950 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+      >
+        {/* ── Header ── */}
+        <div className={`flex items-center justify-between px-5 py-4 border-b border-white/10 ${headerBg}`}>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="font-mono text-lg font-bold tracking-tight text-white">
+              {row.symbol ?? '—'}
+            </span>
+            {/* Direction Badge */}
+            <span className={`rounded-full border px-3 py-0.5 text-xs font-black uppercase tracking-widest ${dirBadgeCls}`}>
+              {isLong ? '▲ LONG' : '▼ SHORT'}
+            </span>
+            <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+              {timeframeLabel(row.timeframe ?? '')}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-shrink-0 rounded-lg border border-slate-700 p-1.5 text-zinc-300 transition-colors hover:bg-slate-800"
+            aria-label="סגור"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* ── Scrollable Body ── */}
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
+
+          {/* Stats Row: Risk / Confidence / Whale */}
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl border border-slate-700/80 bg-slate-900/70 px-3 py-3">
+              <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">רמת סיכון</p>
+              <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold ${riskCls}`}>
+                {riskLabel}
+              </span>
+            </div>
+            <div className="rounded-xl border border-slate-700/80 bg-slate-900/70 px-3 py-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">ביטחון</p>
+              <p className={`text-xl font-black leading-none tabular-nums ${prob >= 80 ? 'text-emerald-300' : prob >= 65 ? 'text-amber-300' : 'text-rose-300'}`}>
+                {prob}%
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-700/80 bg-slate-900/70 px-3 py-3">
+              <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-500">לווייתנים</p>
+              <p className={`text-sm font-bold ${row.whaleConfirmation ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                {row.whaleConfirmation ? '✓ מאושר' : '✗ ממתין'}
+              </p>
+            </div>
+          </div>
+
+          {/* Recommended Action Callout */}
+          <div className={`rounded-2xl border bg-gradient-to-br px-5 py-4 ${action.cls}`}>
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest opacity-60">פעולה מומלצת</p>
+            <p className="text-2xl font-black tracking-tight">{action.label}</p>
+            <p className="mt-0.5 text-sm font-semibold opacity-80">{action.labelHe}</p>
+          </div>
+
+          {/* Price Intelligence + Direction-Aware ROI */}
+          <div className="overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/70">
+            <div className="border-b border-slate-700/50 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">רמות מחיר ותשואה</p>
+            </div>
+            <div className="divide-y divide-slate-800/60">
+              {/* Entry */}
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-xs text-zinc-400">כניסה</span>
+                <span className="font-mono text-sm font-semibold text-white tabular-nums">
+                  {entry > 0 ? entry.toFixed(4) : 'N/A'}
+                </span>
+              </div>
+              {/* Target + ROI */}
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-xs text-zinc-400">יעד</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold text-emerald-200 tabular-nums">
+                    {target > 0 ? target.toFixed(4) : 'N/A'}
+                  </span>
+                  {entry > 0 && (
+                    <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${targetRoi >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'}`}>
+                      {targetRoi >= 0 ? '+' : ''}{targetRoi.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* Stop Loss + Risk % */}
+              <div className="flex items-center justify-between px-4 py-3">
+                <span className="text-xs text-zinc-400">סטופ לוס</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-semibold text-rose-200 tabular-nums">
+                    {stop > 0 ? stop.toFixed(4) : 'N/A'}
+                  </span>
+                  {entry > 0 && (
+                    <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-xs font-bold tabular-nums text-rose-300">
+                      {stopRoi.toFixed(2)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              {/* R:R Ratio */}
+              {rrRatio > 0 && (
+                <div className="flex items-center justify-between bg-slate-800/40 px-4 py-3">
+                  <span className="text-xs font-semibold text-zinc-400">יחס סיכון / תגמול</span>
+                  <span className={`font-mono text-sm font-black tabular-nums ${rrRatio >= 2 ? 'text-emerald-300' : rrRatio >= 1 ? 'text-amber-300' : 'text-rose-300'}`}>
+                    1 : {rrRatio.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Consensus Narrative */}
+          <div className="overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/70">
+            <div className="flex items-center gap-2 border-b border-slate-700/50 px-4 py-2.5">
+              <Sparkles className="h-3.5 w-3.5 flex-shrink-0 text-violet-400" />
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">ניתוח קונצנזוס</p>
+            </div>
+            <div className="px-4 py-4 text-sm leading-relaxed text-zinc-200">
+              {(row.rationaleHebrew ?? '').trim() ? (
+                <RationaleWithAcademyTerms text={row.rationaleHebrew} />
+              ) : (
+                <p className="italic text-zinc-500">ניתוח ממתין לעיבוד...</p>
+              )}
+            </div>
+          </div>
+
+          {/* Academy Links */}
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+            <p className="mb-3 flex items-center gap-2 text-xs font-bold text-amber-200/90">
+              <BookOpen className="h-4 w-4 flex-shrink-0" />
+              המשך למידה
+            </p>
+            <ul className="space-y-2 text-xs text-zinc-400">
+              <li><AcademyTerm href="/academy#glossary-dxy" title="מדד דולר">מדד דולר — מילון</AcademyTerm></li>
+              <li><AcademyTerm href="/academy#glossary-cvd" title="נפח דלתא מצטבר">נפח דלתא מצטבר — מילון</AcademyTerm></li>
+              <li><AcademyTerm href="/academy#glossary-spoofing" title="ספופינג">ספופינג — מילון</AcademyTerm></li>
+              <li><AcademyTerm href="/academy#glossary-vwap" title="VWAP">VWAP — מילון</AcademyTerm></li>
+              <li><AcademyTerm href="/academy#glossary-contrarian" title="Contrarian">Contrarian — מילון</AcademyTerm></li>
+              <li><AcademyTerm href="/academy" title="מרכז הלמידה">כניסה לאקדמיה</AcademyTerm></li>
+            </ul>
+          </div>
+
+        </div>
+      </motion.aside>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+
 export default function AlphaSignalsDashboard() {
   const toast = useToastOptional();
   const [rows, setRows] = useState<AlphaSignalDTO[]>([]);
@@ -490,83 +690,16 @@ export default function AlphaSignalsDashboard() {
         )}
       </div>
 
-      {drawerRow && (
-        <div className="fixed inset-0 z-[var(--z-modal-backdrop)] flex justify-start" dir="rtl">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-md" onClick={() => setDrawerRow(null)} aria-hidden />
-          <motion.aside
-            initial={{ x: '100%' }}
-            animate={{ x: 0 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="relative z-[var(--z-modal)] flex h-full w-full max-w-md flex-col border-l border-white/10 bg-slate-950/75 shadow-2xl backdrop-blur-xl"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-              <h3 className="text-sm font-bold text-white">נימוק מלא</h3>
-              <button
-                type="button"
-                onClick={() => setDrawerRow(null)}
-                className="rounded-lg border border-slate-700 p-1.5 text-zinc-300 hover:bg-slate-800"
-                aria-label="סגור"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 py-4 text-sm leading-relaxed text-zinc-200">
-              <p className="mb-6">
-                <RationaleWithAcademyTerms text={drawerRow.rationaleHebrew} />
-              </p>
-              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-                <p className="mb-2 flex items-center gap-2 text-xs font-bold text-amber-200/90">
-                  <BookOpen className="h-4 w-4" />
-                  המשך למידה
-                </p>
-                <ul className="space-y-2 text-xs text-zinc-400">
-                  <li>
-                    <AcademyTerm href="/academy#glossary-dxy" title="מדד דולר">
-                      מדד דולר — מילון
-                    </AcademyTerm>
-                  </li>
-                  <li>
-                    <AcademyTerm href="/academy#glossary-cvd" title="נפח דלתא מצטבר">
-                      נפח דלתא מצטבר — מילון
-                    </AcademyTerm>
-                  </li>
-                  <li>
-                    <AcademyTerm href="/academy#glossary-spoofing" title="ספופינג">
-                      ספופינג — מילון
-                    </AcademyTerm>
-                  </li>
-                  <li>
-                    <AcademyTerm href="/academy#glossary-vwap" title="VWAP">
-                      VWAP — מילון
-                    </AcademyTerm>
-                  </li>
-                  <li>
-                    <AcademyTerm href="/academy#glossary-contrarian" title="Contrarian">
-                      Contrarian — מילון
-                    </AcademyTerm>
-                  </li>
-                  <li>
-                    <AcademyTerm href="/academy" title="מרכז הלמידה">
-                      כניסה לאקדמיה
-                    </AcademyTerm>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </motion.aside>
-        </div>
-      )}
+      {drawerRow && <SignalDrawer row={drawerRow} onClose={() => setDrawerRow(null)} />}
 
       {pendingExecution && (
-        <div className="fixed inset-0 z-[var(--z-modal-backdrop)] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeModal} aria-hidden />
           <div
             dir="rtl"
             role="dialog"
             aria-modal="true"
-            className="relative z-[var(--z-modal)] w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
+            className="relative z-[60] w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
           >
             <div className="mb-4 flex items-start justify-between gap-2">
               <h3 className="text-lg font-semibold text-white">אישור ביצוע</h3>
