@@ -11,6 +11,20 @@ const nextConfig: NextConfig = {
   },
   output: 'standalone',
   outputFileTracingRoot: path.join(process.cwd()),
+  // Externalize heavy native/server-only packages so they are loaded from
+  // node_modules at runtime rather than bundled into server chunks.
+  // This is critical for standalone mode: bundling these causes broken module
+  // references, missing server-reference-manifest.json entries, and MIME errors.
+  serverExternalPackages: [
+    'pg',
+    'pg-native',
+    'ws',
+    '@prisma/client',
+    'prisma',
+    '@prisma/adapter-pg',
+    'ccxt',
+    'protobufjs',
+  ],
   poweredByHeader: false,
   assetPrefix: '',
   basePath: '',
