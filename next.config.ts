@@ -14,17 +14,33 @@ const nextConfig: NextConfig = {
   // Externalize heavy native/server-only packages so they are loaded from
   // node_modules at runtime rather than bundled into server chunks.
   // This is critical for standalone mode: bundling these causes broken module
-  // references, missing server-reference-manifest.json entries, and MIME errors.
+  // references, missing server-reference-manifest.json entries, and the
+  // webpack-runtime `TypeError: Cannot read properties of undefined (reading 'call')`
+  // that fires when externalized native factories are invoked in the SSG worker.
   serverExternalPackages: [
+    // PostgreSQL driver — native bindings must never be bundled
     'pg',
     'pg-native',
+    'pg-pool',
     'ws',
+    // Prisma ORM — keep all Prisma packages external together
     '@prisma/client',
     'prisma',
     '@prisma/adapter-pg',
+    '@prisma/engines',
+    '@prisma/engines-version',
+    // CCXT trading library — dynamic require() expressions break SSG worker
     'ccxt',
+    // Protobuf (transitive dependency of some trading libs)
     'protobufjs',
+    // dotenv — loaded via side-effect import in lib/db/sql.ts; externalize to
+    // prevent the SSG bundle from re-executing it with stale build-time env
+    'dotenv',
   ],
+  // Prevent the Pages Router bundler from attempting to bundle any of the above
+  // native packages (safe no-op for App Router-only projects but guards against
+  // accidental Pages Router page introductions in CI).
+  bundlePagesRouterDependencies: false,
   poweredByHeader: false,
   assetPrefix: '',
   basePath: '',
