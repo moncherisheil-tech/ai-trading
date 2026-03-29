@@ -81,7 +81,7 @@ function computeStopTarget(
 
 /**
  * Normalize LLM output before JSON.parse: strip ``` / ```json fences (including mid-string),
- * then isolate the outermost `{ ... }` object.
+ * drop preamble like "Here is the JSON:", then isolate `{ ... }` from first `{` through last `}`.
  */
 function stripJsonFence(raw: string): string {
   let t = raw.trim();
@@ -92,6 +92,9 @@ function stripJsonFence(raw: string): string {
     t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
   }
   t = t.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+  // Aggressive: conversational lead-in before JSON → grab outermost object span
+  const greedyObject = t.match(/\{[\s\S]*\}/);
+  if (greedyObject) return greedyObject[0];
   const i = t.indexOf('{');
   const j = t.lastIndexOf('}');
   if (i >= 0 && j > i) return t.slice(i, j + 1);
@@ -199,6 +202,8 @@ WhaleTracker: ${whaleJson}
     cache: 'no-store',
   });
   if (!res.ok) {
+    const rawErrorText = await res.text();
+    console.error('[ANTHROPIC FATAL ERROR]', res.status, rawErrorText);
     return {
       direction: 'Long',
       winProbability: 51,
@@ -260,18 +265,21 @@ Schema (example shape only):
 הקשר Deep Memory (עסקאות דומות): ${deepMemoryBlock}
 שבועי=אופק Weekly, long=אופק ארוך (Position).`;
 
-  const result = await withGeminiRateLimitRetry(() =>
-    model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.25, maxOutputTokens: 1024 },
-    })
-  );
-  const raw = result.response.text();
+  let rawText = '';
   try {
-    const parsed = geminiDualSchema.safeParse(JSON.parse(stripJsonFence(raw)));
+    const result = await withGeminiRateLimitRetry(() =>
+      model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.25, maxOutputTokens: 1024 },
+      })
+    );
+    rawText = result.response.text();
+    const cleaned = stripJsonFence(rawText);
+    const parsed = geminiDualSchema.safeParse(JSON.parse(cleaned));
     if (parsed.success) return parsed.data;
-  } catch {
-    /* fall through */
+    console.error('[GEMINI PARSE ERROR] Raw text:', rawText, 'Error:', parsed.error);
+  } catch (e) {
+    console.error('[GEMINI PARSE ERROR] Raw text:', rawText, 'Error:', e);
   }
   const neutral = {
     direction: 'Long' as const,
