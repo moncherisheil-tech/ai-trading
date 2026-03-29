@@ -28,7 +28,10 @@ import { fetchS1MacroSatellite } from '@/lib/satellites/s1-macro';
 import { buildS2MicroSatelliteSummary } from '@/lib/satellites/s2-microstructure';
 import { augmentOrderBookWithDepthHints } from '@/lib/market/binance-depth-hints';
 
-import { fetchMicrostructureSummary } from '@/lib/microstructure/signal-core-client';
+import {
+  postMicrostructure,
+  formatMicrostructureForConsensus,
+} from '@/lib/microstructure/signal-core-client';
 import type { BinanceKline } from '@/lib/actions-types';
 import { getSuccessFailureFeedback } from '@/lib/smart-agent';
 import { ema, atr } from '@/lib/indicators';
@@ -97,6 +100,14 @@ interface AiPredictionResult {
   tactical_opinion_he?: string;
 }
 
+type QuantFields = {
+  vwap: number | null;
+  cvd_slope: number;
+  atr_14: number | null;
+  closes_20: number[];
+  whale_confirmed: boolean;
+};
+
 type DedupEntry = {
   expiresAt: number;
   result: {
@@ -110,6 +121,7 @@ type DedupEntry = {
       positionRejected: boolean;
       rationale: string;
     };
+    quantFields: QuantFields;
   };
 };
 
@@ -413,7 +425,7 @@ export async function doAnalysisCore(
   startedAt: number,
   useCache: boolean,
   options?: DoAnalysisCoreOptions
-): Promise<{ success: true; data: PredictionRecord; chartData: BinanceKline[] }> {
+): Promise<{ success: true; data: PredictionRecord; chartData: BinanceKline[]; quantFields: QuantFields }> {
   const outputLocale: Locale = options?.locale === 'en' ? 'en' : 'he';
   const textLanguage = outputLocale === 'he' ? 'Hebrew' : 'English';
   const localizedLanguageRule =
@@ -730,11 +742,12 @@ export async function doAnalysisCore(
     orderBookDepth,
     depthResample
   );
-  const microstructureCore = await fetchMicrostructureSummary({
+  const microstructureRaw = await postMicrostructure({
     trades: aggTrades,
-    closes: klines1h.closes,
-    volumes: klines1h.volumes,
+    closes: klines1h.closes.filter((c) => Number.isFinite(c) && c > 0),
+    volumes: klines1h.volumes.filter((v) => Number.isFinite(v) && v >= 0),
   });
+  const microstructureCore = formatMicrostructureForConsensus(microstructureRaw);
   const microstructure_signal = buildS2MicroSatelliteSummary({
     microstructureLine: microstructureCore,
     leviathanLine: leviathanSnapshot.institutionalWhaleContext ?? null,
@@ -1222,6 +1235,31 @@ RULES:
     .map((r) => r.data)
     .sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0));
 
+  // ── Quantitative bridge fields for the Alpha Matrix ────────────────────────
+  // VWAP: typical-price (H+L+C)/3 × volume weighted average over daily candles
+  const totalVolumeOhlcv = volumes.reduce((s, v) => s + v, 0);
+  const vwapVal: number | null =
+    totalVolumeOhlcv > 0
+      ? ohlcv.reduce((s, c) => s + ((c.high + c.low + c.close) / 3) * c.volume, 0) /
+        totalVolumeOhlcv
+      : null;
+
+  // whale_confirmed: live data present, no severe exchange inflows, net flow neutral/outflow
+  const whaleConfirmedFlag: boolean =
+    whaleActivity.status !== 'AWAITING_LIVE_DATA' &&
+    (whaleActivity.severeInflowsToExchanges == null ||
+      whaleActivity.severeInflowsToExchanges <= 0) &&
+    (whaleActivity.netExchangeFlowUsd == null || whaleActivity.netExchangeFlowUsd >= 0);
+
+  const quantFields: QuantFields = {
+    vwap: vwapVal,
+    cvd_slope: microstructureRaw?.cvd_slope ?? 0,
+    atr_14: atrVal,
+    closes_20: closes.slice(-20),
+    whale_confirmed: whaleConfirmedFlag,
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   const output = {
     success: true as const,
     data: newRecord,
@@ -1233,6 +1271,7 @@ RULES:
       positionRejected: positionSizing.rejected,
       rationale: positionSizing.reason,
     },
+    quantFields,
   };
   analysisDedupCache.set(cleanSymbol, {
     expiresAt: Date.now() + APP_CONFIG.analysisDedupWindowMs,

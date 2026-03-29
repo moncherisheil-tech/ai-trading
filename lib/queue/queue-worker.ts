@@ -76,6 +76,20 @@ async function processJob(
 
     result.analysisData = analysisResult.data as unknown as Record<string, unknown>;
 
+    // ── Bridge quantitative inputs so extractAlphaInput() can consume them ──
+    // These fields are absent from PredictionRecord but required by the Alpha
+    // Matrix for dynamic Stop Loss and precise tier classification.
+    const qf = analysisResult.quantFields;
+    result.analysisData = {
+      ...result.analysisData,
+      vwap:            qf.vwap,
+      cvd_slope:       qf.cvd_slope,
+      atr_14:          qf.atr_14,
+      closes_20:       qf.closes_20,
+      whale_confirmed: qf.whale_confirmed,
+    };
+    // ────────────────────────────────────────────────────────────────────────
+
     // Map tri-core probabilities from actual PredictionRecord fields:
     //   groq      → tech_score      (Technician — Groq primary, 35% Alpha Matrix weight)
     //   anthropic → onchain_score   (On-Chain Sleuth — Anthropic primary, 40% weight)
