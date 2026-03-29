@@ -123,7 +123,7 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
   const completion = await groq.chat.completions.create({
     model,
     temperature: 0.2,
-    max_tokens: 512,
+    max_tokens: 4096,
     messages: [
       {
         role: 'system',
@@ -181,7 +181,7 @@ async function callAnthropicDaily(
     },
     body: JSON.stringify({
       model: ANTHROPIC_SONNET_MODEL,
-      max_tokens: 600,
+      max_tokens: 4096,
       system: [
         'You are an institutional whale-flow analyst for crypto. Daily / swing horizon.',
         RAW_JSON_SYSTEM_EN,
@@ -270,7 +270,7 @@ Schema (example shape only):
     const result = await withGeminiRateLimitRetry(() =>
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.25, maxOutputTokens: 1024 },
+        generationConfig: { temperature: 0.25, maxOutputTokens: 4096 },
       })
     );
     rawText = result.response.text();
