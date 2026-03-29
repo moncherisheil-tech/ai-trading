@@ -111,6 +111,11 @@ function isProtectedPath(pathname: string): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Ops/monitoring: `curl -I` uses HEAD; allow so localhost probes get 200 without session.
+  if (pathname === '/' && request.method === 'HEAD') {
+    return NextResponse.next();
+  }
+
   // 1. Absolute bypass for Next.js internal assets, static files, and APIs
   if (
     pathname.startsWith('/_next/') ||
