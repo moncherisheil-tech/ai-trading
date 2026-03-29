@@ -22,6 +22,7 @@ import { APP_CONFIG } from '@/lib/config';
 import { round2, toDecimal, applySlippage } from '@/lib/decimal';
 import { fetchBinanceTickerPrices } from '@/lib/api-utils';
 import { fetchGemsTicker24hWithElite, type Ticker24hElite } from '@/lib/gem-finder';
+import { computeRecursiveOptimization } from '@/lib/learning/recursive-optimizer';
 
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
@@ -92,6 +93,8 @@ export async function closeVirtualTradeBySymbol(symbol: string): Promise<{ succe
     const closed = await getVirtualTradeById(trade.id);
     if (closed?.pnl_pct != null) {
       runPostMortemWithTimeout(closed, exitPrice, 'manual', closed.pnl_pct);
+      const rec = computeRecursiveOptimization({ trade: closed, pnlPct: closed.pnl_pct, closeReason: 'manual' });
+      console.info('[RecursiveOptimizer]', closed.symbol, rec.note);
     }
     return { success: true, id: trade.id };
   } catch (e) {
@@ -125,6 +128,8 @@ export async function closeAllOpenVirtualTradesAtMarket(): Promise<{
       const row = await getVirtualTradeById(trade.id);
       if (row?.pnl_pct != null) {
         runPostMortemWithTimeout(row, exitPrice, 'manual', row.pnl_pct);
+        const rec = computeRecursiveOptimization({ trade: row, pnlPct: row.pnl_pct, closeReason: 'manual' });
+        console.info('[RecursiveOptimizer]', row.symbol, rec.note);
       }
       closed++;
     } catch (e) {
@@ -194,6 +199,8 @@ export async function checkAndCloseTrades(livePrices: Map<string, number>): Prom
         const closedRow = await getVirtualTradeById(trade.id);
         const pnlPct = closedRow?.pnl_pct ?? 0;
         runPostMortemWithTimeout(closedRow ?? trade, exitPrice, reason, pnlPct);
+        const rec = computeRecursiveOptimization({ trade: closedRow ?? trade, pnlPct, closeReason: reason });
+        console.info('[RecursiveOptimizer]', trade.symbol, rec.note);
       }
       closed++;
       continue;

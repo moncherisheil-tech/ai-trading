@@ -1,8 +1,9 @@
-/**
+﻿/**
  * Binance API resilience: rate-limit detection (429, 418), Retry-After, exponential backoff.
  * Use for all server-side Binance REST calls to avoid IP bans.
  */
 
+import { ensureTwelveDataConnection, getTwelveDataUsdIlsSnapshot } from '@/lib/market/forex';
 import { APP_CONFIG } from '@/lib/config';
 
 const BINANCE_429 = 429;
@@ -291,7 +292,7 @@ export interface MacroContextSnapshot {
   updatedAt: string;
 }
 
-async function fetchDxySnapshot(timeoutMs: number): Promise<{ value: number; source: string } | null> {
+export async function fetchDxySnapshot(timeoutMs: number): Promise<{ value: number; source: string } | null> {
   const sources = [
     {
       source: 'stooq',
@@ -490,5 +491,15 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
     const v = dxySnap.value;
     if (v >= 72 && v <= 140) out.dxy = v;
   }
+  try {
+    ensureTwelveDataConnection();
+    const live = getTwelveDataUsdIlsSnapshot();
+    if (live && Number.isFinite(live.price)) {
+      out.usdIls = live.price;
+    }
+  } catch {
+    /* live FX optional */
+  }
   return out;
 }
+

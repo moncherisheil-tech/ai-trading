@@ -74,3 +74,42 @@ export async function getExpertHitRates30d(options?: {
     deepMemory: finalize(deep),
   };
 }
+
+/** 7-day window for confidence decay (Singularity). */
+export async function getExpertHitRates7d(options?: {
+  symbol?: string | null;
+}): Promise<Record<BoardExpertKey, number>> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  let rows: AgentInsightRow[] = await listAgentInsightsSince(since, 400);
+  if (options?.symbol) {
+    const sym = options.symbol.trim().toUpperCase();
+    rows = rows.filter((r) => r.symbol.toUpperCase() === sym);
+  }
+  const tech = { wins: 0, total: 0 };
+  const risk = { wins: 0, total: 0 };
+  const psych = { wins: 0, total: 0 };
+  const macro = { wins: 0, total: 0 };
+  const onchain = { wins: 0, total: 0 };
+  const deep = { wins: 0, total: 0 };
+  for (const row of rows) {
+    const move = parsePnlPctFromOutcome(row.outcome);
+    if (move == null) continue;
+    updateHit(tech, row.tech_score, move);
+    updateHit(risk, row.risk_score, move);
+    updateHit(psych, row.psych_score, move);
+    const macroScore = (row as { macro_score?: number | null }).macro_score;
+    const onchainScore = (row as { onchain_score?: number | null }).onchain_score;
+    const deepScore = (row as { deep_memory_score?: number | null }).deep_memory_score;
+    updateHit(macro, macroScore ?? null, move);
+    updateHit(onchain, onchainScore ?? null, move);
+    updateHit(deep, deepScore ?? null, move);
+  }
+  return {
+    technician: finalize(tech),
+    risk: finalize(risk),
+    psych: finalize(psych),
+    macro: finalize(macro),
+    onchain: finalize(onchain),
+    deepMemory: finalize(deep),
+  };
+}

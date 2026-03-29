@@ -13,7 +13,8 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
-import { getGeminiApiKey } from '@/lib/env';
+import { getGeminiApiKey, getGroqApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
+import { ANTHROPIC_SONNET_MODEL } from '@/lib/anthropic-model';
 import { APP_CONFIG } from '@/lib/config';
 import { listAgentInsightsBySymbol } from '@/lib/db/agent-insights';
 import { DEFAULT_APP_SETTINGS, getAppSettings, resolveLlmTemperature, type AppSettings } from '@/lib/db/app-settings';
@@ -30,7 +31,7 @@ import { querySimilarTrades } from '@/lib/vector-db';
 import { getDeepMemoryLessonBlock, DEEP_MEMORY_LESSON_001 } from '@/lib/quant/deep-memory-lessons';
 import { fetchWithBackoff } from '@/lib/api-utils';
 import { getExpertWeights } from '@/lib/trading/expert-weights';
-import { getExpertHitRates30d } from '@/lib/db/expert-accuracy';
+import { getExpertHitRates30d, getExpertHitRates7d } from '@/lib/db/expert-accuracy';
 import {
   buildSentimentExpertAugmentation,
   buildTechnicalLiquidityAugmentation,
@@ -147,6 +148,12 @@ function scoreToDirection(score: number): 'bullish' | 'bearish' | 'neutral' {
   return 'neutral';
 }
 
+function trapDirection(trap: ExpertContrarianOutput['trap_type']): 'bullish' | 'bearish' | null {
+  if (trap === 'bull_trap') return 'bullish';
+  if (trap === 'bear_trap') return 'bearish';
+  return null;
+}
+
 function shadowReliabilityBoost(expert: BoardExpertKey): number {
   const window = shadowReliabilityWindow[expert];
   if (window.length < 4) return 0;
@@ -250,6 +257,13 @@ export interface ExpertDeepMemoryOutput {
   deep_memory_logic: string;
 }
 
+export interface ExpertContrarianOutput {
+  contrarian_confidence: number;
+  trap_type: 'none' | 'bull_trap' | 'bear_trap' | 'liquidity_trap';
+  attack_on_consensus_he: string;
+  trap_hypothesis_he: string;
+}
+
 type FundamentalMetricsSnapshot = {
   status: 'LIVE' | 'AWAITING_LIVE_DATA';
   summary: string;
@@ -316,6 +330,11 @@ export interface ConsensusResult {
   onchain_fallback_used?: boolean;
   /** True when Deep Memory (Vector) agent failed and score used fallback. */
   deep_memory_fallback_used?: boolean;
+  contrarian_confidence?: number;
+  contrarian_trap_type?: ExpertContrarianOutput['trap_type'];
+  contrarian_attack_he?: string;
+  contrarian_refutation_he?: string;
+  contrarian_gate_blocked?: boolean;
   master_insight_he: string;
   reasoning_path: string;
   final_confidence: number;
@@ -622,6 +641,10 @@ async function callOpenAiCompatJson<T>(
 /** System instruction at model level: strict JSON-only output to avoid contradictory structures and hallucinated fields. */
 const CONSENSUS_SYSTEM_INSTRUCTION =
   'You must output ONLY a raw JSON object. Do not include markdown formatting like ```json or ```. Do not include any introductory text, explanation, or text after the JSON. Output exactly the requested keys and nothing else.';
+const EXPERT_7D_DECAY_THRESHOLD_PCT = 55;
+const EXPERT_7D_DECAY_FACTOR = 0.85;
+const CONTRARIAN_STRONG_TRAP_CONFIDENCE = 70;
+const CONTRARIAN_REFUTATION_MIN_LEN = 40;
 
 /** Expert rule: EMAs and Bollinger Bands are always provided in technical_context — never say "missing data" or "לא זמין" for them. */
 const NO_MISSING_EMA_BB_RULE =
@@ -763,12 +786,49 @@ ${input.deep_memory_context}
 
 Mandate: (1) TREND (EMA200) is the top priority: use technical_context for EMA200. If Price > EMA200, the regime is bullish — Bearish predictions require MUCH higher conviction and MULTIPLE exhaustion signals (e.g. clear distribution, failed breakout, reversal structure); do not flip Bearish solely on RSI overbought or single indicator. (2) Liquidity Sweeps — identify whether recent price action has swept equal highs/lows or swept liquidity below support / above resistance before reversal (stop-hunt); score higher when sweep is complete and structure supports continuation. (3) Fair Value Gaps (FVG) — note any unfilled FVGs (bullish/bearish) and whether price is respecting or filling them; use for entry zones. (4) Order Block Mitigation — assess if order blocks (last bullish/bearish candle before a move) are mitigated or still in play; precise entry zones around OB + FVG. (5) HVN and volume profile define institutional levels; align entries with OB mitigation and FVG fill. (6) OI and funding: divergence vs price = caution; confirmation = higher score.
 Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verdict, FVG/OB context, entry zone). JSON only: tech_score, tech_logic.`;
+  const groqKey = getGroqApiKey();
+  if (groqKey) {
+    try {
+      const groq = new Groq({ apiKey: groqKey });
+      const started = Date.now();
+      const completion = await Promise.race([
+        groq.chat.completions.create({
+          model: GROQ_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'You are Expert 1 (Technician): LOB microstructure, FVG, order blocks. Output ONLY raw JSON. Keys: tech_score (0-100 number), tech_logic (Hebrew string, concise).',
+            },
+            { role: 'user', content: prompt },
+          ],
+          temperature: getConsensusEngineLlmTemperature(),
+          max_tokens: 1024,
+          response_format: { type: 'json_object' },
+        }),
+        new Promise<never>((_, rej) =>
+          setTimeout(() => rej(new Error('Groq technician timeout')), Math.min(timeoutMs, 55_000))
+        ),
+      ]);
+      recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
+      const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
+      if (raw) {
+        const parsed = JSON.parse(extractFirstJsonObject(raw.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
+        const tech_score = Math.max(0, Math.min(100, Number(parsed.tech_score) || 50));
+        const tech_logic = String(parsed.tech_logic || 'ללא נימוק').slice(0, 500);
+        return { tech_score, tech_logic };
+      }
+    } catch (e) {
+      recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
+      console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
+    }
+  }
   const out = await callGeminiJson<ExpertTechnicianOutput>(
     prompt,
     ['tech_score', 'tech_logic'],
     model,
     timeoutMs,
-    { symbol: input.symbol, expert: 'Technician' }
+    { symbol: input.symbol, expert: 'Technician (Gemini fallback)' }
   );
   const tech_score = Math.max(0, Math.min(100, Number(out.tech_score) || 50));
   return { tech_score, tech_logic: String(out.tech_logic || 'ללא נימוק').slice(0, 500) };
@@ -985,6 +1045,27 @@ Data: ${dataSummary}
 
 Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score (0-100), macro_logic (string, Hebrew). Higher score = macro tailwind for the trade.`;
 
+  const useGroqMacro = process.env.MACRO_EXPERT_USE_GROQ === '1';
+  const gemModelMacro = geminiFallbackModel ?? GEMINI_MACRO_FALLBACK_MODEL;
+  if (!useGroqMacro) {
+    try {
+      const gemOut = await callGeminiJson<ExpertMacroOutput>(
+        userPrompt,
+        ['macro_score', 'macro_logic'],
+        gemModelMacro,
+        timeoutMs,
+        { symbol, expert: 'Macro (Gemini primary)' }
+      );
+      const macro_score = Math.max(0, Math.min(100, Number(gemOut.macro_score) ?? 50));
+      return {
+        macro_score,
+        macro_logic: String(gemOut.macro_logic || 'ללא נימוק').slice(0, 500),
+      };
+    } catch (gemErr) {
+      console.warn('[ConsensusEngine] Gemini Macro primary failed, falling back to Groq if available:', gemErr instanceof Error ? gemErr.message : gemErr);
+    }
+  }
+
   const envVarName = 'GROQ_API_KEY';
   const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
@@ -1149,12 +1230,56 @@ ${input.deep_memory_context}
 
 Mandate: (1) Exchange Inflow/Outflow — Exchange Inflow = coins moving TO exchanges (potential sell pressure); Exchange Outflow = coins moving FROM exchanges (cold storage / accumulation, often bullish). Net outflow = accumulation signal; net inflow = distribution risk. (2) Whales' Smart Money — large holders accumulating (buying into weakness, moving to cold) vs distributing (sending to exchanges); cluster moves and timing relative to price. (3) Combine: outflow + whale accumulation = bullish; inflow + whale distribution = bearish. (4) If onchain_metric_shift is provided, integrate it.
 Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow verdict, smart money read). JSON only: onchain_score, onchain_logic.`;
+  let anthropicKey: string | undefined;
+  try {
+    anthropicKey = getRequiredAnthropicApiKey();
+  } catch {
+    anthropicKey = undefined;
+  }
+  if (anthropicKey) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: ANTHROPIC_SONNET_MODEL,
+          max_tokens: 1024,
+          messages: [
+            {
+              role: 'user',
+              content:
+                prompt +
+                '\n\nOutput ONLY a raw JSON object with keys onchain_score (0-100 number) and onchain_logic (Hebrew string). No markdown.',
+            },
+          ],
+        }),
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+        let text = '';
+        for (const c of data.content || []) {
+          if (c.type === 'text' && c.text) text += c.text;
+        }
+        const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
+        const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
+        const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
+        return { onchain_score, onchain_logic };
+      }
+    } catch (e) {
+      console.warn('[ConsensusEngine] Anthropic On-Chain failed, Gemini fallback:', e instanceof Error ? e.message : e);
+    }
+  }
   const out = await callGeminiJson<ExpertOnChainOutput>(
     prompt,
     ['onchain_score', 'onchain_logic'],
     model,
     timeoutMs,
-    { symbol: input.symbol, expert: 'On-Chain' }
+    { symbol: input.symbol, expert: 'On-Chain (Gemini fallback)' }
   );
   const onchain_score = Math.max(0, Math.min(100, Number(out.onchain_score) ?? 50));
   return { onchain_score, onchain_logic: String(out.onchain_logic || 'ללא נימוק').slice(0, 500) };
@@ -1205,6 +1330,47 @@ Fundamental metrics (${fundamentalMetrics.status}): ${fundamentalMetrics.summary
   return { deep_memory_score, deep_memory_logic };
 }
 
+function getContrarianGeminiModelId(): string {
+  const raw = (process.env.GEMINI_CONTRARIAN_MODEL || '').trim();
+  if (raw) return raw.replace(/^models\//, '');
+  return SAFE_GEMINI_FALLBACK_MODEL;
+}
+
+async function runExpertContrarian(
+  input: ConsensusEngineInput,
+  board: {
+    tech: ExpertTechnicianOutput;
+    risk: ExpertRiskOutput;
+    psych: ExpertPsychOutput;
+    macro: ExpertMacroOutput;
+    onchain: ExpertOnChainOutput;
+    deep: ExpertDeepMemoryOutput;
+    boardLean: 'bullish' | 'bearish' | 'neutral';
+    avgScore: number;
+  },
+  contrarianModel: string,
+  timeoutMs: number
+): Promise<ExpertContrarianOutput> {
+  const prompt = `Expert 7 CONTRARIAN — destroy the consensus. Board lean=${board.boardLean} avg=${board.avgScore.toFixed(1)}. Symbol ${input.symbol} price ${input.current_price}. Scores T/R/P/M/O/D=${board.tech.tech_score}/${board.risk.risk_score}/${board.psych.psych_score}/${board.macro.macro_score}/${board.onchain.onchain_score}/${board.deep.deep_memory_score}. OB: ${(input.order_book_summary ?? '').slice(0, 400)} Micro: ${(input.microstructure_signal ?? '').slice(0, 400)}. If lean is bullish, argue bull trap / distribution; if bearish, argue bear trap / short squeeze. Hebrew in trap_hypothesis_he and attack_on_consensus_he. JSON only: contrarian_confidence (0-100), trap_type (none|bull_trap|bear_trap|liquidity_trap), trap_hypothesis_he, attack_on_consensus_he.`;
+  const out = await callGeminiJson<ExpertContrarianOutput>(
+    prompt,
+    ['contrarian_confidence', 'trap_type', 'trap_hypothesis_he', 'attack_on_consensus_he'],
+    contrarianModel,
+    timeoutMs,
+    { symbol: input.symbol, expert: 'Contrarian' }
+  );
+  const tt = String(out.trap_type || 'none');
+  const trap_type = (['none', 'bull_trap', 'bear_trap', 'liquidity_trap'].includes(tt)
+    ? tt
+    : 'none') as ExpertContrarianOutput['trap_type'];
+  return {
+    contrarian_confidence: Math.max(0, Math.min(100, Number(out.contrarian_confidence) || 0)),
+    trap_type,
+    trap_hypothesis_he: String(out.trap_hypothesis_he || '').slice(0, 500),
+    attack_on_consensus_he: String(out.attack_on_consensus_he || '').slice(0, 500),
+  };
+}
+
 function isPolarizedExpertBoard(scores: number[]): boolean {
   const valid = scores.filter((x) => Number.isFinite(x));
   if (valid.length < 6) return false;
@@ -1225,6 +1391,7 @@ async function runJudge(
   macro: ExpertMacroOutput,
   onchain: ExpertOnChainOutput,
   deepMemory: ExpertDeepMemoryOutput,
+  contrarian: ExpertContrarianOutput,
   symbol: string,
   model: string,
   timeoutMs: number,
@@ -1232,7 +1399,13 @@ async function runJudge(
     polarizedBoard: boolean;
     expertHitRatesLine: string;
   }
-): Promise<{ master_insight_he: string; reasoning_path: string; debate_resolution: string }> {
+): Promise<{
+  master_insight_he: string;
+  reasoning_path: string;
+  debate_resolution: string;
+  contrarian_addressed: boolean;
+  contrarian_refutation_he: string;
+}> {
   const expertWeights = await getExpertWeights();
   const polarized = judgeOpts?.polarizedBoard ?? false;
   const hitLine = judgeOpts?.expertHitRatesLine ?? '';
@@ -1240,26 +1413,35 @@ async function runJudge(
     ? `POLARIZED_BOARD=true: שני מחנות מנוגדים (BUY חזק מול SELL חזק). חובה למלא debate_resolution בעברית: סיכום דיון — מה כל צד רואה, איזה ראיות דוחקות, ומה נתיב ההכרעה הסופית לפני ציון ביטחון.`
     : `POLARIZED_BOARD=false: השאר debate_resolution כמחרוזת ריקה "".`;
 
-  const prompt = `אתה Chief Investment Officer סקפטי (Supreme Inspector, Overseer/CIO) בחדר הדיונים — Institutional Crypto Quantitative Board. חובה: לסנתז (synthesize) ולהצליב (cross-reference) במפורש את כל ששת התשובות לפני קביעת התובנה הסופית, ולחפש קונפליקטים מובהקים בין מומחים. אין לתת תובנה בלי להתייחס להסכמה או סתירה בין מומחים או בלי להתייחס ל־Deep Memory (Pinecone).
+  const prompt = `אתה Chief Investment Officer סקפטי (Supreme Inspector, Overseer/CIO) בחדר הדיונים — Institutional Crypto Quantitative Board. חובה: לסנתז (synthesize) ולהצליב (cross-reference) במפורש את כל שבעת התשובות (כולל ה-Contrarian) לפני קביעת התובנה הסופית.
 
 ${debateBlock}
 
 מצב אמון מומחים דינמי (Reinforcement Learning): Data Expert=${expertWeights.dataExpertWeight.toFixed(2)}, News Expert=${expertWeights.newsExpertWeight.toFixed(2)}, Macro Expert=${expertWeights.macroExpertWeight.toFixed(2)}. משקלים אלה משקפים ביצועים אחרונים של המומחים — כאשר המשקל גבוה יותר תן משקל גדול יותר לעמדת המומחה, וכאשר המשקל נמוך היה ספקן יותר.
 ${hitLine ? `שיעורי פגיעה אמפיריים (30 יום, DB פוסט-מורטם): ${hitLine}` : ''}
 
-ששת המומחים הגישו (הקשר קריפטו מוסדי — לא צ'אט כללי):
-- 1.Technician (Entry Zones, OI, Funding, Liquidity Sweeps): ציון ${tech.tech_score}, לוגיקה: ${tech.tech_logic}
-- 2.Risk & MM Manager (Volatility, Kelly Position Sizing, Drawdown): ציון ${risk.risk_score}, לוגיקה: ${risk.risk_logic}
-- 3.Sentiment & Perps (Funding, Liquidations, Social): ציון ${psych.psych_score}, לוגיקה: ${psych.psych_logic}
-- 4.Macro & Order Book (ETF, DXY, Walls): ציון ${macro.macro_score}, לוגיקה: ${macro.macro_logic}
-- 5.On-Chain Sleuth (Whale, Exchange Inflow/Outflow): ציון ${onchain.onchain_score}, לוגיקה: ${onchain.onchain_logic}
-- 6.Deep Memory & Tokenomics (Vector — similar historical trades, FDV/MCap, Vesting, Protocol revenue models): ציון ${deepMemory.deep_memory_score}, לוגיקה: ${deepMemory.deep_memory_logic}
+שבעת המומחים:
+- 1.Technician: ציון ${tech.tech_score}, לוגיקה: ${tech.tech_logic}
+- 2.Risk: ציון ${risk.risk_score}, לוגיקה: ${risk.risk_logic}
+- 3.Psych: ציון ${psych.psych_score}, לוגיקה: ${psych.psych_logic}
+- 4.Macro: ציון ${macro.macro_score}, לוגיקה: ${macro.macro_logic}
+- 5.On-Chain: ציון ${onchain.onchain_score}, לוגיקה: ${onchain.onchain_logic}
+- 6.Deep Memory: ציון ${deepMemory.deep_memory_score}, לוגיקה: ${deepMemory.deep_memory_logic}
+- 7.CONTRARIAN (adversarial): ביטחון ${contrarian.contrarian_confidence}, trap_type=${contrarian.trap_type}, מלכודה: ${contrarian.trap_hypothesis_he}, התקפה: ${contrarian.attack_on_consensus_he}
 
-תפקידך: (1) סינתזה רב-סוכנית סקפטית: הצלב במפורש טכני מול מקרו (setup טכני מול רוח מקרו), Order Book מול סנטימנט (Psych), On-Chain מול Psych (זרימות מול sentiment), ורכיב Deep Memory & Tokenomics מול כל שאר המומחים — אם היסטוריית Pinecone מצביעה על דפוסי כשל חוזרים (למשל vesting unlock dumps או שחיקת מחיר עקבית), עליך להוריד את רמת הביטחון גם אם יתר המומחים חיוביים. (2) הדגש בקבלת החלטה סופית מצבים של "קונפליקט חמור" (למשל Risk/MM פסימי ו-Deep Memory שלילי בזמן שסנטימנט הייפי) והעדף שמרנות. (3) Gem Score מחושב במערכת לפי משקלים דינמיים — אל תחשב בעצמך. (4) נסח master_insight_he בעברית מקצועית קריפטו: מקסימום 2 משפטים קצרים והחלטיים — קונצנזוס והמלצה לסמל ${symbol} בהתבסס על הסינתזה בלבד, כולל אם CIO מחליט "No-go" למרות ציון גולמי גבוה בגלל דפוסי עבר מ-Pinecone. (5) reasoning_path: משפט אחד — איך הצלבת וסינתזת את ששת המומחים. (6) debate_resolution: כאשר POLARIZED_BOARD=true — נתיב הכרעה לאחר דיון בין מחנות מנוגדים; כאשר false — "" בלבד.
-חובה: החזר רק אובייקט JSON גולמי עם השדות בדיוק: master_insight_he, reasoning_path, debate_resolution. אסור markdown, אסור טקסט מקדים — JSON תקף בלבד.`;
-  const out = await callGeminiJson<{ master_insight_he: string; reasoning_path: string; debate_resolution?: string }>(
+אם ה-Contrarian מצביע על bull_trap/bear_trap עם ביטחון גבוה — חובה להשיב במפורש למתקפה (refutation) בעברית ב-contrarian_refutation_he, ולסמן contrarian_addressed=true רק אם סיכלת לוגית את טענותיו. אחרת contrarian_addressed=false.
+
+תפקידך: סינתזה סקפטית; Gem Score מחושב במערכת — אל תחשב בעצמך. master_insight_he עד 2 משפטים בעברית. reasoning_path משפט אחד. debate_resolution לפי POLARIZED_BOARD.
+חובה: JSON גולמי בדיוק: master_insight_he, reasoning_path, debate_resolution, contrarian_addressed (boolean), contrarian_refutation_he (string Hebrew, יכול להיות ריק אם אין סתירה חזקה).`;
+  const out = await callGeminiJson<{
+    master_insight_he: string;
+    reasoning_path: string;
+    debate_resolution?: string;
+    contrarian_addressed?: boolean;
+    contrarian_refutation_he?: string;
+  }>(
     prompt,
-    ['master_insight_he', 'reasoning_path', 'debate_resolution'],
+    ['master_insight_he', 'reasoning_path', 'debate_resolution', 'contrarian_addressed', 'contrarian_refutation_he'],
     model,
     timeoutMs,
     { symbol, expert: 'Judge' }
@@ -1268,6 +1450,8 @@ ${hitLine ? `שיעורי פגיעה אמפיריים (30 יום, DB פוסט-מ
     master_insight_he: String(out.master_insight_he || 'אין תובנה').slice(0, 600),
     reasoning_path: String(out.reasoning_path || '').slice(0, 320),
     debate_resolution: String(out.debate_resolution ?? '').slice(0, 500),
+    contrarian_addressed: Boolean(out.contrarian_addressed),
+    contrarian_refutation_he: String(out.contrarian_refutation_he ?? '').slice(0, 600),
   };
 }
 
@@ -1515,6 +1699,41 @@ export async function runConsensusEngine(
     console.warn('[ConsensusEngine] Deep Memory expert failed:', deepMemorySettled.reason);
   }
 
+  let expert7: ExpertContrarianOutput = {
+    contrarian_confidence: 0,
+    trap_type: 'none',
+    trap_hypothesis_he: '',
+    attack_on_consensus_he: '',
+  };
+  try {
+    const avgBoard =
+      (expert1.tech_score +
+        expert2.risk_score +
+        expert3.psych_score +
+        expert4.macro_score +
+        expert5.onchain_score +
+        expert6.deep_memory_score) /
+      6;
+    const boardLean = scoreToDirection(avgBoard);
+    expert7 = await runExpertContrarian(
+      fullInput,
+      {
+        tech: expert1,
+        risk: expert2,
+        psych: expert3,
+        macro: expert4,
+        onchain: expert5,
+        deep: expert6,
+        boardLean,
+        avgScore: avgBoard,
+      },
+      getContrarianGeminiModelId(),
+      timeoutMs
+    );
+  } catch (cErr) {
+    console.warn('[ConsensusEngine] Contrarian failed:', cErr instanceof Error ? cErr.message : cErr);
+  }
+
   const cohesion = await evaluateSystemCohesionAsync({
     tech_score: expert1.tech_score,
     risk_score: expert2.risk_score,
@@ -1523,14 +1742,25 @@ export async function runConsensusEngine(
   const effectiveThreshold = cohesion.marketUncertainty ? cohesion.suggestedMoeThreshold : threshold;
 
   const normalizedForHits = normalizeSymbol(input.symbol);
-  let hitRates = await getExpertHitRates30d({ symbol: normalizedForHits }).catch(() => ({
-    technician: 50,
-    risk: 50,
-    psych: 50,
-    macro: 50,
-    onchain: 50,
-    deepMemory: 50,
-  }));
+  const [hitRates30dRaw, hitRates7d] = await Promise.all([
+    getExpertHitRates30d({ symbol: normalizedForHits }).catch(() => ({
+      technician: 50,
+      risk: 50,
+      psych: 50,
+      macro: 50,
+      onchain: 50,
+      deepMemory: 50,
+    })),
+    getExpertHitRates7d({ symbol: normalizedForHits }).catch(() => ({
+      technician: 50,
+      risk: 50,
+      psych: 50,
+      macro: 50,
+      onchain: 50,
+      deepMemory: 50,
+    })),
+  ]);
+  let hitRates = hitRates30dRaw;
   const bestKey = bestExpertFromDeepMemory?.bestExpertKey;
   const bestAcc = bestExpertFromDeepMemory?.accuracyPct;
   if (bestKey && typeof bestAcc === 'number' && Number.isFinite(bestAcc)) {
@@ -1555,9 +1785,15 @@ export async function runConsensusEngine(
     expert6.deep_memory_score,
   ];
   const polarizedBoard = isPolarizedExpertBoard(expertScoresForPolar);
-  const expertHitRatesLine = `טכני=${hitRates.technician}%, סיכון=${hitRates.risk}%, פסיכ=${hitRates.psych}%, מקרו=${hitRates.macro}%, on-chain=${hitRates.onchain}%, DeepMemory=${hitRates.deepMemory}%.`;
+  const expertHitRatesLine = `30d: טכני=${hitRates.technician}%, סיכון=${hitRates.risk}%, פסיכ=${hitRates.psych}%, מקרו=${hitRates.macro}%, on-chain=${hitRates.onchain}%, DeepMemory=${hitRates.deepMemory}%. | 7d: טכני=${hitRates7d.technician}%, סיכון=${hitRates7d.risk}%, פסיכ=${hitRates7d.psych}%, מקרו=${hitRates7d.macro}%, on-chain=${hitRates7d.onchain}%, DeepMemory=${hitRates7d.deepMemory}%.`;
 
-  let judgeResult: { master_insight_he: string; reasoning_path: string; debate_resolution: string };
+  let judgeResult: {
+    master_insight_he: string;
+    reasoning_path: string;
+    debate_resolution: string;
+    contrarian_addressed: boolean;
+    contrarian_refutation_he: string;
+  };
   try {
     judgeResult = await runJudge(
       expert1,
@@ -1566,6 +1802,7 @@ export async function runConsensusEngine(
       expert4,
       expert5,
       expert6,
+      expert7,
       input.symbol,
       model,
       timeoutMs,
@@ -1578,6 +1815,8 @@ export async function runConsensusEngine(
       master_insight_he: 'תובנת קונצנזוס לא זמינה (שגיאה בשופט). המערכת משתמשת בציוני ששת המומחים בלבד.',
       reasoning_path: 'שופט לא זמין — חישוב ציון סופי לפי משקלים בלבד.',
       debate_resolution: '',
+      contrarian_addressed: false,
+      contrarian_refutation_he: '',
     };
   }
 
@@ -1585,6 +1824,8 @@ export async function runConsensusEngine(
     const x = Math.max(0.38, Math.min(0.92, pct / 100));
     return x ** 1.35;
   };
+  const decay7d = (k: BoardExpertKey): number =>
+    (hitRates7d[k] ?? 50) < EXPERT_7D_DECAY_THRESHOLD_PCT ? EXPERT_7D_DECAY_FACTOR : 1;
   const regimeBase: Record<BoardExpertKey, number> =
     marketRegime === 'high-volatility'
       ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9 }
@@ -1604,12 +1845,12 @@ export async function runConsensusEngine(
   };
 
   const weightByExpert: Record<BoardExpertKey, number> = {
-    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('gemini'),
-    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini'),
-    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini'),
-    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('groq'),
-    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini'),
-    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini'),
+    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('groq') * decay7d('technician'),
+    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini') * decay7d('risk'),
+    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini') * decay7d('psych'),
+    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('gemini') * decay7d('macro'),
+    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini') * decay7d('onchain'),
+    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini') * decay7d('deepMemory'),
   };
 
   shadowPredictions.set(`${input.symbol}:technician`, {
@@ -1666,7 +1907,16 @@ export async function runConsensusEngine(
           .filter((item) => !item.failed)
           .reduce((sum, item) => sum + item.score * item.weight, 0) / availableWeight
       : FALLBACK_EXPERT_SCORE;
-  const consensus_approved = final_confidence >= effectiveThreshold;
+  const weightedDirection = scoreToDirection(final_confidence);
+  const trapDir = trapDirection(expert7.trap_type);
+  const strongContrarianTrap =
+    trapDir !== null && expert7.contrarian_confidence >= CONTRARIAN_STRONG_TRAP_CONFIDENCE;
+  const refutation = judgeResult.contrarian_refutation_he.trim();
+  const contrarianCoverageOk =
+    judgeResult.contrarian_addressed && refutation.length >= CONTRARIAN_REFUTATION_MIN_LEN;
+  const contrarianGateBlocked =
+    strongContrarianTrap && weightedDirection === trapDir && !contrarianCoverageOk;
+  const consensus_approved = final_confidence >= effectiveThreshold && !contrarianGateBlocked;
   const votes = {
     technician: scoreToDirection(expert1.tech_score),
     risk: scoreToDirection(expert2.risk_score),
@@ -1723,6 +1973,11 @@ export async function runConsensusEngine(
       /\(מקרו\/Groq|מקרו: Groq וגיבוי/.test(expert4.macro_logic)) && { macro_fallback_used: true }),
     ...(onchainFailed && { onchain_fallback_used: true }),
     ...(deepMemoryFailed && { deep_memory_fallback_used: true }),
+    contrarian_confidence: expert7.contrarian_confidence,
+    contrarian_trap_type: expert7.trap_type,
+    contrarian_attack_he: expert7.attack_on_consensus_he,
+    contrarian_refutation_he: judgeResult.contrarian_refutation_he,
+    contrarian_gate_blocked: contrarianGateBlocked,
     master_insight_he: judgeResult.master_insight_he,
     reasoning_path: judgeResult.reasoning_path,
     final_confidence: Math.round(final_confidence * 10) / 10,
@@ -1740,3 +1995,4 @@ export async function runConsensusEngine(
     consensusEngineLlmTemperature = prevConsensusTemp;
   }
 }
+

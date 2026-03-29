@@ -159,6 +159,25 @@ function roundAmount(value: number, precision = 8): number {
   return Math.round(value * factor) / factor;
 }
 
+function estimateVwapFromDepth(
+  depth: Awaited<ReturnType<typeof fetchBinanceOrderBookDepth>> | null,
+  fallback: number
+): number {
+  if (!depth) return fallback;
+  const levels = [...depth.bids.slice(0, 12), ...depth.asks.slice(0, 12)];
+  let notional = 0;
+  let qty = 0;
+  for (const level of levels) {
+    const p = Number(level?.[0]);
+    const q = Number(level?.[1]);
+    if (!Number.isFinite(p) || !Number.isFinite(q) || p <= 0 || q <= 0) continue;
+    notional += p * q;
+    qty += q;
+  }
+  if (qty <= 0) return fallback;
+  return notional / qty;
+}
+
 function mapDirectionToSignal(direction: AutonomousExecutionInput['predictedDirection']): ExecutionSignalSide | null {
   if (direction === 'Bullish') return 'BUY';
   if (direction === 'Bearish') return 'SELL';
@@ -490,8 +509,10 @@ export async function executeAutonomousConsensusSignal(
       });
 
       const depth = await depthPrefetch;
+      const vwapPrice = estimateVwapFromDepth(depth, livePrice ?? entryPrice);
       const slipFrac = estimateBuySlippageFraction(depth, amountUsd, livePrice ?? entryPrice);
       const twapSched = pickTwapSchedule(shouldUseStealthTwap(slipFrac));
+      const vwapDriftPct = ((entryPrice - vwapPrice) / Math.max(vwapPrice, 0.00000001)) * 100;
 
       const enrichedBreakdown = JSON.stringify({
         ...(safeJsonParse(expertBreakdownJson) ?? {}),
@@ -504,6 +525,8 @@ export async function executeAutonomousConsensusSignal(
           kellyFraction: kelly.kellyFraction,
           kellyNote: kelly.note,
           estSlippagePct: round2(slipFrac * 1000) / 10,
+          vwapPrice: round2(vwapPrice),
+          vwapDriftPct: round2(vwapDriftPct),
           twapMinutes: twapSched.durationMinutes,
           twapChunks: twapSched.chunks,
         },
@@ -580,7 +603,7 @@ export async function executeAutonomousConsensusSignal(
         executionStatus: 'executed',
         reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
           twapResult.intervalMs
-        )}. Priority=${priority}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
+        )}. Priority=${priority}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, VWAP=${vwapPrice.toFixed(4)}, drift=${vwapDriftPct.toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
           2
         )}%, Kelly f=${kelly.kellyFraction.toFixed(4)}, volSizing=${sizing.riskFraction.toFixed(4)}.`,
         overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
@@ -643,6 +666,7 @@ export async function executeAutonomousConsensusSignal(
     });
     const stealth = new StealthExecutionEngine(broker);
     const exitDepth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
+    const exitVwap = estimateVwapFromDepth(exitDepth, livePrice ?? openForSymbol.entry_price);
     const slipSell = estimateSellSlippageFraction(
       exitDepth,
       openForSymbol.amount_usd,
@@ -664,6 +688,7 @@ export async function executeAutonomousConsensusSignal(
     const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(openForSymbol.id);
     const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
     const executionLabel = broker.isSimulated ? 'Simulated TWAP SELL executed.' : 'TWAP SELL executed via exchange.';
+    const exitVwapDriftPct = ((exitPrice - exitVwap) / Math.max(exitVwap, 0.00000001)) * 100;
     const insSell = await insertVirtualTradeHistory({
       eventId,
       predictionId: input.predictionId,
@@ -673,7 +698,7 @@ export async function executeAutonomousConsensusSignal(
       mode: effectiveMode,
       executed: true,
       executionStatus: 'executed',
-      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}. Priority=${priority}.`,
+      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}. Priority=${priority}. VWAP=${exitVwap.toFixed(4)}, drift=${exitVwapDriftPct.toFixed(3)}%.`,
       overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson: originalExpertBreakdownJson,

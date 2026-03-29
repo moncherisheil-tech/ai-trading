@@ -300,7 +300,11 @@ export default function AlphaSignalsDashboard() {
               <AcademyTerm href="/academy#glossary-cvd" title="נפח דלתא מצטבר — מילון באקדמיה">
                 נפח דלתא מצטבר
               </AcademyTerm>{' '}
-              ו־
+              ,{' '}
+              <AcademyTerm href="/academy#glossary-vwap" title="מחיר ממוצע משוקלל נפח — מילון באקדמיה">
+                VWAP
+              </AcademyTerm>
+              {' '}ו־
               <AcademyTerm href="/academy#glossary-spoofing" title="ספופינג — מילון באקדמיה">
                 ספופינג
               </AcademyTerm>{' '}
@@ -531,6 +535,16 @@ export default function AlphaSignalsDashboard() {
                   <li>
                     <AcademyTerm href="/academy#glossary-spoofing" title="ספופינג">
                       ספופינג — מילון
+                    </AcademyTerm>
+                  </li>
+                  <li>
+                    <AcademyTerm href="/academy#glossary-vwap" title="VWAP">
+                      VWAP — מילון
+                    </AcademyTerm>
+                  </li>
+                  <li>
+                    <AcademyTerm href="/academy#glossary-contrarian" title="Contrarian">
+                      Contrarian — מילון
                     </AcademyTerm>
                   </li>
                   <li>

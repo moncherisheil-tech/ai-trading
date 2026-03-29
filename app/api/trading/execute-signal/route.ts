@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
+import { verifyExecutionHandshake } from '@/lib/trading/execution-auth';
 
 type ExecuteSignalBody = {
   symbol?: string;
@@ -29,7 +30,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const body = (await request.json()) as ExecuteSignalBody;
+    const bodyRaw = await request.text();
+    const handshake = verifyExecutionHandshake({
+      bodyRaw,
+      signatureB64: request.headers.get('x-exec-signature'),
+      timestampRaw: request.headers.get('x-exec-timestamp'),
+    });
+    if (!handshake.ok) {
+      return NextResponse.json({ success: false, error: handshake.reason ?? 'Invalid handshake' }, { status: 401 });
+    }
+    const body = JSON.parse(bodyRaw) as ExecuteSignalBody;
     const side = body.side;
     const confidence = Number(body.confidence);
     const symbol = normalizeSymbol(String(body.symbol ?? ''));

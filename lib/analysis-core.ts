@@ -24,6 +24,10 @@ import {
   fetchMacroContext,
   fetchBinanceAggTrades,
 } from '@/lib/api-utils';
+import { fetchS1MacroSatellite } from '@/lib/satellites/s1-macro';
+import { buildS2MicroSatelliteSummary } from '@/lib/satellites/s2-microstructure';
+import { augmentOrderBookWithDepthHints } from '@/lib/market/binance-depth-hints';
+
 import { fetchMicrostructureSummary } from '@/lib/microstructure/signal-core-client';
 import type { BinanceKline } from '@/lib/actions-types';
 import { getSuccessFailureFeedback } from '@/lib/smart-agent';
@@ -708,22 +712,40 @@ export async function doAnalysisCore(
   const moeThreshold = appSettings.neural.moeConfidenceThreshold ?? 75;
   let consensusResult: ConsensusResult | null = null;
   const useCachedMacro = options?.precomputedMacro != null;
-  const [orderBookDepth, macroContext, aggTrades] = await Promise.all([
+  const [orderBookDepth, macroContext, aggTrades, s1Satellite] = await Promise.all([
     fetchBinanceOrderBookDepth(cleanSymbol, 50),
     useCachedMacro ? Promise.resolve(null) : fetchMacroContext(),
     fetchBinanceAggTrades(cleanSymbol, 500),
+    useCachedMacro ? Promise.resolve(null) : fetchS1MacroSatellite(),
   ]);
-  const orderBookSummary = summarizeOrderBookDepth(orderBookDepth, cleanSymbol);
-  const microstructure_signal = await fetchMicrostructureSummary({
+  let depthResample = null;
+  try {
+    await new Promise((r) => setTimeout(r, 400));
+    depthResample = await fetchBinanceOrderBookDepth(cleanSymbol, 50);
+  } catch {
+    /* optional second depth sample */
+  }
+  const orderBookSummary = augmentOrderBookWithDepthHints(
+    summarizeOrderBookDepth(orderBookDepth, cleanSymbol),
+    orderBookDepth,
+    depthResample
+  );
+  const microstructureCore = await fetchMicrostructureSummary({
     trades: aggTrades,
     closes: klines1h.closes,
     volumes: klines1h.volumes,
+  });
+  const microstructure_signal = buildS2MicroSatelliteSummary({
+    microstructureLine: microstructureCore,
+    leviathanLine: leviathanSnapshot.institutionalWhaleContext ?? null,
+    onchainMetricShift: leviathanSnapshot.institutionalWhaleContext ?? null,
   });
   const macroContextStr = useCachedMacro
     ? 'Global macro (cached for this cycle).'
     : (macroContext!.dxyNote +
         (macroContext!.fearGreedIndex != null ? ` Fear & Greed: ${macroContext!.fearGreedIndex} (${macroContext!.fearGreedLabel ?? 'N/A'}).` : '') +
-        (macroContext!.btcDominancePct != null ? ` BTC dominance: ${macroContext!.btcDominancePct}%.` : ''));
+        (macroContext!.btcDominancePct != null ? ` BTC dominance: ${macroContext!.btcDominancePct}%.` : '') +
+        (s1Satellite?.summaryEn ? ` ${s1Satellite.summaryEn}` : ''));
   // Explicit diagnostic visibility for env loading issues in production logs.
   getGroqApiKeyFromEnvWithLog('analysis-core');
   try {

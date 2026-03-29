@@ -48,6 +48,11 @@ const AGENTS = [
     icon: Layers,
     role: 'מפיק חוות דעת על בסיס עסקאות היסטוריות דומות והסתברויות הצלחה משוקללות.',
   },
+  {
+    name: 'Contrarian אדברסרי',
+    icon: Brain,
+    role: 'תוקף את קונצנזוס הלוח ומחפש מלכודות שורט/לונג לפני אישור סופי.',
+  },
 ];
 
 export default function AcademyPage() {
@@ -313,6 +318,33 @@ export default function AcademyPage() {
               <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
                 הצגת פקודות גדולות ללא כוונה ממשית למילוי, כדי להטעות סוחרים לגבי עומק או כיוון. מומחה המאקרו והספר
                 מחפש דפוסים חשודים כאלה יחד עם זרימות לווייתנים.
+              </p>
+            </li>
+            <li
+              id="glossary-vwap"
+              className="scroll-mt-24 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 hover:bg-cyan-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-cyan-300/95 text-sm">VWAP — מחיר ממוצע משוקלל נפח</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                מדד ביצוע מרכזי להשוואת איכות כניסה/יציאה מול מחירי השוק בפועל. סטייה גדולה מדי מ־VWAP מצביעה על ביצוע חלש.
+              </p>
+            </li>
+            <li
+              id="glossary-contrarian"
+              className="scroll-mt-24 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 hover:bg-amber-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-amber-300/95 text-sm">Contrarian — מומחה אדברסרי</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                מומחה שתפקידו להפריך את ההחלטה הקבוצתית ולזהות מלכודות כיוון. ללא הפרכה איכותית של טענותיו, ההמלצה נחסמת.
+              </p>
+            </li>
+            <li
+              id="glossary-twelve-data"
+              className="scroll-mt-24 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 hover:bg-cyan-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-cyan-300/95 text-sm">Twelve Data</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                ספק נתוני שוק ו־WebSocket למט"ח בזמן אמת. משמש להזנת USD/ILS בצורה מודולרית ללא תלות בנתיב ניתוח הקריפטו.
               </p>
             </li>
           </ul>

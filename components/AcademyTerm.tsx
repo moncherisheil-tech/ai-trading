@@ -26,6 +26,9 @@ export function AcademyTerm({ href, children, title }: Props) {
 const TERM_PATTERNS: Array<{ re: RegExp; href: string; title: string; display: string }> = [
   { re: /\bDXY\b/gi, href: '/academy#glossary-dxy', title: 'מדד הדולר מול סל מטבעות — מדריך באקדמיה', display: 'מדד דולר' },
   { re: /\bCVD\b/gi, href: '/academy#glossary-cvd', title: 'נפח מצטבר דלתא — מדריך באקדמיה', display: 'נפח דלתא מצטבר' },
+  { re: /\bVWAP\b/gi, href: '/academy#glossary-vwap', title: 'מחיר ממוצע משוקלל נפח — מדריך באקדמיה', display: 'VWAP' },
+  { re: /\bContrarian\b/gi, href: '/academy#glossary-contrarian', title: 'מומחה אדברסרי כנגד הקונצנזוס — מדריך באקדמיה', display: 'Contrarian' },
+  { re: /\bTwelve Data\b/gi, href: '/academy#glossary-twelve-data', title: 'ספק נתוני מט"ח ושוק בזמן אמת — מדריך באקדמיה', display: 'Twelve Data' },
   { re: /ספופינג/g, href: '/academy#glossary-spoofing', title: 'הצגת פקודות מדומות בספר — מדריך באקדמיה', display: 'ספופינג' },
   { re: /\bSpoofing\b/gi, href: '/academy#glossary-spoofing', title: 'הצגת פקודות מדומות בספר — מדריך באקדמיה', display: 'ספופינג' },
 ];

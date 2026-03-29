@@ -205,9 +205,20 @@ function databaseProbeLabel(s: DatabaseProbeStatus): string {
 }
 
 async function buildMainText(): Promise<string> {
-  const [settings, health] = await Promise.all([getAppSettings(), getLiveInfraHealth()]);
+  const [settings, health, scanner, alertsToday, inventory] = await Promise.all([
+    getAppSettings(),
+    getLiveInfraHealth(),
+    Promise.resolve(getScannerState()),
+    APP_CONFIG.postgresUrl?.trim() ? countScannerAlertsToday() : Promise.resolve(0),
+    getCachedGemsTicker24h({
+      minVolume24hUsd: 500_000,
+      minLiquidityUsd: 50_000,
+      minPriceChangePct: 1,
+    }).catch(() => []),
+  ]);
   const mode = settings.execution.mode === 'LIVE' ? 'LIVE' : 'SHADOW';
   const apiOk = (on: boolean) => (on ? 'תקין' : 'לא זמין');
+  const inventoryCount = Array.isArray(inventory) ? inventory.length : 0;
   const lines = [
     '*מסוף מוסדי — Mon Chéri Quant*',
     'מרכז פיקוד ניהולי',
@@ -219,6 +230,9 @@ async function buildMainText(): Promise<string> {
       'PostgreSQL'.padEnd(16) + databaseProbeLabel(health.database),
       'Gemini API'.padEnd(16) + apiOk(health.gemini),
       'Groq API'.padEnd(16) + apiOk(health.groq),
+      'Scanner'.padEnd(16) + scanner.status,
+      'Alerts today'.padEnd(16) + String(alertsToday),
+      'Inventory'.padEnd(16) + `${inventoryCount} pairs`,
     ]),
   ];
   return lines.join('\n');

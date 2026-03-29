@@ -83,7 +83,7 @@ export default function ForexTicker({ collapsed }: { collapsed?: boolean }) {
       }
     };
     void load();
-    const id = setInterval(load, 90_000);
+    const id = setInterval(load, 30_000);
     return () => {
       cancelled = true;
       clearInterval(id);
