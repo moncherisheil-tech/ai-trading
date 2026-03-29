@@ -24,6 +24,10 @@ type ExecutePayload = {
 
 const TOP_SCAN = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT'] as const;
 
+/** Institutional Hebrew — never surface raw API / stack text to operators. */
+const SYSTEM_DATA_ERROR_HE = 'שגיאת מערכת: לא ניתן למשוך נתונים כעת';
+const SYSTEM_EXEC_ERROR_HE = 'שגיאת מערכת: לא ניתן לבצע את הפעולה כעת';
+
 function timeframeLabel(tf: string): string {
   switch (tf) {
     case 'Hourly':
@@ -44,9 +48,9 @@ function directionLabel(d: string): string {
 }
 
 function probBarGradient(p: number): string {
-  if (p >= 70) return 'linear-gradient(90deg, #facc15, #22c55e)';
-  if (p >= 45) return 'linear-gradient(90deg, #eab308, #84cc16)';
-  return 'linear-gradient(90deg, #f97316, #ef4444)';
+  if (p >= 80) return 'linear-gradient(90deg, #15803d, #22c55e)';
+  if (p >= 60) return 'linear-gradient(90deg, #ca8a04, #f97316)';
+  return 'linear-gradient(90deg, #b91c1c, #ef4444)';
 }
 
 function ProbabilityBar({ value }: { value: number }) {
@@ -85,12 +89,13 @@ export default function AlphaSignalsDashboard() {
     try {
       const out = await getLatestAlphaSignalsAction();
       if (!out.success) {
-        throw new Error(out.error);
+        setError(out.error);
+        return;
       }
       setRows(out.data);
       setGodTier(out.data.length > 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'שגיאה בטעינת הנתונים.');
+    } catch {
+      setError(SYSTEM_DATA_ERROR_HE);
     } finally {
       setLoading(false);
     }
@@ -107,12 +112,13 @@ export default function AlphaSignalsDashboard() {
       const sym = scanSymbol;
       const out = await generateAlphaMatrixAction(sym);
       if (!out.success) {
-        throw new Error(out.error);
+        toast?.error(out.error);
+        return;
       }
       toast?.success('סריקת עומק הושלמה — הנתונים עודכנו במסד הנתונים.');
       await loadSignals();
-    } catch (e) {
-      toast?.error(e instanceof Error ? e.message : 'סריקת עומק נכשלה.');
+    } catch {
+      toast?.error(SYSTEM_DATA_ERROR_HE);
     } finally {
       setScanning(false);
     }
@@ -153,21 +159,21 @@ export default function AlphaSignalsDashboard() {
       });
       if (!out.success) {
         setExecKey((prev) => ({ ...prev, [k]: 'idle' }));
-        toast?.error(out.error || 'בקשת ביצוע נכשלה.');
+        toast?.error(SYSTEM_EXEC_ERROR_HE);
         return;
       }
       const payload = out.data as ExecutePayload;
       const inner = payload.data;
       if (!payload.success || inner?.status === 'blocked') {
         setExecKey((prev) => ({ ...prev, [k]: inner?.status === 'blocked' ? 'blocked' : 'idle' }));
-        toast?.error(payload.error || inner?.reason || 'חסום או נכשל.');
+        toast?.error(SYSTEM_EXEC_ERROR_HE);
         return;
       }
       setExecKey((prev) => ({ ...prev, [k]: 'executed' }));
       toast?.success('האות נשלח למרכז הפיקוד לביצוע TWAP.');
-    } catch (err) {
+    } catch {
       setExecKey((prev) => ({ ...prev, [k]: 'idle' }));
-      toast?.error(err instanceof Error ? err.message : 'שגיאה.');
+      toast?.error(SYSTEM_EXEC_ERROR_HE);
     } finally {
       setSubmittingExecution(false);
       setPendingExecution(null);

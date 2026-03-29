@@ -101,7 +101,7 @@ async function assertQuantumAdminForWrites(): Promise<AdminWriteGate> {
     await requireQuantumAdmin();
     return { ok: true };
   } catch {
-    return { ok: false, error: 'UNAUTHORIZED' };
+    return { ok: false, error: 'פעולה חסומה: נדרשת הרשאת מנהל' };
   }
 }
 
@@ -1160,16 +1160,25 @@ export async function getLatestAlphaSignalsAction(): Promise<
     const data = await getLatestActiveAlphaSignalsFromDb(120);
     return { success: true, data };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : 'שגיאה בטעינת אותות אלפא.' };
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('[getLatestAlphaSignalsAction]', e);
+    }
+    return { success: false, error: 'שגיאת מערכת: לא ניתן למשוך נתונים כעת' };
   }
 }
 
-/** Validated trading symbol for Tri-Core (uppercase A–Z and digits only, max 20). */
+/** Validated trading symbol for Tri-Core (uppercase A–Z and digits only, max 20). Blocks SQL-ish substrings for log-poisoning defense. */
 const ALPHA_MATRIX_SYMBOL_SCHEMA = z
   .string()
   .trim()
   .transform((s) => s.toUpperCase())
-  .pipe(z.string().regex(/^[A-Z0-9]+$/).max(20));
+  .pipe(
+    z
+      .string()
+      .regex(/^[A-Z0-9]+$/)
+      .max(20)
+      .refine((s) => !/(DROP|SELECT|DELETE)/.test(s), { message: 'blocked_sql_keyword_substring' }),
+  );
 
 /** Tri-Core Alpha Matrix: run Groq + Anthropic + Gemini and persist four timeframes. */
 export async function generateAlphaMatrixAction(symbol: string): Promise<
@@ -1178,13 +1187,15 @@ export async function generateAlphaMatrixAction(symbol: string): Promise<
 > {
   const gate = await assertQuantumAdminForWrites();
   if (!gate.ok) return { success: false, error: gate.error };
+  const symParsed = ALPHA_MATRIX_SYMBOL_SCHEMA.safeParse(symbol);
+  if (!symParsed.success) {
+    return {
+      success: false,
+      error:
+        'סמל מסחר לא תקף: השתמש רק באותיות לטיניות גדולות ומספרים, עד 20 תווים (למשל BTC או BTCUSDT).',
+    };
+  }
   try {
-    const symParsed = ALPHA_MATRIX_SYMBOL_SCHEMA.safeParse(symbol);
-    if (!symParsed.success) {
-      throw new Error(
-        'סמל מסחר לא תקף: השתמש רק באותיות לטיניות גדולות ומספרים, עד 20 תווים (למשל BTC או BTCUSDT).'
-      );
-    }
     const { runTriCoreAlphaMatrix } = await import('@/lib/alpha-engine');
     const prismaMod = await import('@/lib/prisma');
     if (!prismaMod.getPrisma()) {
@@ -1194,7 +1205,10 @@ export async function generateAlphaMatrixAction(symbol: string): Promise<
     revalidatePath('/admin/signals');
     return { success: true, createdIds };
   } catch (e) {
-    return { success: false, error: e instanceof Error ? e.message : 'סריקת עומק נכשלה.' };
+    if (typeof console !== 'undefined' && console.error) {
+      console.error('[generateAlphaMatrixAction]', e);
+    }
+    return { success: false, error: 'שגיאת מערכת: לא ניתן למשוך נתונים כעת' };
   }
 }
 
