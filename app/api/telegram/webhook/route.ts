@@ -57,32 +57,21 @@ import {
   getTerminalDashboardKeyboard,
   EXEC_TERMINAL_AUDIT,
 } from '@/lib/telegram-institutional-terminal';
+import {
+  ALPHA_EXEC_CALLBACK_PREFIX,
+  SETTINGS_CB_PREFIX,
+  applyTelegramSettingsCallback,
+  buildAcademyTelegramMessageHe,
+  buildRobotStatusMessageHe,
+  buildSettingsInlineKeyboard,
+  getUnifiedReplyKeyboardMarkup,
+  recordRobotHandshakeTelegram,
+  resolveMenuOrCommandText,
+  sendAllActiveAlphaSignalsToTelegram,
+  telegramExecuteAlphaSignal,
+} from '@/lib/telegram-bot';
 
 const TELEGRAM_API = 'https://api.telegram.org';
-
-/**
- * Reply-keyboard labels (Hebrew) → slash command. Telegram sends the button text as the message body.
- */
-const MENU_BUTTON_TO_COMMAND: Record<string, string> = {
-  '📊 מצב מערכת': '/status',
-  '🛑 עצירת חירום': '/halt',
-  '🚀 אותות אחרונים': '/brief',
-  '📋 דוח מנהלים': '/report',
-  '⚙️ הגדרות ניהול': '/strategy',
-  '❓ עזרה ופקודות': '/help',
-};
-
-function resolveMenuOrCommandText(raw: string): string {
-  const t = (raw || '').trim();
-  return MENU_BUTTON_TO_COMMAND[t] ?? t;
-}
-
-/** Main menu keyboard for /start — professional Hebrew labels; mapped to real handlers above. */
-const MAIN_MENU_KEYBOARD = [
-  ['📊 מצב מערכת', '🛑 עצירת חירום'],
-  ['🚀 אותות אחרונים', '📋 דוח מנהלים'],
-  ['⚙️ הגדרות ניהול', '❓ עזרה ופקודות'],
-];
 
 /** Telegram Update: message (commands) and/or callback_query (buttons). */
 interface TelegramUpdate {
@@ -178,26 +167,16 @@ function parseCommand(text: string): { cmd: string; arg: string } {
   return { cmd, arg };
 }
 
-/** /start — Elite welcome + main menu keyboard */
+/** /start — קבלת פנים + תפריט קבוע (UQE) */
 function handleStart(): string {
   return [
-    '💎 <b>Quantum Mon Chéri — מסוף פיקוד מוסדי</b>',
+    '💎 <b>קוואנטום מון שרי — מסוף פיקוד מאוחד</b>',
     '',
-    'ברוכים הבאים. הבוט מספק תמונת מצב מדויקת, תיעוד ביצועים וכלים להנהלה — בשפה נקייה ובסטנדרט מוסדי.',
+    'ברוכים הבאים. התפריט הקבוע למטה מסנכרן את הרובוט, אותות אלפא, האקדמיה וההגדרות.',
     '',
-    '<b>תפריט מהיר</b> (למטה): מצב מערכת, אותות אחרונים, דוחות, הגדרות ועזרה.',
+    'ניתן עדיין להקליד פקודות ישירות (למשל <code>/status</code>, <code>/halt</code>, <code>/help</code>).',
     '',
-    '<b>פקודות טקסט</b> (ניתן להקליד ישירות):',
-    '• <code>/status</code> — ארנק סימולציה, מאקרו, סורק ופורקס',
-    '• <code>/halt</code> — עצירת חירום (כיבוי ביצוע אוטונומי)',
-    '• <code>/brief</code> — פעילות ואירועים בשעה האחרונה',
-    '• <code>/report</code> — דוח מנהלים: חמש העסקאות הסגורות האחרונות',
-    '• <code>/analyze BTC</code> — ניתוח MoE לנכס (למשל BTC, ETH)',
-    '• <code>/strategy</code> — סף כניסה (standard / conservative / aggressive)',
-    '• <code>/terminal</code> — מסוף ניהול מתקדם (מנהלים בלבד)',
-    '• <code>/help</code> — רשימת פקודות מלאה',
-    '',
-    '<i>המידע לצורכי תפעול וסימולציה בלבד — אינו ייעוץ השקעות.</i>',
+    '<i>לתפעול וסימולציה בלבד — לא ייעוץ השקעות.</i>',
   ].join('\n');
 }
 
@@ -251,7 +230,7 @@ async function handleStatus(): Promise<string> {
     parts.push(
       '',
       '<b>מדד דולר ושערי חליפין:</b>',
-      `<pre>מדד DXY: ${fx.dxy != null ? fx.dxy.toFixed(2) : '—'}
+      `<pre>מדד דולר: ${fx.dxy != null ? fx.dxy.toFixed(2) : '—'}
 יורו/דולר: ${fx.eurUsd != null ? fx.eurUsd.toFixed(4) : '—'}
 דולר/שקל: ${fx.usdIls != null ? fx.usdIls.toFixed(3) : '—'}</pre>`,
       escapeHtml(fx.ilsRiskNoteHe)
@@ -417,30 +396,29 @@ async function handlePortfolio(): Promise<string> {
   return parts.join('\n');
 }
 
-/** /help — List commands in Hebrew */
+/** /help — פקודות (עברית) */
 async function handleHelp(): Promise<string> {
   const override = APP_CONFIG.postgresUrl?.trim() ? await getStrategyOverride() : null;
   const overrideLine =
     override != null
-      ? `\n• האסטרטגיה הנוכחית: סף ידני ${override}% (הנהלה).`
+      ? `\n• סף אסטרטגיה נוכחי (ידני): ${override}%.`
       : '';
   const text = [
-    '📋 <b>מרכז פקודות — עזרה</b>',
+    '📋 <b>עזרה — מסוף מאוחד</b>',
     '',
-    'ניתן להשתמש בכפתורי התפריט העבריים (מצב מערכת, אותות אחרונים, דוח מנהלים, הגדרות, עזרה) או בפקודות למטה.',
+    '<b>תפריט קבוע:</b> מצב רובוט · אותות אלפא · אקדמיה · הגדרות.',
     '',
-    'פקודות זמינות:',
-    '• <code>/start</code> — הודעת פתיחה ותפריט ראשי.',
-    '• <code>/status</code> — סיכום ארנק סימולציה (מאזן, אחוז הצלחה, רווח/הפסד יומי) + מאקרו + סורק + פורקס.',
-    '• <code>/halt</code> — עצירת חירום: כיבוי ביצוע אוטונומי (Master Switch).',
-    '• <code>/brief</code> — תקציר טקסט/מבנה של ביצועי הרובוט בשעה האחרונה.',
-    '• <code>/report</code> — דוח מנהלים: סיכום 5 העסקאות הסגורות האחרונות.',
-    '• <code>/analyze [סימבול]</code> — ניתוח MoE עמוק לנכס (למשל <code>/analyze BTCUSDT</code>).',
-    '• <code>/strategy standard|conservative|aggressive</code> — עדכון סף כניסה (80% / 90% / 75%).',
-    '• <code>/portfolio</code> — סיכום תיק סימולציה וירטואלי ורשימת פוזיציות.',
-    '• <code>/help</code> — הצגת העזרה הזו.',
+    'פקודות נוספות:',
+    '• <code>/status</code> — ארנק סימולציה, מאקרו, סורק.',
+    '• <code>/halt</code> — עצירת חירום (כיבוי אוטומציה).',
+    '• <code>/brief</code> — תקציר שעה אחרונה.',
+    '• <code>/report</code> — דוח חמש עסקאות אחרונות.',
+    '• <code>/analyze</code> + סמל — ניתוח עמוק.',
+    '• <code>/strategy</code> + מצב — סף כניסה.',
+    '• <code>/portfolio</code> — תיק סימולציה.',
+    '• <code>/terminal</code> — מסוף מנהלים (מורשים בלבד).',
     '',
-    'כל ההתראות והדוחות מנוהלים על ידי האלגוריתם והנהלה.' + overrideLine,
+    'ניהול אלגוריתמי והנהלה.' + overrideLine,
   ].join('\n');
   return Promise.resolve(text);
 }
@@ -450,6 +428,11 @@ async function handleCommand(cmd: string, arg: string): Promise<string> {
   switch (cmd) {
     case 'start':
       return handleStart();
+    case 'robot':
+      await recordRobotHandshakeTelegram();
+      return buildRobotStatusMessageHe();
+    case 'academy':
+      return Promise.resolve(buildAcademyTelegramMessageHe());
     case 'status':
       return handleStatus();
     case 'halt':
@@ -467,7 +450,7 @@ async function handleCommand(cmd: string, arg: string): Promise<string> {
     case 'help':
       return handleHelp();
     default:
-      return 'פקודה לא מוכרת. בחרו מהתפריט למטה או שלחו <code>/help</code> לרשימת הפקודות.';
+      return 'פקודה לא מוכרת. השתמשו בתפריט הקבוע או <code>/help</code>.';
   }
 }
 
@@ -556,6 +539,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (cmd) {
       try {
+        if (cmd === 'alpha') {
+          const summary = await sendAllActiveAlphaSignalsToTelegram();
+          await sendToChat(chatId, summary);
+          return NextResponse.json({ ok: true });
+        }
+        if (cmd === 'settings') {
+          const t = getToken();
+          if (t) {
+            await sendTelegramRaw({
+              token: t,
+              chatId: String(chatId),
+              text: '⚙️ <b>הגדרות מסוף</b>\n\nבחרו ערך — השינוי נשמר במסד הנתונים.',
+              parse_mode: 'HTML',
+              reply_markup: buildSettingsInlineKeyboard(),
+            });
+          }
+          return NextResponse.json({ ok: true });
+        }
+
         const reply = await handleCommand(cmd, arg);
         if (cmd === 'start') {
           const token = getToken();
@@ -565,12 +567,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               chatId: String(chatId),
               text: reply,
               parse_mode: 'HTML',
-              reply_markup: {
-                keyboard: MAIN_MENU_KEYBOARD.map((row) =>
-                  row.map((label) => ({ text: label }))
-                ),
-                resize_keyboard: true,
-              },
+              reply_markup: getUnifiedReplyKeyboardMarkup(),
             });
           }
         } else {
@@ -666,6 +663,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const answer = (text: string) => answerCallbackQuery(token, cq.id, text);
 
   try {
+    if (cq.data.startsWith(SETTINGS_CB_PREFIX)) {
+      await answer('נשמר');
+      const html = await applyTelegramSettingsCallback(cq.data);
+      if (chatIdFromCallback != null) {
+        await sendToChat(String(chatIdFromCallback), html);
+      }
+      return NextResponse.json({ ok: true });
+    }
+    if (cq.data.startsWith(ALPHA_EXEC_CALLBACK_PREFIX)) {
+      await answer('מעבד בקשה…');
+      const rest = cq.data.slice(ALPHA_EXEC_CALLBACK_PREFIX.length);
+      const colon = rest.lastIndexOf(':');
+      const sym = colon >= 0 ? rest.slice(0, colon) : rest;
+      const tf = colon >= 0 ? rest.slice(colon + 1) : '';
+      const { messageHe } = await telegramExecuteAlphaSignal(sym, tf);
+      if (chatIdFromCallback != null) {
+        await sendToChat(String(chatIdFromCallback), messageHe);
+      }
+      return NextResponse.json({ ok: true });
+    }
     if (cq.data.startsWith(GEM_CALLBACK_PREFIX_REJECT)) {
       const symbolRaw = (cq.data.slice(GEM_CALLBACK_PREFIX_REJECT.length).trim() || '').replace(/[^A-Za-z0-9]/g, '').slice(0, 20);
       const symbol = symbolRaw.toUpperCase().endsWith('USDT') ? symbolRaw.toUpperCase() : `${symbolRaw.toUpperCase()}USDT`;

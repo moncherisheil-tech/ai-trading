@@ -20,39 +20,33 @@ import { runAcademyRagAction } from '@/app/actions';
 const AGENTS = [
   {
     name: 'מומחה טכני',
-    nameEn: 'Technician',
     icon: BarChart3,
-    role: 'מזהה דפוסים טכניים, בלוקי פקודות, ויקוף, גריפות נזילות ואזורי כניסה (OI, Funding, Sweeps).',
+    role: 'מזהה דפוסים טכניים, בלוקי פקודות, ויקוף, גריפות נזילות ואזורי כניסה.',
   },
   {
     name: 'מנהל סיכונים',
-    nameEn: 'Risk Manager',
     icon: Shield,
-    role: 'מנטר ATR, תנודתיות, יחס R:R וסטופ לוס חובה כדי להגן על ההון.',
+    role: 'מנטר תנודתיות, יחס סיכון־תגמול וסטופ לוס כדי להגן על ההון.',
   },
   {
     name: 'פסיכולוג שוק',
-    nameEn: 'Market Psychologist',
     icon: Brain,
-    role: 'מנתח FOMO/פחד, דומיננטיות סושיאל וסט‑אפים קונטראריים (Euphoria vs צבירה שקטה).',
+    role: 'מנתח פחד מול חמדנות, דומיננטיות ברשתות חברתיות וסטים קונטראריים.',
   },
   {
-    name: 'מקרו / Order Book',
-    nameEn: 'Macro & Order Book',
+    name: 'מאקרו / ספר הזמנות',
     icon: Target,
-    role: 'מנתח דומיננטיות USDT, תזרים ETF, DXY, קירות פקודות וזיוף לווייתנים.',
+    role: 'מנתח דומיננטיות, זרימות מוסדיות, מדד דולר, קירות פקודות ודפוסי לווייתנים.',
   },
   {
-    name: 'On-Chain Sleuth',
-    nameEn: 'On-Chain',
+    name: 'חוקר שרשרת',
     icon: Activity,
-    role: 'מנתח תנועות לווייתנים ו־Exchange Inflow/Outflow (זרימות אל/מהבורסות).',
+    role: 'מנתח תנועות לווייתנים וזרימות נכסים אל הבורסות ומחוצה להן.',
   },
   {
-    name: 'Deep Memory (Vector)',
-    nameEn: 'Deep Memory',
+    name: 'זיכרון עמוק',
     icon: Layers,
-    role: 'מפיק חוות דעת עצמאית על בסיס עסקאות היסטוריות דומות: "על בסיס X עסקאות, הסתברות הצלחה Y%".',
+    role: 'מפיק חוות דעת על בסיס עסקאות היסטוריות דומות והסתברויות הצלחה משוקללות.',
   },
 ];
 
@@ -107,10 +101,10 @@ export default function AcademyPage() {
 
         <section className="rounded-2xl border border-cyan-500/20 bg-cyan-500/5 frosted-obsidian p-6 sm:p-8" aria-labelledby="academy-rag-heading">
           <h2 id="academy-rag-heading" className="text-lg sm:text-xl font-bold text-white mb-3">
-            Deep Memory RAG — Live Retrieval
+            זיכרון עמוק — שליפה חיה ממסד וקטורי
           </h2>
           <p className="text-sm text-zinc-300 mb-4">
-            ממשק חי ל־Pinecone + Gemini. אין תשובות מדומות: אם אין retrieval אמיתי, הסטטוס יציג AWAITING_LIVE_DATA.
+            ממשק חי לבסיס הוקטורי ולמודל שפה. ללא נתונים מדומים: אם אין שליפה אמיתית, יוצג סטטוס המתנה לנתונים.
           </p>
           <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
             <input
@@ -134,7 +128,7 @@ export default function AcademyPage() {
             </button>
           </form>
           <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-4">
-            <p className="text-xs font-mono text-zinc-400 ticker-numeric">STATUS: {ragStatus ?? 'IDLE'}</p>
+            <p className="text-xs font-mono text-zinc-400 ticker-numeric">סטטוס: {ragStatus ?? 'מנוחה'}</p>
             <p className="mt-2 text-sm text-zinc-200 whitespace-pre-wrap">
               {ragAnswer ||
                 'טרם הופעלה שאילתה. הרץ RAG כדי לשלוף הקשר מהזיכרון העמוק — ללא נתונים מדומים.'}
@@ -195,18 +189,20 @@ export default function AcademyPage() {
                 <h2 id="section-experts-heading" className="text-lg sm:text-xl font-bold text-white">
                   איך המערכת חושבת?
                 </h2>
-                <p className="text-sm text-zinc-400 mt-0.5">ששת המומחים וה־Overseer (הדירקטוריון)</p>
+                <p className="text-sm text-zinc-400 mt-0.5">ששת המומחים והמפקח העליון</p>
               </div>
             </div>
             <p className="text-zinc-400 text-sm sm:text-base mb-6 leading-relaxed">
-              המערכת משתמשת בארכיטקטורת <strong className="text-zinc-300">MoE (תערובת מומחים)</strong>: שישה מומחי AI מנתחים כל נכס במקביל — טכני, סיכון, פסיכולוגיית שוק, מקרו/Order Book, On-Chain ו־Deep Memory. ה־<strong className="text-zinc-300">Overseer</strong> (תפקיד דמוי CEO) מסנתז את כל הדעות ומגיע להחלטה אחת, כאשר לכל מומחה משקל שווה (1/6). כך אתה רואה לא רק את התוצאה אלא גם מאיפה היא מגיעה.
+              המערכת משתמשת ב־<strong className="text-zinc-300">תערובת מומחים</strong>: שישה מומחי בינה מנתחים כל נכס במקביל.
+              רכיב ה־<strong className="text-zinc-300">מפקח עליון</strong> מסנתז את כל הדעות ומגיע להחלטה אחת, כאשר לכל מומחה משקל שווה.
+              כך רואים לא רק את התוצאה אלא גם מאיפה היא נובעת.
             </p>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-4 list-none p-0 m-0" role="list">
               {AGENTS.map((agent) => {
                 const Icon = agent.icon;
                 return (
                   <li
-                    key={agent.nameEn}
+                    key={agent.name}
                     className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5 hover:bg-white/[0.04] transition-colors duration-300"
                   >
                     <div className="flex items-start gap-3">
@@ -215,7 +211,6 @@ export default function AcademyPage() {
                       </div>
                       <div className="min-w-0">
                         <h3 className="font-semibold text-white text-sm sm:text-base">{agent.name}</h3>
-                        <p className="text-xs text-zinc-500 mt-0.5" dir="ltr">{agent.nameEn}</p>
                         <p className="text-zinc-400 text-xs sm:text-sm mt-2 leading-relaxed">{agent.role}</p>
                       </div>
                     </div>
@@ -248,19 +243,20 @@ export default function AcademyPage() {
             </div>
             <div className="space-y-6 text-zinc-300 text-sm sm:text-base leading-relaxed">
               <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
-                <h3 className="font-semibold text-emerald-400/95 mb-2">TP — Take Profit (יעד רווח)</h3>
+                <h3 className="font-semibold text-emerald-400/95 mb-2">יעד רווח</h3>
                 <p>
                   המחיר שהמערכת מציעה ליעד לרווח: למשל למכור כשהמחיר מגיע לרמה X. עוזר לקבע רווח ולא להשאיר הכל בידי התנודתיות.
                 </p>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4 sm:p-5">
-                <h3 className="font-semibold text-rose-400/95 mb-2">SL — Stop Loss (סטופ לוס)</h3>
+                <h3 className="font-semibold text-rose-400/95 mb-2">סטופ לוס</h3>
                 <p>
                   רמת מחיר שמומלץ לצאת בה אם השוק זז נגדך — כדי להגביל הפסד. מנהל הסיכונים מחשב אותה על בסיס ATR (תנודתיות) ורמות HVN (נפח גבוה) כדי להתאים לשוק.
                 </p>
               </div>
               <p>
-                <strong className="text-zinc-200">יחס סיכון/תגמול (R/R)</strong> — כמה אתה מוכן להפסיד (סיכון) לעומת כמה אתה מצפה להרוויח (תגמול). לדוגמה R/R 1:2 = סיכון של 1% לתגמול של 2%. המערכת מציגה TP ו־SL מוצעים בכל ניתוח; תוכל להשתמש בהם בארנק הסימולציה.
+                <strong className="text-zinc-200">יחס סיכון לתגמול</strong> — כמה מוכנים להפסיד לעומת כמה מצפים להרוויח.
+                לדוגמה יחס 1:2 אומר סיכון של יחידה אחת מול שתי יחידות תגמול פוטנציאלי. המערכת מציעה יעדי רווח וסטופ בכל ניתוח; ניתן ליישם בארנק הסימולציה.
               </p>
             </div>
           </div>
@@ -275,23 +271,49 @@ export default function AcademyPage() {
           <ul className="space-y-4 list-none p-0 m-0" role="list">
             <li className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors">
               <h3 className="font-semibold text-amber-400/95 text-sm">בלוקי פקודות מוסדיים</h3>
-              <p className="text-xs text-zinc-500 mt-0.5" dir="ltr">Institutional Order Blocks</p>
               <p className="text-zinc-300 text-sm mt-2">אזורים במחיר שבהם מוסדות ביצעו פקודות גדולות; המערכת מזהה תמיכה והתנגדות.</p>
             </li>
             <li className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors">
-              <h3 className="font-semibold text-amber-400/95 text-sm">צבירה והפצה לפי ויקוף</h3>
-              <p className="text-xs text-zinc-500 mt-0.5" dir="ltr">Wyckoff</p>
+              <h3 className="font-semibold text-amber-400/95 text-sm">צבירה והפצה בשיטת ויקוף</h3>
               <p className="text-zinc-300 text-sm mt-2">שיטת ניתוח שמזהה שלבים: צבירה (קונים בשקט), הפצה (מוכרים לציבור).</p>
             </li>
             <li className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors">
               <h3 className="font-semibold text-amber-400/95 text-sm">גריפת נזילות</h3>
-              <p className="text-xs text-zinc-500 mt-0.5" dir="ltr">Liquidity Sweeps</p>
-              <p className="text-zinc-300 text-sm mt-2">תנועה קצרה מעבר ל־stop loss של סוחרים ואז חזרה — מוסדות משתמשים בזה לפני עלייה.</p>
+              <p className="text-zinc-300 text-sm mt-2">תנועה קצרה מעבר לרמות סטופ של סוחרים ואז חזרה — לעיתים לפני המשך מגמה.</p>
             </li>
             <li className="rounded-xl border border-white/10 bg-white/[0.02] p-4 hover:bg-white/[0.04] transition-colors">
-              <h3 className="font-semibold text-amber-400/95 text-sm">פחד וחמדנות (FOMO)</h3>
-              <p className="text-xs text-zinc-500 mt-0.5" dir="ltr">Fear & Greed Index</p>
+              <h3 className="font-semibold text-amber-400/95 text-sm">מדד פחד ותאווה</h3>
               <p className="text-zinc-300 text-sm mt-2">מדד סנטימנט השוק; קיצוניות משני הצדדים מסמנת סיכון.</p>
+            </li>
+            <li
+              id="glossary-dxy"
+              className="scroll-mt-24 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 hover:bg-cyan-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-cyan-300/95 text-sm">מדד חוזה הדולר</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                מדד שמעריך את חוזק הדולר האמריקאי מול סל מטבעות מרכזיים. עלייה לרוב מצביעה על בריחה לבטיחות; ירידה
+                יכולה לתמוך בנכסים בסיכון גבוה יותר.
+              </p>
+            </li>
+            <li
+              id="glossary-cvd"
+              className="scroll-mt-24 rounded-xl border border-cyan-500/25 bg-cyan-500/5 p-4 hover:bg-cyan-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-cyan-300/95 text-sm">נפח מצטבר דלתא</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                סיכום נפח הקנייה פחות נפח המכירה לאורך זמן. שיפוע חיובי מרמז על לחץ קנייה נטו; שלילי — לחץ מכירה נטו.
+                משמש במסכי הפיקוד לזיהוי מיקרו־מבנה.
+              </p>
+            </li>
+            <li
+              id="glossary-spoofing"
+              className="scroll-mt-24 rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 hover:bg-amber-500/10 transition-colors"
+            >
+              <h3 className="font-semibold text-amber-300/95 text-sm">ספופינג בספר הזמנות</h3>
+              <p className="text-zinc-300 text-sm mt-2 leading-relaxed">
+                הצגת פקודות גדולות ללא כוונה ממשית למילוי, כדי להטעות סוחרים לגבי עומק או כיוון. מומחה המאקרו והספר
+                מחפש דפוסים חשודים כאלה יחד עם זרימות לווייתנים.
+              </p>
             </li>
           </ul>
         </section>

@@ -145,6 +145,9 @@ export interface ExecutionDashboardSnapshot {
   }>;
   /** Cumulative realized PnL vs rolling win rate over last N closed paper trades. */
   alphaEvolution: AlphaEvolutionPoint[];
+  /** Last פיקוד ↔ רובוט handshake (from app settings). */
+  robotHandshakeAt: string | null;
+  robotHandshakeSource: 'telegram' | 'dashboard' | null;
 }
 
 function mapSignalToBrokerSide(signal: ExecutionSignalSide): BrokerOrderSide {
@@ -790,6 +793,14 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
 
   const virtualBalanceUsd = round2(INITIAL_VIRTUAL_BALANCE_USD + summary.totalRealizedPnlUsd + totalUnrealizedPnlUsd);
 
+  const sys = settings.system;
+  const robotHandshakeAt =
+    typeof sys?.robotHandshakeAt === 'string' && sys.robotHandshakeAt.trim() ? sys.robotHandshakeAt.trim() : null;
+  const robotHandshakeSource =
+    sys?.robotHandshakeSource === 'telegram' || sys?.robotHandshakeSource === 'dashboard'
+      ? sys.robotHandshakeSource
+      : null;
+
   return {
     mode,
     masterSwitchEnabled: Boolean(execution.masterSwitchEnabled),
@@ -801,6 +812,8 @@ export async function getExecutionDashboardSnapshot(): Promise<ExecutionDashboar
     winRatePct: round2(summary.winRatePct),
     activeTradesCount: activeTrades.length,
     activeTrades,
+    robotHandshakeAt,
+    robotHandshakeSource,
     recentExecutions: history.map((h) => ({
       id: h.id,
       symbol: h.symbol,

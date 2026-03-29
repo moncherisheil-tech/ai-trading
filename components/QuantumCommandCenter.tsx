@@ -32,6 +32,8 @@ type DashboardSnap = {
   mode: 'PAPER' | 'LIVE';
   masterSwitchEnabled: boolean;
   minConfidenceToExecute: number;
+  robotHandshakeAt?: string | null;
+  robotHandshakeSource?: 'telegram' | 'dashboard' | null;
   activeTrades: Array<{
     id: number;
     symbol: string;
@@ -62,12 +64,12 @@ type DashboardSnap = {
 };
 
 const SOVEREIGN_EXPERTS = [
-  { key: 'technician', label: 'אנליסט טכני', tag: 'TECH' },
-  { key: 'riskManager', label: 'מנהל סיכונים', tag: 'RISK' },
-  { key: 'marketPsychologist', label: 'פסיכולוגיית שוק', tag: 'PSYCH' },
-  { key: 'macroOrderBook', label: 'מאקרו / ספר הזמנות', tag: 'MACRO' },
-  { key: 'onChainSleuth', label: 'חוקר אונ־צ׳יין', tag: 'CHAIN' },
-  { key: 'deepMemory', label: 'זיכרון עמוק', tag: 'MEMORY' },
+  { key: 'technician', label: 'אנליסט טכני', tag: 'טכני' },
+  { key: 'riskManager', label: 'מנהל סיכונים', tag: 'סיכון' },
+  { key: 'marketPsychologist', label: 'פסיכולוגיית שוק', tag: 'פסיכולוגיה' },
+  { key: 'macroOrderBook', label: 'מאקרו / ספר הזמנות', tag: 'מאקרו' },
+  { key: 'onChainSleuth', label: 'חוקר אונ־צ׳יין', tag: 'שרשרת' },
+  { key: 'deepMemory', label: 'זיכרון עמוק', tag: 'זיכרון' },
 ] as const;
 
 const SPARK_CAP = 56;
@@ -222,6 +224,15 @@ export default function QuantumCommandCenter() {
               mode: dashRaw.mode === 'LIVE' ? 'LIVE' : 'PAPER',
               masterSwitchEnabled: Boolean(dashRaw.masterSwitchEnabled),
               minConfidenceToExecute: dashRaw.minConfidenceToExecute ?? 80,
+              robotHandshakeAt:
+                typeof (dashRaw as { robotHandshakeAt?: unknown }).robotHandshakeAt === 'string'
+                  ? (dashRaw as { robotHandshakeAt: string }).robotHandshakeAt
+                  : null,
+              robotHandshakeSource:
+                (dashRaw as { robotHandshakeSource?: unknown }).robotHandshakeSource === 'telegram' ||
+                (dashRaw as { robotHandshakeSource?: unknown }).robotHandshakeSource === 'dashboard'
+                  ? ((dashRaw as { robotHandshakeSource: 'telegram' | 'dashboard' }).robotHandshakeSource)
+                  : null,
               activeTrades: Array.isArray(dashRaw.activeTrades) ? dashRaw.activeTrades : [],
               recentExecutions: Array.isArray(dashRaw.recentExecutions) ? dashRaw.recentExecutions : [],
             }
@@ -269,10 +280,18 @@ export default function QuantumCommandCenter() {
 
   const robotChassis = useMemo(() => {
     if (!snap) return 'מאתחל…';
+    const hs = snap.robotHandshakeAt;
+    if (hs) {
+      const t = new Date(hs).getTime();
+      if (Number.isFinite(t) && Date.now() - t < 120_000) {
+        const src = snap.robotHandshakeSource === 'telegram' ? 'טלגרם' : 'לוח פיקוד';
+        return `חיבור חי · סנכרון (${src})`;
+      }
+    }
     if ((snap.activeTrades?.length ?? 0) > 0) return 'בפוזיציה פתוחה';
     if (!snap.masterSwitchEnabled) return 'פיקוח ידני · מנוע אוטומטי מושבת';
     const r = (snap.recentExecutions?.[0]?.reason || '').toLowerCase();
-    if (r.includes('cvd') || r.includes('microstructure')) return 'ממתין לאישור CVD';
+    if (r.includes('cvd') || r.includes('microstructure')) return 'ממתין לאישור נפח דלתא';
     return 'במצב כוננות · סריקה';
   }, [snap]);
 
@@ -387,7 +406,7 @@ export default function QuantumCommandCenter() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="font-inter-tight text-[10px] font-bold uppercase tracking-[0.35em] text-zinc-500">
-                Quantum Mon Chéri
+                קוואנטום מון שרי
               </p>
               <h1 className="font-inter-tight mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
                 עמדת פיקוד קוואנטית (Command Deck)
@@ -422,7 +441,7 @@ export default function QuantumCommandCenter() {
             <MicroSparkline
               series={cvdHist.length >= 2 ? cvdHist : metrics ? [metrics.cvd_slope * 0.97, metrics.cvd_slope] : [0, 0]}
               accent="#5eead4"
-              label="שיפוע CVD"
+              label="שיפוע נפח דלתא מצטבר"
               valueDisplay={metrics ? formatNum(metrics.cvd_slope, 'exp') : telemEnabled ? '…' : 'לא פעיל'}
             />
             <MicroSparkline
@@ -513,7 +532,7 @@ export default function QuantumCommandCenter() {
                   boxShadow: `0 0 20px ${C.crimson}22`,
                 }}
               >
-                חיסול חשיפה (Liquidate)
+                חיסול חשיפה מלא
               </button>
               <span className="text-[10px] text-zinc-600">סוגר מיידית את כל הפוזיציות הווירטואליות הפתוחות.</span>
             </div>
@@ -635,8 +654,9 @@ export default function QuantumCommandCenter() {
                     transition={{ type: 'tween', duration: 0.05 }}
                     aria-hidden
                   />
-                  <span className="relative z-[1]" dir="ltr">
-                    לחץ והחזק לפריסה · {strikeHint.symbol} {strikeHint.side} @ {strikeHint.confidence}%
+                  <span className="relative z-[1]">
+                    לחץ והחזק לפריסה · {strikeHint.symbol}{' '}
+                    {strikeHint.side === 'BUY' ? 'קנייה' : 'מכירה'} · ביטחון {strikeHint.confidence}%
                   </span>
                 </button>
               </div>

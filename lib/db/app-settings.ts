@@ -54,6 +54,9 @@ export interface AppSettings {
     /** Stored in unified `settings` row; runtime may still prefer `TELEGRAM_BOT_TOKEN` env when set. */
     telegramBotToken?: string;
     telegramChatId?: string;
+    /** ISO time of last command-deck ↔ robot sync (Telegram or לוח אלפא). */
+    robotHandshakeAt?: string | null;
+    robotHandshakeSource?: 'telegram' | 'dashboard' | null;
   };
   execution: {
     /** Master kill-switch for autonomous execution (paper/live). */

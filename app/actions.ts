@@ -1203,6 +1203,8 @@ export async function generateAlphaMatrixAction(symbol: string): Promise<
     }
     const { createdIds } = await runTriCoreAlphaMatrix(symParsed.data);
     revalidatePath('/admin/signals');
+    const { broadcastAlphaScanToTelegram } = await import('@/lib/telegram-bot');
+    void broadcastAlphaScanToTelegram(symParsed.data);
     return { success: true, createdIds };
   } catch (e) {
     if (typeof console !== 'undefined' && console.error) {
@@ -1258,6 +1260,27 @@ export async function executeTradingSignalAction(input: {
     },
     { treatPayloadFailureFlagsAsFailure: false, retries: 3 }
   );
+}
+
+/** סנכרון פיקוד ↔ רובוט לאחר ביצוע מלוח אלפא. */
+export async function recordRobotHandshakeFromDashboardAction(): Promise<{ ok: boolean; error?: string }> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!APP_CONFIG.postgresUrl?.trim()) return { ok: false, error: 'חסר מסד נתונים.' };
+  try {
+    const { getAppSettings, setAppSettings } = await import('@/lib/db/app-settings');
+    const cur = await getAppSettings();
+    await setAppSettings({
+      system: {
+        ...cur.system,
+        robotHandshakeAt: new Date().toISOString(),
+        robotHandshakeSource: 'dashboard',
+      },
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'שגיאה' };
+  }
 }
 
 export async function runOpsSandboxAction(): Promise<AdminActionResult<unknown>> {
