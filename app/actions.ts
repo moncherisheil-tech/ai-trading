@@ -1139,6 +1139,52 @@ export async function getTradingSignalsAction(): Promise<AdminActionResult<unkno
   return adminApiRequest<unknown>('/api/trading/signals', { method: 'GET' }, { retries: 3 });
 }
 
+/** Tri-Core Alpha Matrix: latest active rows from Postgres (SSOT). */
+export async function getLatestAlphaSignalsAction(): Promise<
+  | { success: true; data: import('@/lib/alpha-signals-db').AlphaSignalDTO[] }
+  | { success: false; error: string }
+> {
+  try {
+    if (isSessionEnabled() && !isDevelopmentAuthBypass()) {
+      await requireQuantumAdmin();
+    }
+  } catch {
+    return { success: false, error: 'נדרשת הרשאת מנהל (התחברות מחדש).' };
+  }
+  try {
+    const { getLatestActiveAlphaSignalsFromDb } = await import('@/lib/alpha-signals-db');
+    const prismaMod = await import('@/lib/prisma');
+    if (!prismaMod.getPrisma()) {
+      return { success: false, error: 'חסר חיבור למסד נתונים (DATABASE_URL).' };
+    }
+    const data = await getLatestActiveAlphaSignalsFromDb(120);
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'שגיאה בטעינת אותות אלפא.' };
+  }
+}
+
+/** Tri-Core Alpha Matrix: run Groq + Anthropic + Gemini and persist four timeframes. */
+export async function generateAlphaMatrixAction(symbol: string): Promise<
+  | { success: true; createdIds: string[] }
+  | { success: false; error: string }
+> {
+  const gate = await assertQuantumAdminForWrites();
+  if (!gate.ok) return { success: false, error: gate.error };
+  try {
+    const { runTriCoreAlphaMatrix } = await import('@/lib/alpha-engine');
+    const prismaMod = await import('@/lib/prisma');
+    if (!prismaMod.getPrisma()) {
+      return { success: false, error: 'חסר חיבור למסד נתונים (DATABASE_URL).' };
+    }
+    const { createdIds } = await runTriCoreAlphaMatrix(symbol);
+    revalidatePath('/admin/signals');
+    return { success: true, createdIds };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'סריקת עומק נכשלה.' };
+  }
+}
+
 /**
  * Alpha Signals: loads forecasts directly (no ADMIN_SECRET round-trip). Requires admin session when auth is on.
  */

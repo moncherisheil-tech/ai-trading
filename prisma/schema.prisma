@@ -6,6 +6,46 @@ datasource db {
   provider = "postgresql"
 }
 
+/// Tri-Core Alpha Matrix persisted signals (single source of truth for dashboard + /api/trading/signals).
+model AlphaSignalRecord {
+  id                 String            @id @default(cuid())
+  symbol             String
+  timeframe          AlphaTimeframe
+  direction          AlphaDirection
+  entryPrice         Decimal           @db.Decimal(24, 8)
+  targetPrice        Decimal           @db.Decimal(24, 8)
+  stopLoss           Decimal           @db.Decimal(24, 8)
+  winProbability     Int
+  whaleConfirmation  Boolean           @default(false)
+  rationaleHebrew    String            @db.Text
+  status             AlphaSignalStatus @default(Active)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  tradeExecutions    TradeExecution[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([symbol, timeframe, status])
+}
+
+enum AlphaTimeframe {
+  Hourly
+  Daily
+  Weekly
+  Long
+}
+
+enum AlphaDirection {
+  Long
+  Short
+}
+
+enum AlphaSignalStatus {
+  Active
+  Hit
+  Stopped
+  Expired
+}
+
 model TradeExecution {
   id            String               @id @default(cuid())
   symbol        String
@@ -20,6 +60,7 @@ model TradeExecution {
   executedAt    DateTime             @default(now())
   closedAt      DateTime?
   insights      LearnedInsight[]
+  alphaSignal   AlphaSignalRecord?     @relation(fields: [alphaSignalId], references: [id], onDelete: SetNull)
 
   @@index([symbol, executedAt(sort: Desc)])
   @@index([status, executedAt(sort: Desc)])
