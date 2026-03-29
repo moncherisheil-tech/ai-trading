@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentConfidence } from '@/lib/smart-agent';
 import { fetchWithBackoff } from '@/lib/api-utils';
 import { APP_CONFIG } from '@/lib/config';
 import { rsi, ema20, ema50 } from '@/lib/indicators';
@@ -93,7 +92,10 @@ export async function GET(request: NextRequest) {
 
   const [setup, confidence] = await Promise.all([
     getTechnicalSetup(normalized),
-    getAgentConfidence(normalized),
+    (async () => {
+      const { getAgentConfidence } = await import('@/lib/smart-agent');
+      return getAgentConfidence(normalized);
+    })(),
   ]);
 
   if (!setup) {

@@ -1,12 +1,16 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useBinanceTicker } from '@/hooks/use-binance-ticker';
 
 type FxPayload = {
   ok?: boolean;
   dxy?: number;
   eurUsd?: number;
   usdIls?: number;
+  usdtUsdc?: number;
+  usdIlsLiveProxy?: number;
+  usdIlsVolatilityPct?: number;
   updatedAt?: string;
 };
 
@@ -61,6 +65,7 @@ function PairBlock({ label, sub, value, digits, deltaPct }: PairRowProps) {
 export default function ForexTicker({ collapsed }: { collapsed?: boolean }) {
   const [data, setData] = useState<FxPayload | null>(null);
   const prevRef = useRef<FxPayload | null>(null);
+  const { usdtUsdcPrice, usdtUsdcDeltaPct, connectionState } = useBinanceTicker();
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +100,12 @@ export default function ForexTicker({ collapsed }: { collapsed?: boolean }) {
     if (cur == null || old == null || !Number.isFinite(cur) || !Number.isFinite(old) || old === 0) return undefined;
     return ((cur - old) / old) * 100;
   };
+  const officialUsdIls = data?.usdIls;
+  const liveProxyUsdIls =
+    officialUsdIls != null && usdtUsdcPrice != null && Number.isFinite(officialUsdIls) && Number.isFinite(usdtUsdcPrice)
+      ? officialUsdIls * usdtUsdcPrice
+      : data?.usdIlsLiveProxy;
+  const liveVolatilityPct = usdtUsdcDeltaPct ?? data?.usdIlsVolatilityPct;
 
   if (collapsed) {
     return (
@@ -135,12 +146,19 @@ export default function ForexTicker({ collapsed }: { collapsed?: boolean }) {
             digits={4}
             deltaPct={pct(data?.eurUsd, prev?.eurUsd)}
           />
-          <PairBlock
-            label="USD/ILS"
-            value={data?.usdIls}
-            digits={3}
-            deltaPct={pct(data?.usdIls, prev?.usdIls)}
-          />
+          <div className="rounded-lg border border-zinc-700/80 bg-zinc-950/80 px-3 py-2 min-w-[5.5rem] flex-1 shadow-sm" dir="ltr">
+            <div className="text-[9px] font-semibold uppercase tracking-widest text-zinc-400 mb-0.5">USD/ILS</div>
+            <div className="text-[8px] text-zinc-600 mb-1">Official Anchor + Binance pulse</div>
+            <div className="flex flex-col gap-0.5">
+              <span className="ticker-numeric text-sm font-semibold text-zinc-50 tabular-nums">{fmt(officialUsdIls, 3)}</span>
+              <span className="ticker-numeric text-[10px] text-cyan-300 tabular-nums">
+                Live proxy {fmt(liveProxyUsdIls, 3)}
+              </span>
+              <span className={`ticker-numeric text-[11px] font-medium tabular-nums ${deltaClass(liveVolatilityPct)}`}>
+                Vol {fmtDelta(liveVolatilityPct)} {connectionState === 'connected' ? '• live' : '• standby'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       {data?.ok === false && (

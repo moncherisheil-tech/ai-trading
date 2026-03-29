@@ -1,9 +1,8 @@
-﻿/**
+/**
  * Binance API resilience: rate-limit detection (429, 418), Retry-After, exponential backoff.
  * Use for all server-side Binance REST calls to avoid IP bans.
  */
 
-import { ensureTwelveDataConnection, getTwelveDataUsdIlsSnapshot } from '@/lib/market/forex';
 import { APP_CONFIG } from '@/lib/config';
 
 const BINANCE_429 = 429;
@@ -289,6 +288,10 @@ export interface MacroContextSnapshot {
   fearGreedIndex?: number;
   fearGreedLabel?: string;
   btcDominancePct?: number;
+  usdIlsOfficial?: number;
+  usdIlsLiveProxy?: number;
+  usdtUsdc?: number;
+  usdIlsProxyVolatilityPct?: number;
   updatedAt: string;
 }
 
@@ -366,7 +369,7 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
   const out: MacroContextSnapshot = { dxyNote: 'DXY (US Dollar Index) unavailable this cycle.', updatedAt };
 
   try {
-    const [dxySnapshot, fngRes, dominanceRes] = await Promise.all([
+    const [dxySnapshot, fngRes, dominanceRes, fxUplink] = await Promise.all([
       fetchDxySnapshot(timeoutMs).catch(() => null),
       fetchWithBackoff('https://api.alternative.me/fng/?limit=1', {
         timeoutMs,
@@ -378,6 +381,7 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
         maxRetries: 3,
         cache: 'no-store',
       }).catch(() => null),
+      fetchForexUplink(timeoutMs).catch(() => null),
     ]);
 
     if (dxySnapshot) {
@@ -410,9 +414,33 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
       }
     }
 
+    if (fxUplink) {
+      if (typeof fxUplink.usdIls === 'number' && Number.isFinite(fxUplink.usdIls)) {
+        out.usdIlsOfficial = fxUplink.usdIls;
+      }
+      if (typeof fxUplink.usdIlsLiveProxy === 'number' && Number.isFinite(fxUplink.usdIlsLiveProxy)) {
+        out.usdIlsLiveProxy = fxUplink.usdIlsLiveProxy;
+      }
+      if (typeof fxUplink.usdtUsdc === 'number' && Number.isFinite(fxUplink.usdtUsdc)) {
+        out.usdtUsdc = fxUplink.usdtUsdc;
+      }
+      if (typeof fxUplink.usdIlsVolatilityPct === 'number' && Number.isFinite(fxUplink.usdIlsVolatilityPct)) {
+        out.usdIlsProxyVolatilityPct = fxUplink.usdIlsVolatilityPct;
+      }
+    }
+
     const parts: string[] = [];
     if (out.fearGreedIndex != null) parts.push(`Fear & Greed: ${out.fearGreedIndex} (${out.fearGreedLabel ?? 'N/A'})`);
     if (out.btcDominancePct != null) parts.push(`BTC dominance: ${out.btcDominancePct}%`);
+    if (out.usdIlsOfficial != null) {
+      const fxLine = out.usdIlsLiveProxy != null
+        ? `USD/ILS official ${out.usdIlsOfficial.toFixed(4)}, live proxy ${out.usdIlsLiveProxy.toFixed(4)} (USDT/USDC ${out.usdtUsdc?.toFixed(5) ?? 'n/a'})`
+        : `USD/ILS official ${out.usdIlsOfficial.toFixed(4)}`;
+      const volLine = out.usdIlsProxyVolatilityPct != null
+        ? `, intraday proxy drift ${out.usdIlsProxyVolatilityPct >= 0 ? '+' : ''}${out.usdIlsProxyVolatilityPct.toFixed(3)}%`
+        : '';
+      parts.push(`${fxLine}${volLine}`);
+    }
     if (parts.length > 0) {
       out.dxyNote = `Market sentiment: ${parts.join('; ')}. ${out.dxyNote}`;
     }
@@ -426,8 +454,26 @@ export type ForexUplinkSnapshot = {
   dxy?: number;
   eurUsd?: number;
   usdIls?: number;
+  usdtUsdc?: number;
+  usdIlsLiveProxy?: number;
+  usdIlsVolatilityPct?: number;
   updatedAt: string;
 };
+
+async function fetchUsdtUsdcSpot(timeoutMs: number): Promise<number | null> {
+  const base = APP_CONFIG.proxyBinanceUrl || 'https://api.binance.com';
+  const url = `${base.replace(/\/$/, '')}/api/v3/ticker/price?symbol=USDTUSDC`;
+  try {
+    const res = await fetchWithBackoff(url, { timeoutMs, maxRetries: 3, cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { price?: string };
+    const price = Number.parseFloat(data.price ?? '');
+    if (!Number.isFinite(price) || price <= 0 || price < 0.97 || price > 1.03) return null;
+    return Math.round(price * 1_000_000) / 1_000_000;
+  } catch {
+    return null;
+  }
+}
 
 function parseYahooChartLastClose(raw: string): number | null {
   try {
@@ -491,14 +537,14 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
     const v = dxySnap.value;
     if (v >= 72 && v <= 140) out.dxy = v;
   }
-  try {
-    ensureTwelveDataConnection();
-    const live = getTwelveDataUsdIlsSnapshot();
-    if (live && Number.isFinite(live.price)) {
-      out.usdIls = live.price;
+  const usdtUsdc = await fetchUsdtUsdcSpot(timeoutMs).catch(() => null);
+  if (usdtUsdc != null) {
+    out.usdtUsdc = usdtUsdc;
+    if (out.usdIls != null) {
+      const liveProxy = out.usdIls * usdtUsdc;
+      out.usdIlsLiveProxy = Math.round(liveProxy * 10_000) / 10_000;
+      out.usdIlsVolatilityPct = Math.round(((usdtUsdc - 1) * 100) * 10_000) / 10_000;
     }
-  } catch {
-    /* live FX optional */
   }
   return out;
 }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { querySimilarTrades } from '@/lib/vector-db';
 import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
@@ -32,6 +31,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
+    const { querySimilarTrades } = await import('@/lib/vector-db');
     const hits = await querySimilarTrades(symbol, 3);
     if (hits.length === 0) {
       return NextResponse.json({

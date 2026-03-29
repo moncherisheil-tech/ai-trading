@@ -971,4 +971,11 @@ export class LiveExecutionEngine {
   }
 }
 
-export const liveExecutionEngine = new LiveExecutionEngine();
+let liveExecutionEngineSingleton: LiveExecutionEngine | null = null;
+
+export function getLiveExecutionEngine(): LiveExecutionEngine {
+  if (!liveExecutionEngineSingleton) {
+    liveExecutionEngineSingleton = new LiveExecutionEngine();
+  }
+  return liveExecutionEngineSingleton;
+}

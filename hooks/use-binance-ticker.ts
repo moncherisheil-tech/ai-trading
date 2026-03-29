@@ -14,6 +14,9 @@ export interface TickerData {
 type TickerSnapshot = {
   tickers: TickerData[];
   connectionState: ConnectionState;
+  usdtUsdcPrice?: number;
+  usdtUsdcDeltaPct?: number;
+  usdtUsdcUpdatedAtMs?: number;
 };
 
 type TickerSubscriber = (snapshot: TickerSnapshot) => void;
@@ -62,6 +65,19 @@ function flushPendingRows(): void {
   if (ordered.length > 0) setSnapshot({ tickers: ordered });
 }
 
+function updateUsdtUsdcProxy(row: { c?: string; o?: string } | null): void {
+  if (!row) return;
+  const price = parseFloat(String(row.c ?? ''));
+  const open = parseFloat(String(row.o ?? ''));
+  if (!Number.isFinite(price) || price <= 0) return;
+  const delta = Number.isFinite(open) && open > 0 ? ((price - open) / open) * 100 : undefined;
+  setSnapshot({
+    usdtUsdcPrice: price,
+    usdtUsdcDeltaPct: delta,
+    usdtUsdcUpdatedAtMs: Date.now(),
+  });
+}
+
 function scheduleFlush(): void {
   if (flushTimer) return;
   flushTimer = setTimeout(() => {
@@ -96,6 +112,10 @@ function ensureConnected(): void {
       return;
     }
     if (!Array.isArray(data)) return;
+    const usdtUsdcRow = data.find((t: { s?: string }) => String(t.s || '').toUpperCase() === 'USDTUSDC') as
+      | { c?: string; o?: string }
+      | undefined;
+    updateUsdtUsdcProxy(usdtUsdcRow ?? null);
     const filtered = data.filter((t: { s?: string }) => TARGET_SYMBOLS.includes(String(t.s || '').toUpperCase()));
     if (filtered.length === 0) return;
     pendingRows = filtered;
@@ -143,12 +163,18 @@ function subscribeTicker(subscriber: TickerSubscriber): () => void {
 export function useBinanceTicker() {
   const [tickers, setTickers] = useState<TickerData[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>('connecting');
+  const [usdtUsdcPrice, setUsdtUsdcPrice] = useState<number | undefined>(undefined);
+  const [usdtUsdcDeltaPct, setUsdtUsdcDeltaPct] = useState<number | undefined>(undefined);
+  const [usdtUsdcUpdatedAtMs, setUsdtUsdcUpdatedAtMs] = useState<number | undefined>(undefined);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
   const subscribe = useCallback(() => {
     unsubscribeRef.current = subscribeTicker((next) => {
       setTickers(next.tickers);
       setConnectionState(next.connectionState);
+      setUsdtUsdcPrice(next.usdtUsdcPrice);
+      setUsdtUsdcDeltaPct(next.usdtUsdcDeltaPct);
+      setUsdtUsdcUpdatedAtMs(next.usdtUsdcUpdatedAtMs);
     });
   }, []);
 
@@ -160,5 +186,5 @@ export function useBinanceTicker() {
     };
   }, [subscribe]);
 
-  return { tickers, connectionState };
+  return { tickers, connectionState, usdtUsdcPrice, usdtUsdcDeltaPct, usdtUsdcUpdatedAtMs };
 }

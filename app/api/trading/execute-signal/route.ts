@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { executeAutonomousConsensusSignal } from '@/lib/trading/execution-engine';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 import { verifyExecutionHandshake } from '@/lib/trading/execution-auth';
 
@@ -63,6 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    const { executeAutonomousConsensusSignal } = await import('@/lib/trading/execution-engine');
     const result = await executeAutonomousConsensusSignal({
       predictionId: `manual-${symbol}-${Date.now()}`,
       idempotencyKey,

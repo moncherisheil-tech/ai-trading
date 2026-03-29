@@ -11,7 +11,6 @@ import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/ses
 import { runConsensusEngine } from '@/lib/consensus-engine';
 import { getDbAsync, saveDbAsync } from '@/lib/db';
 import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
-import { runPineconeUpsertProbe } from '@/lib/vector-db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -120,6 +119,7 @@ async function runAudit(): Promise<NextResponse> {
   // —— Stage 3: Vector Storage (Pinecone forced upsert + read verification) ——
   try {
     const before = await getLastPineconeUpsertAt();
+    const { runPineconeUpsertProbe } = await import('@/lib/vector-db');
     const probe = await runPineconeUpsertProbe(MOCK_SYMBOL);
     const after = await getLastPineconeUpsertAt();
     const timestampAdvanced = before !== after && after != null;

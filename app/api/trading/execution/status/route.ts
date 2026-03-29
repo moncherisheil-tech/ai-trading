@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
-import { getExecutionDashboardSnapshot } from '@/lib/trading/execution-engine';
 import { evaluateGoLiveSafety } from '@/lib/go-live-safety';
 
 export const dynamic = 'force-dynamic';
@@ -14,6 +13,7 @@ function clampPct(value: unknown, fallback: number): number {
 
 export async function GET(): Promise<NextResponse> {
   try {
+    const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
     const snapshot = await getExecutionDashboardSnapshot();
     return NextResponse.json(snapshot);
   } catch (err) {
@@ -91,6 +91,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
     }
 
+    const { getExecutionDashboardSnapshot } = await import('@/lib/trading/execution-engine');
     const snapshot = await getExecutionDashboardSnapshot();
     return NextResponse.json({
       ok: true,

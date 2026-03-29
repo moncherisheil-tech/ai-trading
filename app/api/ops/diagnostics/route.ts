@@ -11,7 +11,6 @@ import { getDbAsync } from '@/lib/db';
 import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
 import { getAppSettings } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
-import { verifyPineconeConnectionStrict } from '@/lib/vector-db';
 import { fetchMacroContext } from '@/lib/api-utils';
 import { sql } from '@/lib/db/sql';
 
@@ -62,6 +61,7 @@ export async function GET(): Promise<NextResponse> {
 
   if (pinecone === 'ok') {
     try {
+      const { verifyPineconeConnectionStrict } = await import('@/lib/vector-db');
       const connection = await verifyPineconeConnectionStrict();
       if (!connection.ok) {
         pinecone = 'fail';
