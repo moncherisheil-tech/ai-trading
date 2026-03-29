@@ -22,7 +22,41 @@ type ExecutePayload = {
   };
 };
 
-const TOP_SCAN = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT'] as const;
+/** Tier 1 — נזילות מוסדית (Binance USDT-M). */
+const INSTITUTIONAL_USDT_PAIRS = [
+  'BTCUSDT',
+  'ETHUSDT',
+  'SOLUSDT',
+  'BNBUSDT',
+  'XRPUSDT',
+  'ADAUSDT',
+  'DOGEUSDT',
+  'AVAXUSDT',
+  'LINKUSDT',
+  'DOTUSDT',
+  'MATICUSDT',
+  'NEARUSDT',
+  'LTCUSDT',
+  'BCHUSDT',
+  'FETUSDT',
+  'INJUSDT',
+  'RNDRUSDT',
+  'ARBUSDT',
+  'OPUSDT',
+  'SHIBUSDT',
+  'PEPEUSDT',
+  'WIFUSDT',
+  'SUIUSDT',
+  'APTUSDT',
+  'FILUSDT',
+  'ATOMUSDT',
+  'TIAUSDT',
+  'LDOUSDT',
+  'RUNEUSDT',
+  'GALAUSDT',
+] as const;
+
+type ScanSymbol = (typeof INSTITUTIONAL_USDT_PAIRS)[number];
 
 /** Institutional Hebrew — never surface raw API / stack text to operators. */
 const SYSTEM_DATA_ERROR_HE = 'שגיאת מערכת: לא ניתן למשוך נתונים כעת';
@@ -74,7 +108,7 @@ export default function AlphaSignalsDashboard() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [scanSymbol, setScanSymbol] = useState<(typeof TOP_SCAN)[number]>('BTCUSDT');
+  const [scanSymbol, setScanSymbol] = useState<ScanSymbol>('BTCUSDT');
   const [godTier, setGodTier] = useState(false);
   const [pendingExecution, setPendingExecution] = useState<{
     row: AlphaSignalDTO;
@@ -230,10 +264,10 @@ export default function AlphaSignalsDashboard() {
             <select
               id="scan-symbol"
               value={scanSymbol}
-              onChange={(e) => setScanSymbol(e.target.value as (typeof TOP_SCAN)[number])}
+              onChange={(e) => setScanSymbol(e.target.value as ScanSymbol)}
               className="rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-sm text-white"
             >
-              {TOP_SCAN.map((s) => (
+              {INSTITUTIONAL_USDT_PAIRS.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>

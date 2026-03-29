@@ -62,12 +62,12 @@ type DashboardSnap = {
 };
 
 const SOVEREIGN_EXPERTS = [
-  { key: 'technician', label: 'Technical Analyst', tag: 'TECH' },
-  { key: 'riskManager', label: 'Risk Manager', tag: 'RISK' },
-  { key: 'marketPsychologist', label: 'Market Psychology', tag: 'PSYCH' },
-  { key: 'macroOrderBook', label: 'Macro / Order Book', tag: 'MACRO' },
-  { key: 'onChainSleuth', label: 'On-Chain Sleuth', tag: 'CHAIN' },
-  { key: 'deepMemory', label: 'Deep Memory', tag: 'MEMORY' },
+  { key: 'technician', label: 'אנליסט טכני', tag: 'TECH' },
+  { key: 'riskManager', label: 'מנהל סיכונים', tag: 'RISK' },
+  { key: 'marketPsychologist', label: 'פסיכולוגיית שוק', tag: 'PSYCH' },
+  { key: 'macroOrderBook', label: 'מאקרו / ספר הזמנות', tag: 'MACRO' },
+  { key: 'onChainSleuth', label: 'חוקר אונ־צ׳יין', tag: 'CHAIN' },
+  { key: 'deepMemory', label: 'זיכרון עמוק', tag: 'MEMORY' },
 ] as const;
 
 const SPARK_CAP = 56;
@@ -101,7 +101,7 @@ function statusDot(score: number | null): 'green' | 'yellow' | 'red' {
 
 function oneLineRationale(tag: string, logic: string): string {
   const line = logic.replace(/\s+/g, ' ').slice(0, 92);
-  if (!line) return `${tag}: Awaiting board telemetry…`;
+  if (!line) return `${tag}: ממתין לנתוני מועצת המומחים…`;
   return `${tag}: ${line}${logic.length > 92 ? '…' : ''}`;
 }
 
@@ -191,7 +191,7 @@ function MicroSparkline({
         />
       </svg>
       <span className="sr-only">
-        {label} series min {minV} max {maxV}
+        {label} — מינימום {minV} מקסימום {maxV}
       </span>
     </div>
   );
@@ -241,7 +241,7 @@ export default function QuantumCommandCenter() {
       }
       setErr(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Deck sync failed');
+      setErr(e instanceof Error ? e.message : 'סנכרון עמדת הפיקוד נכשל');
     }
   }, [tickSymbol]);
 
@@ -268,12 +268,12 @@ export default function QuantumCommandCenter() {
   }, [snap]);
 
   const robotChassis = useMemo(() => {
-    if (!snap) return 'INITIALIZING…';
-    if ((snap.activeTrades?.length ?? 0) > 0) return 'IN POSITION';
-    if (!snap.masterSwitchEnabled) return 'MANUAL OVERSIGHT · AUTO HALTED';
+    if (!snap) return 'מאתחל…';
+    if ((snap.activeTrades?.length ?? 0) > 0) return 'בפוזיציה פתוחה';
+    if (!snap.masterSwitchEnabled) return 'פיקוח ידני · מנוע אוטומטי מושבת';
     const r = (snap.recentExecutions?.[0]?.reason || '').toLowerCase();
-    if (r.includes('cvd') || r.includes('microstructure')) return 'WAITING FOR CVD CONFIRMATION';
-    return 'ARMED · SCANNING';
+    if (r.includes('cvd') || r.includes('microstructure')) return 'ממתין לאישור CVD';
+    return 'במצב כוננות · סריקה';
   }, [snap]);
 
   const primaryTrade = snap?.activeTrades?.[0];
@@ -310,7 +310,7 @@ export default function QuantumCommandCenter() {
       await Promise.all(open.map((t) => closeVirtualPortfolioTradeAction({ symbol: t.symbol })));
       await refresh();
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Kill sequence failed');
+      setErr(e instanceof Error ? e.message : 'רצף חיסול נכשל');
     } finally {
       setBusy(null);
     }
@@ -361,7 +361,7 @@ export default function QuantumCommandCenter() {
   return (
     <section
       className="relative min-h-screen overflow-x-hidden text-zinc-100"
-      dir="ltr"
+      dir="rtl"
       style={{ backgroundColor: C.void }}
     >
       <div
@@ -390,13 +390,14 @@ export default function QuantumCommandCenter() {
                 Quantum Mon Chéri
               </p>
               <h1 className="font-inter-tight mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                Omniscient Command Deck
+                עמדת פיקוד קוואנטית (Command Deck)
               </h1>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
-                Telemetry
+                טלמטריה
                 <input
+                  dir="ltr"
                   type="text"
                   value={tickSymbol}
                   onChange={(e) => setTickSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16))}
@@ -411,7 +412,7 @@ export default function QuantumCommandCenter() {
                     color: snap.mode === 'LIVE' ? C.crimsonGlow : '#94a3b8',
                   }}
                 >
-                  {snap.mode}
+                  {snap.mode === 'LIVE' ? 'חי' : 'נייר'}
                 </span>
               ) : null}
             </div>
@@ -421,19 +422,19 @@ export default function QuantumCommandCenter() {
             <MicroSparkline
               series={cvdHist.length >= 2 ? cvdHist : metrics ? [metrics.cvd_slope * 0.97, metrics.cvd_slope] : [0, 0]}
               accent="#5eead4"
-              label="CVD slope"
-              valueDisplay={metrics ? formatNum(metrics.cvd_slope, 'exp') : telemEnabled ? '…' : 'offline'}
+              label="שיפוע CVD"
+              valueDisplay={metrics ? formatNum(metrics.cvd_slope, 'exp') : telemEnabled ? '…' : 'לא פעיל'}
             />
             <MicroSparkline
               series={entHist.length >= 2 ? entHist : metrics?.entropy_returns != null ? [metrics.entropy_returns, metrics.entropy_returns * 1.001] : [0, 0]}
               accent="#a78bfa"
-              label="Entropy returns"
+              label="אנטרופיית תשואות"
               valueDisplay={metrics?.entropy_returns != null ? formatNum(metrics.entropy_returns, 'fixed4') : '—'}
             />
             <MicroSparkline
               series={kalHist.length >= 2 ? kalHist : metrics?.kalman_velocity != null ? [metrics.kalman_velocity, metrics.kalman_velocity * 1.02] : [0, 0]}
               accent={C.goldBright}
-              label="Kalman velocity"
+              label="מהירות קלמן"
               valueDisplay={metrics?.kalman_velocity != null ? formatNum(metrics.kalman_velocity, 'exp') : '—'}
             />
           </div>
@@ -443,14 +444,14 @@ export default function QuantumCommandCenter() {
           ) : null}
           {metrics?.noise_flag ? (
             <p className="text-center font-inter-tight text-[11px] font-semibold uppercase tracking-widest text-amber-400/90">
-              Noise flag · elevated micro uncertainty
+              דגל רעש · אי־ודאות מיקרו מוגברת
             </p>
           ) : null}
 
           <div className="flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.07] pt-5">
             <div className="flex flex-col gap-2">
               <span className="font-inter-tight text-[10px] font-bold uppercase tracking-[0.28em] text-zinc-500">
-                Executive authority
+                סמכות ניהולית עליונה
               </span>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex flex-col items-center gap-1.5">
@@ -458,7 +459,9 @@ export default function QuantumCommandCenter() {
                     type="button"
                     role="switch"
                     aria-checked={snap?.masterSwitchEnabled ?? false}
-                    aria-label={snap?.masterSwitchEnabled ? 'Autonomous engine on' : 'Executive override — auto halted'}
+                    aria-label={
+                      snap?.masterSwitchEnabled ? 'מנוע אוטונומי פעיל' : 'עקיפה ניהולית — מצב אוטומטי מושבת'
+                    }
                     disabled={busy !== null}
                     onClick={() => void setAutonomous(!snap?.masterSwitchEnabled)}
                     className="relative h-12 w-[6.5rem] shrink-0 rounded-full border-2 transition-colors"
@@ -487,12 +490,12 @@ export default function QuantumCommandCenter() {
                     className="font-inter-tight text-[9px] font-bold uppercase tracking-[0.2em]"
                     style={{ color: snap?.masterSwitchEnabled ? C.goldBright : C.crimsonGlow }}
                   >
-                    {snap?.masterSwitchEnabled ? 'Autonomous' : 'Override'}
+                    {snap?.masterSwitchEnabled ? 'אוטונומי' : 'עקיפה'}
                   </span>
                 </div>
                 <p className="max-w-xs text-[11px] leading-relaxed text-zinc-500">
-                  <span className="text-zinc-300">Executive override</span> halts the autonomous engine. You retain
-                  manual strike and liquidation.
+                  <span className="text-zinc-300">עקיפה ניהולית</span> משביתה את המנוע האוטונומי. נשמרות לך זכות{' '}
+                  לפגיעה ידנית ולחיסול חשיפה.
                 </p>
               </div>
             </div>
@@ -510,9 +513,9 @@ export default function QuantumCommandCenter() {
                   boxShadow: `0 0 20px ${C.crimson}22`,
                 }}
               >
-                Liquidate exposure
+                חיסול חשיפה (Liquidate)
               </button>
-              <span className="text-[10px] text-zinc-600">Closes all open virtual positions immediately.</span>
+              <span className="text-[10px] text-zinc-600">סוגר מיידית את כל הפוזיציות הווירטואליות הפתוחות.</span>
             </div>
           </div>
         </header>
@@ -558,9 +561,9 @@ export default function QuantumCommandCenter() {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
               <div>
                 <p className="font-inter-tight text-[10px] font-bold uppercase tracking-[0.3em] text-zinc-500">
-                  Tier 2 · Quantum executioner
+                  רמה 2 · מבצע קוונטי
                 </p>
-                <h2 className="font-inter-tight mt-1 text-xl font-semibold text-white">Trading robot</h2>
+                <h2 className="font-inter-tight mt-1 text-xl font-semibold text-white">אלגוריתם ביצוע אוטונומי</h2>
               </div>
               <motion.span
                 className="rounded-md px-3 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-widest"
@@ -579,28 +582,30 @@ export default function QuantumCommandCenter() {
 
             <div className="mt-5 grid gap-4 sm:grid-cols-3">
               <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Entry</p>
-                <p className="mt-1 font-mono text-lg text-zinc-100 tabular-nums">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">נקודת כניסה</p>
+                <p className="mt-1 font-mono text-lg text-zinc-100 tabular-nums" dir="ltr">
                   {primaryTrade ? primaryTrade.entryPrice.toFixed(4) : '—'}
                 </p>
-                <p className="mt-0.5 font-mono text-[11px] text-zinc-500">{primaryTrade?.symbol ?? 'No open book'}</p>
+                <p className="mt-0.5 font-mono text-[11px] text-zinc-500" dir="ltr">
+                  {primaryTrade?.symbol ?? 'אין ספר פתוח'}
+                </p>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Dynamic SL</p>
-                <p className="mt-1 font-mono text-lg tabular-nums" style={{ color: C.crimsonGlow }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">סטופ דינמי</p>
+                <p className="mt-1 font-mono text-lg tabular-nums" style={{ color: C.crimsonGlow }} dir="ltr">
                   {primaryTrade?.stopLossPrice != null ? primaryTrade.stopLossPrice.toFixed(4) : '—'}
                 </p>
-                <p className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                  {primaryTrade?.stopLossPct != null ? `${primaryTrade.stopLossPct}% vs entry` : ''}
+                <p className="mt-0.5 font-mono text-[11px] text-zinc-500" dir="ltr">
+                  {primaryTrade?.stopLossPct != null ? `${primaryTrade.stopLossPct}% מול כניסה` : ''}
                 </p>
               </div>
               <div className="rounded-xl border border-white/[0.06] bg-black/40 p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Take profit</p>
-                <p className="mt-1 font-mono text-lg tabular-nums" style={{ color: C.goldBright }}>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">לקיחת רווח</p>
+                <p className="mt-1 font-mono text-lg tabular-nums" style={{ color: C.goldBright }} dir="ltr">
                   {primaryTrade?.takeProfitPrice != null ? primaryTrade.takeProfitPrice.toFixed(4) : '—'}
                 </p>
-                <p className="mt-0.5 font-mono text-[11px] text-zinc-500">
-                  {primaryTrade?.targetProfitPct != null ? `+${primaryTrade.targetProfitPct}% vs entry` : ''}
+                <p className="mt-0.5 font-mono text-[11px] text-zinc-500" dir="ltr">
+                  {primaryTrade?.targetProfitPct != null ? `+${primaryTrade.targetProfitPct}% מול כניסה` : ''}
                 </p>
               </div>
             </div>
@@ -608,7 +613,7 @@ export default function QuantumCommandCenter() {
             {!snap?.masterSwitchEnabled ? (
               <div className="mt-6">
                 <p className="mb-2 text-center font-inter-tight text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500">
-                  Authorize strike
+                  אישור פגיעה
                 </p>
                 <button
                   type="button"
@@ -630,14 +635,14 @@ export default function QuantumCommandCenter() {
                     transition={{ type: 'tween', duration: 0.05 }}
                     aria-hidden
                   />
-                  <span className="relative z-[1]">
-                    Hold to deploy · {strikeHint.symbol} {strikeHint.side} @ {strikeHint.confidence}%
+                  <span className="relative z-[1]" dir="ltr">
+                    לחץ והחזק לפריסה · {strikeHint.symbol} {strikeHint.side} @ {strikeHint.confidence}%
                   </span>
                 </button>
               </div>
             ) : (
               <p className="mt-6 text-center text-[11px] text-zinc-500">
-                Autonomous engine armed — disable override to authorize a manual strike.
+                המנוע האוטונומי בכוננות — השבת עקיפה כדי לאשר פגיעה ידנית.
               </p>
             )}
           </motion.article>
@@ -647,11 +652,11 @@ export default function QuantumCommandCenter() {
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="font-inter-tight text-[10px] font-bold uppercase tracking-[0.35em] text-zinc-500">
-              Tier 3 · Hex conclave (6 experts)
+              מועצת מומחי בינה מלאכותית (Hex Conclave)
             </p>
             {consensusPulse ? (
               <span className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: C.gold }}>
-                Consensus channel open
+                ערוץ קונצנזוס פתוח
               </span>
             ) : null}
           </div>
@@ -701,7 +706,7 @@ export default function QuantumCommandCenter() {
                       style={{ backdropFilter: 'blur(12px)' }}
                     >
                       <p className="font-inter-tight text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                        Full logic
+                        נימוק מלא
                       </p>
                       <p className="mt-2 max-h-40 overflow-auto font-mono text-[10px] leading-relaxed text-zinc-300">
                         {logic}

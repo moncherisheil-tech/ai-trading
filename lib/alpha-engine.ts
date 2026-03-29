@@ -79,16 +79,30 @@ function computeStopTarget(
   return { stopLoss: entry + risk, targetPrice: entry - reward };
 }
 
-function stripJsonFence(s: string): string {
-  let t = s.trim();
-  if (t.startsWith('```')) {
-    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+/**
+ * Normalize LLM output before JSON.parse: strip ``` / ```json fences (including mid-string),
+ * then isolate the outermost `{ ... }` object.
+ */
+function stripJsonFence(raw: string): string {
+  let t = raw.trim();
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced?.[1]) {
+    t = fenced[1].trim();
+  } else {
+    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
   }
+  t = t.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
   const i = t.indexOf('{');
   const j = t.lastIndexOf('}');
-  if (i >= 0 && j > i) t = t.slice(i, j + 1);
+  if (i >= 0 && j > i) return t.slice(i, j + 1);
   return t;
 }
+
+const RAW_JSON_SYSTEM_EN = [
+  'Return RAW JSON only.',
+  'DO NOT use markdown code block wrappers like ```json or ``` — output the JSON object directly with no fences.',
+  'No prose before or after the JSON.',
+].join(' ');
 
 async function callGroqHourly(orderBookSummary: string, symbol: string, price: number): Promise<z.infer<typeof coreSignalSchema>> {
   const key = getGroqApiKey();
@@ -110,12 +124,18 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
     messages: [
       {
         role: 'system',
-        content:
-          'אתה אנליסט ספר הזמנות. החזר JSON בלבד עם המפתחות: direction ("Long" או "Short"), winProbability (מספר 0-100), rationaleHebrew (מחרוזת בעברית). ללא markdown.',
+        content: [
+          'You are a highly accurate, institutional quantitative order-book analyst. Horizon: hourly scalping.',
+          'If Bids > Asks (bid-side depth or notional exceeds the ask side), it indicates BUYING pressure — bias Long.',
+          'If Asks > Bids (ask-side exceeds bids), it indicates SELLING pressure — bias Short.',
+          'Do not invert this relationship.',
+          RAW_JSON_SYSTEM_EN,
+          'Required JSON keys: direction ("Long" or "Short"), winProbability (0-100), rationaleHebrew (Hebrew string).',
+        ].join(' '),
       },
       {
         role: 'user',
-        content: `סמל ${symbol}, מחיר ${price}. סיכום ספר הזמנות:\n${orderBookSummary}\n\nקבע הזדמנות סקאלפ שעתית (Hourly). JSON בלבד.`,
+        content: `סמל ${symbol}, מחיר ${price}. סיכום ספר הזמנות:\n${orderBookSummary}\n\nקבע הזדמנות סקאלפ שעתית (Hourly). החזר אובייקט JSON גולמי בלבד.`,
       },
     ],
   });
@@ -159,10 +179,16 @@ async function callAnthropicDaily(
     body: JSON.stringify({
       model: ANTHROPIC_SONNET_MODEL,
       max_tokens: 600,
+      system: [
+        'You are an institutional whale-flow analyst for crypto. Daily / swing horizon.',
+        RAW_JSON_SYSTEM_EN,
+        'JSON keys: direction ("Long" or "Short"), winProbability (0-100), rationaleHebrew (Hebrew).',
+      ].join(' '),
       messages: [
         {
           role: 'user',
-          content: `אתה אנליסט זרימות לווייתנים. החזר JSON בלבד: direction ("Long" או "Short"), winProbability (0-100), rationaleHebrew (עברית).
+          content: `נתח זרימות לווייתנים והחזר אובייקט JSON גולמי בלבד (ללא markdown).
+מפתחות: direction ("Long" או "Short"), winProbability (0-100), rationaleHebrew (עברית).
 סמל ${symbol}, מחיר ${price}.
 Leviathan: ${leviathanText}
 WhaleTracker: ${whaleJson}
@@ -207,14 +233,32 @@ async function callGeminiWeeklyLong(
   const primary = process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview';
   const selected = resolveGeminiModel(primary);
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
-  const prompt = `אתה אנליסט מאקרו ו-Deep Memory. החזר JSON תקף בלבד, ללא markdown, עם המבנה:
+  const model = genAI.getGenerativeModel(
+    {
+      model: selected.model,
+      systemInstruction: [
+        'You are an institutional macro and deep-memory analyst for crypto.',
+        RAW_JSON_SYSTEM_EN,
+        'Emit one JSON object with nested weekly and long objects as specified in the user message.',
+      ].join(' '),
+    },
+    selected.requestOptions
+  );
+  const prompt = `אתה אנליסט מאקרו ו-Deep Memory.
+
+CRITICAL OUTPUT RULES (repeat for compliance):
+- Return RAW JSON only — a single JSON object, nothing else.
+- DO NOT use markdown code block wrappers like \`\`\`json or \`\`\`.
+- Do not add explanations before or after the JSON.
+
+Schema (example shape only):
 {"weekly":{"direction":"Long","winProbability":70,"rationaleHebrew":"טקסט בעברית"},"long":{"direction":"Short","winProbability":65,"rationaleHebrew":"טקסט בעברית"}}
+
 חובה: direction הוא המחרוזת Long או Short בלבד (באנגלית). winProbability מספר 0-100. rationaleHebrew בעברית.
 סמל ${symbol}, מחיר ${price}.
 מאקרו: ${macroLine}
 הקשר Deep Memory (עסקאות דומות): ${deepMemoryBlock}
-שבועי=אופק Weekly, long=אופק ארוך (Position). rationaleHebrew בעברית בלבד. ללא markdown.`;
+שבועי=אופק Weekly, long=אופק ארוך (Position).`;
 
   const result = await withGeminiRateLimitRetry(() =>
     model.generateContent({
@@ -296,10 +340,20 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
 
   const macroLine = `DXY: ${macro.dxyNote}; BTC dom ${macro.btcDominancePct ?? '—'}%; F&G ${macro.fearGreedIndex ?? '—'}`;
 
-  const triCoreSettled = await Promise.allSettled([
-    callGroqHourly(obSummary, pair, entry),
-    callAnthropicDaily(leviathan.institutionalWhaleContext, whaleJson, pair, entry),
-    callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry),
+  /** Isolated try/catch per leg so timeouts, quota errors, or SDK throws never abort sibling cores. */
+  async function runTriCoreLeg<T>(label: string, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+    try {
+      return { ok: true, value: await fn() };
+    } catch (reason) {
+      console.error(`[Tri-Core] ${label} leg failed:`, reason);
+      return { ok: false };
+    }
+  }
+
+  const [groqLeg, anthropicLeg, geminiLeg] = await Promise.all([
+    runTriCoreLeg('Groq hourly', () => callGroqHourly(obSummary, pair, entry)),
+    runTriCoreLeg('Anthropic daily', () => callAnthropicDaily(leviathan.institutionalWhaleContext, whaleJson, pair, entry)),
+    runTriCoreLeg('Gemini weekly/long', () => callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry)),
   ]);
 
   const tfMap: Array<{
@@ -308,27 +362,16 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
     atrVal: number | null;
   }> = [];
 
-  const groqResult = triCoreSettled[0];
-  if (groqResult.status === 'fulfilled') {
-    tfMap.push({ tf: 'Hourly', core: groqResult.value, atrVal: atr1h });
-  } else {
-    console.error('[Tri-Core] Groq hourly leg failed:', groqResult.reason);
+  if (groqLeg.ok) {
+    tfMap.push({ tf: 'Hourly', core: groqLeg.value, atrVal: atr1h });
   }
-
-  const anthropicResult = triCoreSettled[1];
-  if (anthropicResult.status === 'fulfilled') {
-    tfMap.push({ tf: 'Daily', core: anthropicResult.value, atrVal: atr1d });
-  } else {
-    console.error('[Tri-Core] Anthropic daily leg failed:', anthropicResult.reason);
+  if (anthropicLeg.ok) {
+    tfMap.push({ tf: 'Daily', core: anthropicLeg.value, atrVal: atr1d });
   }
-
-  const geminiResult = triCoreSettled[2];
-  if (geminiResult.status === 'fulfilled') {
-    const dual = geminiResult.value;
+  if (geminiLeg.ok) {
+    const dual = geminiLeg.value;
     tfMap.push({ tf: 'Weekly', core: dual.weekly, atrVal: atr1w });
     tfMap.push({ tf: 'Long', core: dual.long, atrVal: atrLong });
-  } else {
-    console.error('[Tri-Core] Gemini weekly/long leg failed:', geminiResult.reason);
   }
 
   const rows = tfMap.map(({ tf, core, atrVal }) => {
