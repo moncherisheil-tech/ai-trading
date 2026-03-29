@@ -1164,6 +1164,13 @@ export async function getLatestAlphaSignalsAction(): Promise<
   }
 }
 
+/** Validated trading symbol for Tri-Core (uppercase A–Z and digits only, max 20). */
+const ALPHA_MATRIX_SYMBOL_SCHEMA = z
+  .string()
+  .trim()
+  .transform((s) => s.toUpperCase())
+  .pipe(z.string().regex(/^[A-Z0-9]+$/).max(20));
+
 /** Tri-Core Alpha Matrix: run Groq + Anthropic + Gemini and persist four timeframes. */
 export async function generateAlphaMatrixAction(symbol: string): Promise<
   | { success: true; createdIds: string[] }
@@ -1172,12 +1179,18 @@ export async function generateAlphaMatrixAction(symbol: string): Promise<
   const gate = await assertQuantumAdminForWrites();
   if (!gate.ok) return { success: false, error: gate.error };
   try {
+    const symParsed = ALPHA_MATRIX_SYMBOL_SCHEMA.safeParse(symbol);
+    if (!symParsed.success) {
+      throw new Error(
+        'סמל מסחר לא תקף: השתמש רק באותיות לטיניות גדולות ומספרים, עד 20 תווים (למשל BTC או BTCUSDT).'
+      );
+    }
     const { runTriCoreAlphaMatrix } = await import('@/lib/alpha-engine');
     const prismaMod = await import('@/lib/prisma');
     if (!prismaMod.getPrisma()) {
       return { success: false, error: 'חסר חיבור למסד נתונים (DATABASE_URL).' };
     }
-    const { createdIds } = await runTriCoreAlphaMatrix(symbol);
+    const { createdIds } = await runTriCoreAlphaMatrix(symParsed.data);
     revalidatePath('/admin/signals');
     return { success: true, createdIds };
   } catch (e) {

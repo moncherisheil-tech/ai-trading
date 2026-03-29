@@ -296,7 +296,7 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
 
   const macroLine = `DXY: ${macro.dxyNote}; BTC dom ${macro.btcDominancePct ?? '—'}%; F&G ${macro.fearGreedIndex ?? '—'}`;
 
-  const [hourly, daily, dual] = await Promise.all([
+  const triCoreSettled = await Promise.allSettled([
     callGroqHourly(obSummary, pair, entry),
     callAnthropicDaily(leviathan.institutionalWhaleContext, whaleJson, pair, entry),
     callGeminiWeeklyLong(macroLine, deepMemoryBlock, pair, entry),
@@ -306,12 +306,30 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
     tf: AlphaTimeframe;
     core: z.infer<typeof coreSignalSchema>;
     atrVal: number | null;
-  }> = [
-    { tf: 'Hourly', core: hourly, atrVal: atr1h },
-    { tf: 'Daily', core: daily, atrVal: atr1d },
-    { tf: 'Weekly', core: dual.weekly, atrVal: atr1w },
-    { tf: 'Long', core: dual.long, atrVal: atrLong },
-  ];
+  }> = [];
+
+  const groqResult = triCoreSettled[0];
+  if (groqResult.status === 'fulfilled') {
+    tfMap.push({ tf: 'Hourly', core: groqResult.value, atrVal: atr1h });
+  } else {
+    console.error('[Tri-Core] Groq hourly leg failed:', groqResult.reason);
+  }
+
+  const anthropicResult = triCoreSettled[1];
+  if (anthropicResult.status === 'fulfilled') {
+    tfMap.push({ tf: 'Daily', core: anthropicResult.value, atrVal: atr1d });
+  } else {
+    console.error('[Tri-Core] Anthropic daily leg failed:', anthropicResult.reason);
+  }
+
+  const geminiResult = triCoreSettled[2];
+  if (geminiResult.status === 'fulfilled') {
+    const dual = geminiResult.value;
+    tfMap.push({ tf: 'Weekly', core: dual.weekly, atrVal: atr1w });
+    tfMap.push({ tf: 'Long', core: dual.long, atrVal: atrLong });
+  } else {
+    console.error('[Tri-Core] Gemini weekly/long leg failed:', geminiResult.reason);
+  }
 
   const rows = tfMap.map(({ tf, core, atrVal }) => {
     const direction = core.direction as AlphaDirection;
@@ -340,9 +358,15 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
     };
   });
 
+  if (rows.length === 0) {
+    return { createdIds: [] };
+  }
+
+  const replacedTimeframes = rows.map((r) => r.timeframe);
+
   const createdIds = await prisma.$transaction(async (tx) => {
     await tx.alphaSignalRecord.updateMany({
-      where: { symbol: pair, status: 'Active' },
+      where: { symbol: pair, status: 'Active', timeframe: { in: replacedTimeframes } },
       data: { status: 'Expired' },
     });
     await tx.alphaSignalRecord.createMany({ data: rows });
@@ -352,7 +376,7 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
       take: 8,
       select: { id: true, timeframe: true },
     });
-    const want = new Set<AlphaTimeframe>(['Hourly', 'Daily', 'Weekly', 'Long']);
+    const want = new Set<AlphaTimeframe>(replacedTimeframes);
     const picked: string[] = [];
     for (const r of latest) {
       if (want.has(r.timeframe) && !picked.includes(r.id)) {

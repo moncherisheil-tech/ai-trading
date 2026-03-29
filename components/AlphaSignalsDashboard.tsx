@@ -35,7 +35,7 @@ function timeframeLabel(tf: string): string {
     case 'Long':
       return 'ארוך טווח';
     default:
-      return tf;
+      return 'אופק לא מוכר';
   }
 }
 
@@ -109,7 +109,7 @@ export default function AlphaSignalsDashboard() {
       if (!out.success) {
         throw new Error(out.error);
       }
-      toast?.success('סריקת עומק הושלמה — נשמרו ארבעה אופקי זמן.');
+      toast?.success('סריקת עומק הושלמה — הנתונים עודכנו במסד הנתונים.');
       await loadSignals();
     } catch (e) {
       toast?.error(e instanceof Error ? e.message : 'סריקת עומק נכשלה.');
@@ -198,7 +198,7 @@ export default function AlphaSignalsDashboard() {
           <div className="flex flex-wrap items-center gap-2">
             {godTier && (
               <span className="rounded-full border border-emerald-500/50 bg-emerald-950/40 px-3 py-1.5 text-xs font-bold text-emerald-200">
-                GOD-TIER ALPHA MATRIX ONLINE
+                מטריצת אלפא פעילה — רמת מוסדי
               </span>
             )}
             <span className="rounded-full border border-cyan-500/40 bg-slate-800/90 px-3 py-1.5 text-xs font-semibold text-cyan-200">
@@ -263,7 +263,7 @@ export default function AlphaSignalsDashboard() {
                 <th className="px-3 py-3 font-semibold">יעד</th>
                 <th className="px-3 py-3 font-semibold">סטופ לוס</th>
                 <th className="px-3 py-3 font-semibold">גיבוי לווייתנים</th>
-                <th className="px-3 py-3 font-semibold min-w-[200px]">נימוק AI</th>
+                <th className="px-3 py-3 font-semibold min-w-[200px]">נימוק ניתוח</th>
                 <th className="px-3 py-3 font-semibold">פעולה</th>
               </tr>
             </thead>
