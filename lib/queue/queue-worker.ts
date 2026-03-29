@@ -24,6 +24,7 @@ import {
   attachDrainListener,
   persistJobResult,
   customBackoffStrategy,
+  closeCoinScanQueueEvents,
   type CoinScanJobData,
   type CoinScanJobResult,
 } from './scan-queue';
@@ -75,16 +76,19 @@ async function processJob(
 
     result.analysisData = analysisResult.data as unknown as Record<string, unknown>;
 
-    // Extract tri-core probabilities from analysis data if available
+    // Map tri-core probabilities from actual PredictionRecord fields:
+    //   groq      → tech_score      (Technician — Groq primary, 35% Alpha Matrix weight)
+    //   anthropic → onchain_score   (On-Chain Sleuth — Anthropic primary, 40% weight)
+    //   gemini    → final_confidence or average of remaining Gemini-driven experts (25% weight)
     const d = result.analysisData;
     const probDefault = (d?.probability as number | undefined) ?? 55;
     result.triCoreProbabilities = {
-      groq: (d?.alpha_hourly_probability as number | undefined) ?? probDefault,
-      anthropic: (d?.alpha_daily_probability as number | undefined) ?? probDefault,
-      gemini:
-        (((d?.alpha_weekly_probability as number | undefined) ?? probDefault) +
-          ((d?.alpha_long_probability as number | undefined) ?? probDefault)) /
-        2,
+      groq:      (d?.tech_score as number | undefined) ?? probDefault,
+      anthropic: (d?.onchain_score as number | undefined) ?? probDefault,
+      gemini:    (d?.final_confidence as number | undefined) ??
+                 (((d?.psych_score as number | undefined) ?? probDefault) +
+                  ((d?.macro_score as number | undefined) ?? probDefault) +
+                  ((d?.deep_memory_score as number | undefined) ?? probDefault)) / 3,
     };
 
     result.durationMs = Date.now() - start;
@@ -174,6 +178,10 @@ console.log(
 async function shutdown(signal: string): Promise<void> {
   console.log(`[Worker] ${signal} received — shutting down gracefully.`);
   await worker.close();
+  // Close QueueEvents BEFORE the shared IORedis client so the event loop
+  // drains cleanly. Without this, the open QueueEvents connection keeps the
+  // process alive and PM2 must force-kill it after the kill timeout.
+  await closeCoinScanQueueEvents();
   await closeRedisClient();
   process.exit(0);
 }

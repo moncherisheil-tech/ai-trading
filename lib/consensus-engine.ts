@@ -44,6 +44,7 @@ import {
   withGeminiRateLimitRetry,
 } from '@/lib/gemini-model';
 import { createHash } from 'crypto';
+import { withCircuitBreaker } from '@/lib/queue/circuit-breaker';
 
 /**
  * Wall-clock cap for one MoE round. Must exceed parallel expert timeouts (each can run up to ~timeoutMs)
@@ -789,51 +790,65 @@ ${input.deep_memory_context}
 Mandate: (1) TREND (EMA200) is the top priority: use technical_context for EMA200. If Price > EMA200, the regime is bullish — Bearish predictions require MUCH higher conviction and MULTIPLE exhaustion signals (e.g. clear distribution, failed breakout, reversal structure); do not flip Bearish solely on RSI overbought or single indicator. (2) Liquidity Sweeps — identify whether recent price action has swept equal highs/lows or swept liquidity below support / above resistance before reversal (stop-hunt); score higher when sweep is complete and structure supports continuation. (3) Fair Value Gaps (FVG) — note any unfilled FVGs (bullish/bearish) and whether price is respecting or filling them; use for entry zones. (4) Order Block Mitigation — assess if order blocks (last bullish/bearish candle before a move) are mitigated or still in play; precise entry zones around OB + FVG. (5) HVN and volume profile define institutional levels; align entries with OB mitigation and FVG fill. (6) OI and funding: divergence vs price = caution; confirmation = higher score.
 Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verdict, FVG/OB context, entry zone). JSON only: tech_score, tech_logic.`;
   const groqKey = getGroqApiKey();
+
+  // Gemini fallback — shared by the direct path (no groqKey) and the CB fallback.
+  const runGeminiTechnician = async (): Promise<ExpertTechnicianOutput> => {
+    const out = await callGeminiJson<ExpertTechnicianOutput>(
+      prompt,
+      ['tech_score', 'tech_logic'],
+      model,
+      timeoutMs,
+      { symbol: input.symbol, expert: 'Technician (Gemini fallback)' }
+    );
+    const tech_score = Math.max(0, Math.min(100, Number(out.tech_score) || 50));
+    return { tech_score, tech_logic: String(out.tech_logic || 'ללא נימוק').slice(0, 500) };
+  };
+
   if (groqKey) {
-    try {
+    // Primary — wrapped so recordProviderSample is always called before the
+    // error propagates to withCircuitBreaker, keeping the watchdog accurate
+    // regardless of whether the CB is CLOSED, HALF_OPEN, or routing to fallback.
+    const runGroqTechnician = async (): Promise<ExpertTechnicianOutput> => {
       const groq = new Groq({ apiKey: groqKey });
       const started = Date.now();
-      const completion = await Promise.race([
-        groq.chat.completions.create({
-          model: GROQ_MODEL,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'You are Expert 1 (Technician): LOB microstructure, FVG, order blocks. Output ONLY raw JSON. Keys: tech_score (0-100 number), tech_logic (Hebrew string, concise).',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: getConsensusEngineLlmTemperature(),
-          max_tokens: 1024,
-          response_format: { type: 'json_object' },
-        }),
-        new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error('Groq technician timeout')), Math.min(timeoutMs, 55_000))
-        ),
-      ]);
-      recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
-      const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
-      if (raw) {
+      try {
+        const completion = await Promise.race([
+          groq.chat.completions.create({
+            model: GROQ_MODEL,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You are Expert 1 (Technician): LOB microstructure, FVG, order blocks. Output ONLY raw JSON. Keys: tech_score (0-100 number), tech_logic (Hebrew string, concise).',
+              },
+              { role: 'user', content: prompt },
+            ],
+            temperature: getConsensusEngineLlmTemperature(),
+            max_tokens: 1024,
+            response_format: { type: 'json_object' },
+          }),
+          new Promise<never>((_, rej) =>
+            setTimeout(() => rej(new Error('Groq technician timeout')), Math.min(timeoutMs, 55_000))
+          ),
+        ]);
+        recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
+        const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
+        if (!raw) throw new Error('Empty Groq technician response');
         const parsed = JSON.parse(extractFirstJsonObject(raw.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
         const tech_score = Math.max(0, Math.min(100, Number(parsed.tech_score) || 50));
         const tech_logic = String(parsed.tech_logic || 'ללא נימוק').slice(0, 500);
         return { tech_score, tech_logic };
+      } catch (e) {
+        recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
+        console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
+        throw e;
       }
-    } catch (e) {
-      recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
-      console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
-    }
+    };
+
+    return withCircuitBreaker('groq', runGroqTechnician, runGeminiTechnician);
   }
-  const out = await callGeminiJson<ExpertTechnicianOutput>(
-    prompt,
-    ['tech_score', 'tech_logic'],
-    model,
-    timeoutMs,
-    { symbol: input.symbol, expert: 'Technician (Gemini fallback)' }
-  );
-  const tech_score = Math.max(0, Math.min(100, Number(out.tech_score) || 50));
-  return { tech_score, tech_logic: String(out.tech_logic || 'ללא נימוק').slice(0, 500) };
+
+  return runGeminiTechnician();
 }
 
 /** R:R minimum by risk tolerance (God-Mode). */
@@ -1242,13 +1257,29 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
   } catch {
     anthropicKey = undefined;
   }
+
+  // Gemini fallback — shared by the direct path (no anthropicKey) and the CB fallback.
+  const runGeminiOnChain = async (): Promise<ExpertOnChainOutput> => {
+    const out = await callGeminiJson<ExpertOnChainOutput>(
+      prompt,
+      ['onchain_score', 'onchain_logic'],
+      model,
+      timeoutMs,
+      { symbol: input.symbol, expert: 'On-Chain (Gemini fallback)' }
+    );
+    const onchain_score = Math.max(0, Math.min(100, Number(out.onchain_score) ?? 50));
+    return { onchain_score, onchain_logic: String(out.onchain_logic || 'ללא נימוק').slice(0, 500) };
+  };
+
   if (anthropicKey) {
-    try {
+    // Primary — throws on any failure so withCircuitBreaker can track the error
+    // and route to the Gemini fallback once the breaker opens.
+    const runAnthropicOnChain = async (): Promise<ExpertOnChainOutput> => {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-api-key': anthropicKey,
+          'x-api-key': anthropicKey!,
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
@@ -1265,30 +1296,23 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
         }),
         cache: 'no-store',
       });
-      if (res.ok) {
-        const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-        let text = '';
-        for (const c of data.content || []) {
-          if (c.type === 'text' && c.text) text += c.text;
-        }
-        const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
-        const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
-        const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
-        return { onchain_score, onchain_logic };
+      if (!res.ok) throw new Error(`Anthropic On-Chain HTTP ${res.status}`);
+      const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+      let text = '';
+      for (const c of data.content || []) {
+        if (c.type === 'text' && c.text) text += c.text;
       }
-    } catch (e) {
-      console.warn('[ConsensusEngine] Anthropic On-Chain failed, Gemini fallback:', e instanceof Error ? e.message : e);
-    }
+      if (!text) throw new Error('Empty Anthropic On-Chain response');
+      const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
+      const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
+      const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
+      return { onchain_score, onchain_logic };
+    };
+
+    return withCircuitBreaker('anthropic', runAnthropicOnChain, runGeminiOnChain);
   }
-  const out = await callGeminiJson<ExpertOnChainOutput>(
-    prompt,
-    ['onchain_score', 'onchain_logic'],
-    model,
-    timeoutMs,
-    { symbol: input.symbol, expert: 'On-Chain (Gemini fallback)' }
-  );
-  const onchain_score = Math.max(0, Math.min(100, Number(out.onchain_score) ?? 50));
-  return { onchain_score, onchain_logic: String(out.onchain_logic || 'ללא נימוק').slice(0, 500) };
+
+  return runGeminiOnChain();
 }
 
 /**

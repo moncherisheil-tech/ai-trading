@@ -91,6 +91,19 @@ export function getCoinScanQueueEvents(): QueueEvents {
 }
 
 /**
+ * Graceful shutdown — closes the QueueEvents Redis connection.
+ * Must be called in the PM2 SIGTERM/SIGINT handler BEFORE closeRedisClient(),
+ * otherwise the open QueueEvents connection keeps the event loop alive and the
+ * process hangs until PM2 force-kills it.
+ */
+export async function closeCoinScanQueueEvents(): Promise<void> {
+  if (_queueEvents) {
+    await _queueEvents.close();
+    _queueEvents = null;
+  }
+}
+
+/**
  * Attach the `drained` listener once per process.
  * `onDrained` is called with the cycleId when all jobs in a cycle complete.
  */
@@ -175,11 +188,31 @@ export async function persistJobResult(result: CoinScanJobResult): Promise<void>
   await getRedisClient().set(key, JSON.stringify(result), 'EX', 7200);
 }
 
+/**
+ * Non-blocking key scan using cursor-based SCAN instead of the O(N) blocking
+ * KEYS command. Safe to run against a production Redis instance at any keyspace
+ * size — each iteration processes at most `count` keys and yields between steps.
+ */
+async function scanKeys(
+  r: ReturnType<typeof getRedisClient>,
+  pattern: string,
+  count = 100
+): Promise<string[]> {
+  const keys: string[] = [];
+  let cursor = '0';
+  do {
+    const [next, batch] = await r.scan(cursor, 'MATCH', pattern, 'COUNT', count);
+    cursor = next;
+    keys.push(...batch);
+  } while (cursor !== '0');
+  return keys;
+}
+
 /** Load all persisted results for a cycle. */
 export async function loadCycleResults(cycleId: string): Promise<CoinScanJobResult[]> {
   if (!isRedisAvailable()) return [];
   const r = getRedisClient();
-  const keys = await r.keys(`scan:result:${cycleId}:*`);
+  const keys = await scanKeys(r, `scan:result:${cycleId}:*`);
   if (keys.length === 0) return [];
   const values = await r.mget(...keys);
   return values
