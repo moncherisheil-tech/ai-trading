@@ -11,7 +11,7 @@
  *   3. Persists the result to Redis for the report generator
  *   4. Emits a job_complete SSE event
  *
- * When the queue drains, triggers generateTieredReport().
+ * When the queue drains, logs cycle completion and emits a cycle_drained audit event.
  *
  * Graceful shutdown on SIGTERM/SIGINT (PM2 sends SIGINT on stop).
  */
@@ -19,7 +19,7 @@
 import 'dotenv/config';
 // Infrastructure pre-flight: validate critical env vars before the worker boots.
 // Throws immediately if PINECONE_INDEX_NAME is misconfigured (e.g. purely numeric).
-import { validateInfraEnv } from '@/lib/env';
+import { validateInfraEnv } from '../env';
 validateInfraEnv();
 
 import { Worker, type Job } from 'bullmq';
@@ -37,12 +37,11 @@ import {
   type CoinScanJobResult,
   type TriggerMasterScanJobData,
 } from './scan-queue';
-import { doAnalysisCore } from '@/lib/analysis-core';
-import { generateTieredReport } from '@/lib/reports/tiered-report-generator';
-import { emitJobComplete } from '@/lib/webhooks/emitter';
-import { writeAudit } from '@/lib/audit';
-import { buildCandidateList } from '@/lib/workers/market-scanner';
-import { getScannerSettings } from '@/lib/db/system-settings';
+import { doAnalysisCore } from '../analysis-core';
+import { emitJobComplete } from '../webhooks/emitter';
+import { writeAudit } from '../audit';
+import { buildCandidateList } from '../workers/market-scanner';
+import { getScannerSettings } from '../db/system-settings';
 import type { ConnectionOptions } from 'bullmq';
 
 const CONCURRENCY = Number(process.env.QUEUE_CONCURRENCY ?? 3);
@@ -234,7 +233,13 @@ worker.on('error', (err) => {
 attachDrainListener(async (cycleId: string) => {
   const cycleStart = cycleStartTimes.get(cycleId) ?? Date.now();
   try {
-    await generateTieredReport(cycleId, cycleStart);
+    const durationMs = Date.now() - cycleStart;
+    console.log(`[Worker] Cycle ${cycleId} drained — total duration ${durationMs}ms`);
+    writeAudit({
+      event: 'queue.cycle_drained',
+      level: 'info',
+      meta: { cycleId, durationMs },
+    });
   } finally {
     cycleStartTimes.delete(cycleId);
   }
