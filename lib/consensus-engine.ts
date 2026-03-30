@@ -55,14 +55,15 @@ const ABSOLUTE_FAILSAFE_TIMEOUT_MS = 115_000;
 /** Neutral fallback message when an expert times out or fails — never show raw error to UI. */
 const NEUTRAL_FALLBACK_LOGIC = 'הנתונים אינם זמינים כרגע. ממשיכים במשקל ניטרלי.';
 
-/** Baseline equal weight per expert: 6 agents → 1/6 each (~16.67%) before dynamic overrides. */
-const WEIGHT_PER_EXPERT = 1 / 6;
+/** Baseline equal weight per expert: 7 agents → 1/7 each (~14.29%) before dynamic overrides. */
+const WEIGHT_PER_EXPERT = 1 / 7;
 const WEIGHT_TECH = WEIGHT_PER_EXPERT;
 const WEIGHT_RISK = WEIGHT_PER_EXPERT;
 const WEIGHT_PSYCH = WEIGHT_PER_EXPERT;
 const WEIGHT_MACRO = WEIGHT_PER_EXPERT;
 const WEIGHT_ONCHAIN = WEIGHT_PER_EXPERT;
 const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
+const WEIGHT_CONTRARIAN = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SAFE_GEMINI_FALLBACK_MODEL = resolveGeminiModel(
   APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
@@ -109,6 +110,7 @@ const shadowReliabilityWindow: Record<BoardExpertKey, Array<{ correct: boolean; 
   macro: [],
   onchain: [],
   deepMemory: [],
+  contrarian: [],
 };
 
 function buildDeterministicId(prefix: string, parts: Array<string | number>): string {
@@ -156,6 +158,23 @@ function trapDirection(trap: ExpertContrarianOutput['trap_type']): 'bullish' | '
   if (trap === 'bull_trap') return 'bullish';
   if (trap === 'bear_trap') return 'bearish';
   return null;
+}
+
+/**
+ * Converts the Contrarian expert's adversarial output to a 0–100 directional score,
+ * compatible with the same weighted-average used by experts 1–6.
+ * - bull_trap (X% confidence) → bearish lean: score = 50 − (X × 0.5)   → range [0, 50]
+ * - bear_trap (X% confidence) → bullish lean: score = 50 + (X × 0.5)   → range [50, 100]
+ * - none / liquidity_trap     → neutral: score = 50
+ */
+function contrarianToDirectionalScore(
+  confidence: number,
+  trapType: ExpertContrarianOutput['trap_type']
+): number {
+  const c = Math.max(0, Math.min(100, confidence));
+  if (trapType === 'bull_trap') return Math.max(0, 50 - c * 0.5);
+  if (trapType === 'bear_trap') return Math.min(100, 50 + c * 0.5);
+  return 50;
 }
 
 function shadowReliabilityBoost(expert: BoardExpertKey): number {
@@ -1616,7 +1635,8 @@ export async function runConsensusEngine(
       options.mockPayload.psych.psych_score * WEIGHT_PSYCH +
       options.mockPayload.macro.macro_score * WEIGHT_MACRO +
       options.mockPayload.onchain.onchain_score * WEIGHT_ONCHAIN +
-      options.mockPayload.deepMemory.deep_memory_score * WEIGHT_DEEP_MEMORY;
+      options.mockPayload.deepMemory.deep_memory_score * WEIGHT_DEEP_MEMORY +
+      50 * WEIGHT_CONTRARIAN; // Mock path: contrarian defaults to neutral (50) — no trap data in mock
     return {
       tech_score: options.mockPayload.tech.tech_score,
       risk_score: options.mockPayload.risk.risk_score,
@@ -1910,10 +1930,12 @@ export async function runConsensusEngine(
   const decayFactors = computeExpert7dDecayFactors(hitRates7d);
   const regimeBase: Record<BoardExpertKey, number> =
     marketRegime === 'high-volatility'
-      ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9 }
+      // Contrarian is most valuable in volatile regimes — traps and false-breakouts are more common.
+      ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9, contrarian: 1.3 }
       : marketRegime === 'trending'
-        ? { technician: 1.25, risk: 0.85, psych: 1.0, macro: 1.15, onchain: 1.1, deepMemory: 0.95 }
-        : { technician: 1.0, risk: 1.05, psych: 1.1, macro: 1.1, onchain: 0.95, deepMemory: 1.0 };
+        // In clear trends, contrarian signals tend to be noise — reduce its base weight.
+        ? { technician: 1.25, risk: 0.85, psych: 1.0, macro: 1.15, onchain: 1.1, deepMemory: 0.95, contrarian: 0.75 }
+        : { technician: 1.0, risk: 1.05, psych: 1.1, macro: 1.1, onchain: 0.95, deepMemory: 1.0, contrarian: 1.1 };
 
   const watchdog = {
     gemini: getProviderHealth('gemini'),
@@ -1927,12 +1949,14 @@ export async function runConsensusEngine(
   };
 
   const weightByExpert: Record<BoardExpertKey, number> = {
-    technician: hitToWeight(hitRates.technician) * regimeBase.technician * (1 + shadowReliabilityBoost('technician')) * providerHealthFactor('groq') * decayFactors.technician,
-    risk: hitToWeight(hitRates.risk) * regimeBase.risk * (1 + shadowReliabilityBoost('risk')) * providerHealthFactor('gemini') * decayFactors.risk,
-    psych: hitToWeight(hitRates.psych) * regimeBase.psych * (1 + shadowReliabilityBoost('psych')) * providerHealthFactor('gemini') * decayFactors.psych,
-    macro: hitToWeight(hitRates.macro) * regimeBase.macro * (1 + shadowReliabilityBoost('macro')) * providerHealthFactor('gemini') * decayFactors.macro,
-    onchain: hitToWeight(hitRates.onchain) * regimeBase.onchain * (1 + shadowReliabilityBoost('onchain')) * providerHealthFactor('gemini') * decayFactors.onchain,
-    deepMemory: hitToWeight(hitRates.deepMemory) * regimeBase.deepMemory * (1 + shadowReliabilityBoost('deepMemory')) * providerHealthFactor('gemini') * decayFactors.deepMemory,
+    technician:  hitToWeight(hitRates.technician)  * regimeBase.technician  * (1 + shadowReliabilityBoost('technician'))  * providerHealthFactor('groq')   * decayFactors.technician,
+    risk:        hitToWeight(hitRates.risk)         * regimeBase.risk        * (1 + shadowReliabilityBoost('risk'))         * providerHealthFactor('gemini') * decayFactors.risk,
+    psych:       hitToWeight(hitRates.psych)        * regimeBase.psych       * (1 + shadowReliabilityBoost('psych'))        * providerHealthFactor('gemini') * decayFactors.psych,
+    macro:       hitToWeight(hitRates.macro)        * regimeBase.macro       * (1 + shadowReliabilityBoost('macro'))        * providerHealthFactor('gemini') * decayFactors.macro,
+    onchain:     hitToWeight(hitRates.onchain)      * regimeBase.onchain     * (1 + shadowReliabilityBoost('onchain'))      * providerHealthFactor('gemini') * decayFactors.onchain,
+    deepMemory:  hitToWeight(hitRates.deepMemory)   * regimeBase.deepMemory  * (1 + shadowReliabilityBoost('deepMemory'))   * providerHealthFactor('gemini') * decayFactors.deepMemory,
+    // Expert 7 (Contrarian): Gemini-hosted; also scored via shadowReliabilityBoost.
+    contrarian:  hitToWeight(hitRates.contrarian ?? 50) * regimeBase.contrarian * (1 + shadowReliabilityBoost('contrarian')) * providerHealthFactor('gemini') * decayFactors.contrarian,
   };
 
   shadowPredictions.set(`${input.symbol}:technician`, {
@@ -1973,22 +1997,31 @@ export async function runConsensusEngine(
   });
 
   /**
-   * DYNAMIC WEIGHT REDISTRIBUTION (The Overseer):
-   * Experts 1-6: Scored experts (contribute to final_confidence)
-   * If any has is_fallback: true, it is ENTIRELY EXCLUDED from the weighted average.
+   * DYNAMIC WEIGHT REDISTRIBUTION (The Overseer) — 7-Expert Singularity Board:
+   * All 7 experts contribute to final_confidence via the weighted average.
+   * If any expert has is_fallback: true, it is ENTIRELY EXCLUDED from the weighted average.
    * The final score is mathematically pure — not dragged to neutral 50 by a dead API.
    * We recalculate the divisor based ONLY on successful experts.
    *
-   * Expert 7 (Contrarian): NOT scored, but serves as adversarial gate/veto mechanism.
-   * If Expert 7 is_fallback: true, the CEO cannot challenge the consensus (weaker veto power).
+   * Expert 7 (Contrarian): DUAL ROLE —
+   *   1. WEIGHTED CONTRIBUTOR: Its directional score (converted from trap type + confidence) is
+   *      included in final_confidence alongside experts 1–6 with full weight.
+   *   2. ADVERSARIAL GATE (veto): Independently, its trap signal can still block consensus_approved
+   *      if the CEO cannot refute it. The veto is orthogonal to the scoring contribution.
+   *   This ensures the Contrarian's insight moves the final confidence score, not just blocks trades.
    */
+  const contrarianDirectionalScore = contrarianToDirectionalScore(
+    expert7.contrarian_confidence,
+    expert7.trap_type
+  );
   const weightedExperts = [
-    { score: expert1.tech_score, weight: weightByExpert.technician, isFallback: expert1.is_fallback },
-    { score: expert2.risk_score, weight: weightByExpert.risk, isFallback: expert2.is_fallback },
-    { score: expert3.psych_score, weight: weightByExpert.psych, isFallback: expert3.is_fallback },
-    { score: expert4.macro_score, weight: weightByExpert.macro, isFallback: expert4.is_fallback },
-    { score: expert5.onchain_score, weight: weightByExpert.onchain, isFallback: expert5.is_fallback },
-    { score: expert6.deep_memory_score, weight: weightByExpert.deepMemory, isFallback: expert6.is_fallback },
+    { score: expert1.tech_score,          weight: weightByExpert.technician,  isFallback: expert1.is_fallback },
+    { score: expert2.risk_score,          weight: weightByExpert.risk,         isFallback: expert2.is_fallback },
+    { score: expert3.psych_score,         weight: weightByExpert.psych,        isFallback: expert3.is_fallback },
+    { score: expert4.macro_score,         weight: weightByExpert.macro,        isFallback: expert4.is_fallback },
+    { score: expert5.onchain_score,       weight: weightByExpert.onchain,      isFallback: expert5.is_fallback },
+    { score: expert6.deep_memory_score,   weight: weightByExpert.deepMemory,   isFallback: expert6.is_fallback },
+    { score: contrarianDirectionalScore,  weight: weightByExpert.contrarian,   isFallback: expert7.is_fallback },
   ];
   
   const successfulExperts = weightedExperts.filter((item) => !item.isFallback);
@@ -2000,9 +2033,10 @@ export async function runConsensusEngine(
   const weightedDirection = scoreToDirection(final_confidence);
   
   /**
-   * EXPERT 7 (CONTRARIAN) GATE LOGIC:
-   * Expert 7 is NOT part of the scoring average (it's purely adversarial/veto).
-   * However, if Expert 7 is_fallback: true, the CEO is blind and cannot challenge.
+   * EXPERT 7 (CONTRARIAN) GATE LOGIC (adversarial layer — independent of scoring contribution):
+   * Expert 7's directional score is already factored into final_confidence above.
+   * This gate additionally checks whether the trap signal is strong enough to hard-block approval,
+   * giving the CEO a chance to refute. If Expert 7 is_fallback: true, the gate is weakened.
    */
   const trapDir = trapDirection(expert7.trap_type);
   const contrarianIsAlive = !expert7.is_fallback;  // Track Expert 7 health
@@ -2026,6 +2060,7 @@ export async function runConsensusEngine(
 
   const consensus_approved =
     final_confidence >= effectiveThreshold && !contrarianGateBlocked && !ironGateBlocked;
+  const contrarianVoteDirection = scoreToDirection(contrarianDirectionalScore);
   const votes = {
     technician: scoreToDirection(expert1.tech_score),
     risk: scoreToDirection(expert2.risk_score),
@@ -2033,6 +2068,7 @@ export async function runConsensusEngine(
     macro: scoreToDirection(expert4.macro_score),
     onchain: scoreToDirection(expert5.onchain_score),
     deepMemory: scoreToDirection(expert6.deep_memory_score),
+    contrarian: contrarianVoteDirection,
   } as const;
   const voteIds: Partial<Record<BoardExpertKey, string>> = {
     technician: buildDeterministicId('vote', [input.symbol, 'technician', input.current_price, expert1.tech_score, votes.technician]),
@@ -2041,6 +2077,7 @@ export async function runConsensusEngine(
     macro: buildDeterministicId('vote', [input.symbol, 'macro', input.current_price, expert4.macro_score, votes.macro]),
     onchain: buildDeterministicId('vote', [input.symbol, 'onchain', input.current_price, expert5.onchain_score, votes.onchain]),
     deepMemory: buildDeterministicId('vote', [input.symbol, 'deepMemory', input.current_price, expert6.deep_memory_score, votes.deepMemory]),
+    contrarian: buildDeterministicId('vote', [input.symbol, 'contrarian', input.current_price, contrarianDirectionalScore, votes.contrarian]),
   };
   const decisionId = buildDeterministicId('decision', [
     input.symbol,
@@ -2051,17 +2088,19 @@ export async function runConsensusEngine(
     expert4.macro_score,
     expert5.onchain_score,
     expert6.deep_memory_score,
+    Math.round(contrarianDirectionalScore),
     Math.round(final_confidence * 10),
   ]);
   const rawWeightSum = Object.values(weightByExpert).reduce((sum, w) => sum + Math.max(0, w), 0);
   const activeBoardWeights: Partial<Record<BoardExpertKey, number>> = rawWeightSum > 0
     ? {
-        technician: Math.round((Math.max(0, weightByExpert.technician) / rawWeightSum) * 1000) / 10,
-        risk: Math.round((Math.max(0, weightByExpert.risk) / rawWeightSum) * 1000) / 10,
-        psych: Math.round((Math.max(0, weightByExpert.psych) / rawWeightSum) * 1000) / 10,
-        macro: Math.round((Math.max(0, weightByExpert.macro) / rawWeightSum) * 1000) / 10,
-        onchain: Math.round((Math.max(0, weightByExpert.onchain) / rawWeightSum) * 1000) / 10,
-        deepMemory: Math.round((Math.max(0, weightByExpert.deepMemory) / rawWeightSum) * 1000) / 10,
+        technician:  Math.round((Math.max(0, weightByExpert.technician)  / rawWeightSum) * 1000) / 10,
+        risk:        Math.round((Math.max(0, weightByExpert.risk)         / rawWeightSum) * 1000) / 10,
+        psych:       Math.round((Math.max(0, weightByExpert.psych)        / rawWeightSum) * 1000) / 10,
+        macro:       Math.round((Math.max(0, weightByExpert.macro)        / rawWeightSum) * 1000) / 10,
+        onchain:     Math.round((Math.max(0, weightByExpert.onchain)      / rawWeightSum) * 1000) / 10,
+        deepMemory:  Math.round((Math.max(0, weightByExpert.deepMemory)   / rawWeightSum) * 1000) / 10,
+        contrarian:  Math.round((Math.max(0, weightByExpert.contrarian)   / rawWeightSum) * 1000) / 10,
       }
     : {};
 

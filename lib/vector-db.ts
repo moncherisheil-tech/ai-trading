@@ -15,7 +15,12 @@ const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
 const DEFAULT_TOP_K = 3;
 /** Outer race for embed + Pinecone query; must exceed embedding budget + RPC + retries. */
 const PINECONE_QUERY_TIMEOUT_MS = 40_000;
-const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = 10_000;
+/**
+ * 30 s delay before querying after an upsert.
+ * Raised from 10 s to account for US-to-Germany cross-Atlantic replication latency
+ * (~80–120 ms RTT × Pinecone's multi-region eventual-consistency window).
+ */
+const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = 30_000;
 const PINECONE_TRANSIENT_RETRY_ATTEMPTS = 3;
 const PINECONE_TRANSIENT_RETRY_BASE_MS = 800;
 type PineconeRecordMetadata = Record<string, unknown>;
@@ -114,12 +119,24 @@ function normalizeEmbeddingModelId(modelId: string): string {
   return modelId.replace(/^models\//, '').trim();
 }
 
+/**
+ * Returns the expected embedding dimension.
+ * Strictly enforces 768 (Gemini `gemini-embedding-001` Matryoshka standard).
+ * If PINECONE_EMBEDDING_DIM is set in env, it is accepted ONLY when it equals 768;
+ * any other value is rejected and the Gemini standard (768) is used instead with a warning.
+ */
 function getExpectedEmbeddingDim(): number {
   const raw = process.env.PINECONE_EMBEDDING_DIM;
   if (typeof raw === 'undefined' || raw.trim() === '') return GEMINI_EMBEDDING_DIMENSION;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return GEMINI_EMBEDDING_DIMENSION;
-  return Math.max(1, Math.min(4096, parsed));
+  if (!Number.isFinite(parsed) || parsed !== GEMINI_EMBEDDING_DIMENSION) {
+    console.warn(
+      `[vector-db] PINECONE_EMBEDDING_DIM=${raw} does not equal the Gemini standard ${GEMINI_EMBEDDING_DIMENSION}. ` +
+      `Overriding to ${GEMINI_EMBEDDING_DIMENSION} to prevent dimension mismatch errors.`
+    );
+    return GEMINI_EMBEDDING_DIMENSION;
+  }
+  return GEMINI_EMBEDDING_DIMENSION;
 }
 
 /**
@@ -457,6 +474,178 @@ export async function verifyPineconeConnectionStrict(): Promise<{ ok: boolean; i
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, index: indexName, error: message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 4 FIX: Vector DB Integrity Checksum
+//
+// VULNERABILITY: The previous verifyPineconeConnectionStrict() only called
+// describeIndexStats() — a connectivity ping. It never compared the Pinecone
+// vector count against the Postgres closed-trade count. A database with 500
+// closed trades but 0 vectors in Pinecone (e.g., after an index deletion,
+// namespace wipe, or failed upsert streak) would pass the old check with ok=true.
+// This means the Deep Memory expert (Expert 6) silently hallucinates historical
+// context because querySimilarTrades() returns [] with no error.
+//
+// FIX: Compare Pinecone vector count vs Postgres closed-trade count.
+// If the divergence exceeds VECTOR_SYNC_TOLERANCE_PCT, dispatch a
+// DATA_CORRUPTION alert to the CEO dashboard.
+// ---------------------------------------------------------------------------
+
+const VECTOR_SYNC_TOLERANCE_PCT = 20; // Allow up to 20% divergence (some trades may not embed)
+
+export interface VectorIntegrityResult {
+  ok: boolean;
+  pineconeVectorCount: number | null;
+  postgresTradeCount: number | null;
+  divergencePct: number | null;
+  namespace: string;
+  index: string | null;
+  alert: 'NONE' | 'DATA_CORRUPTION' | 'PINECONE_UNAVAILABLE';
+  error?: string;
+}
+
+/**
+ * Strict integrity check: compares Pinecone post-mortem vector count vs Postgres
+ * closed-trade count. Dispatches a DATA_CORRUPTION critical alert if divergence
+ * exceeds VECTOR_SYNC_TOLERANCE_PCT.
+ *
+ * This should be called from the ops/diagnostics endpoint and the daily board
+ * meeting worker. It is NOT called on every query (too expensive).
+ */
+export async function verifyVectorDbIntegrity(): Promise<VectorIntegrityResult> {
+  const indexName = getPineconeIndexName() ?? null;
+
+  // Step 1: Get Pinecone namespace vector count
+  let pineconeVectorCount: number | null = null;
+  try {
+    const { index, indexName: resolvedIndexName } = await getPineconeIndexOrThrow();
+    const stats = await index.describeIndexStats();
+    // Pinecone returns namespaced counts
+    const namespaceStats = stats.namespaces?.[POST_MORTEMS_NAMESPACE];
+    pineconeVectorCount = namespaceStats?.recordCount ?? stats.totalRecordCount ?? null;
+    if (pineconeVectorCount === null) {
+      return {
+        ok: false,
+        pineconeVectorCount: null,
+        postgresTradeCount: null,
+        divergencePct: null,
+        namespace: POST_MORTEMS_NAMESPACE,
+        index: resolvedIndexName,
+        alert: 'PINECONE_UNAVAILABLE',
+        error: 'Pinecone describeIndexStats returned no record count.',
+      };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      pineconeVectorCount: null,
+      postgresTradeCount: null,
+      divergencePct: null,
+      namespace: POST_MORTEMS_NAMESPACE,
+      index: indexName,
+      alert: 'PINECONE_UNAVAILABLE',
+      error: message,
+    };
+  }
+
+  // Step 2: Get Postgres closed-trade count (the expected number of post-mortems)
+  let postgresTradeCount: number | null = null;
+  try {
+    const { rows } = await sql`
+      SELECT COUNT(*)::int AS cnt
+      FROM virtual_portfolio
+      WHERE status = 'closed'
+        AND pnl_net_usd IS NOT NULL
+    `;
+    postgresTradeCount = Number((rows?.[0] as { cnt: number } | undefined)?.cnt ?? 0);
+  } catch (err) {
+    console.error('[vector-db] verifyVectorDbIntegrity: Postgres count query failed:', err);
+    // Non-fatal — Postgres might be temporarily slow
+    postgresTradeCount = null;
+  }
+
+  // Step 3: Compute divergence
+  if (postgresTradeCount === null || postgresTradeCount === 0) {
+    // No trades closed yet — vector count of 0 is correct
+    return {
+      ok: true,
+      pineconeVectorCount,
+      postgresTradeCount: postgresTradeCount ?? 0,
+      divergencePct: 0,
+      namespace: POST_MORTEMS_NAMESPACE,
+      index: indexName,
+      alert: 'NONE',
+    };
+  }
+
+  const divergencePct = Math.abs(postgresTradeCount - pineconeVectorCount) / postgresTradeCount * 100;
+  const isCorrupted = divergencePct > VECTOR_SYNC_TOLERANCE_PCT && pineconeVectorCount < postgresTradeCount * 0.5;
+
+  if (isCorrupted) {
+    // Dispatch DATA_CORRUPTION alert — fire-and-forget
+    const alertMsg =
+      `Pinecone post-mortems namespace has ${pineconeVectorCount} vectors but Postgres has ` +
+      `${postgresTradeCount} closed trades. Divergence: ${divergencePct.toFixed(1)}% ` +
+      `(tolerance: ${VECTOR_SYNC_TOLERANCE_PCT}%). Deep Memory Expert (Expert 6) is operating ` +
+      `on GHOST DATA. Trigger a full re-embedding job immediately.`;
+
+    try {
+      const { dispatchCriticalAlert } = await import('@/lib/ops/alert-dispatcher');
+      await dispatchCriticalAlert(
+        '🔴 DATA_CORRUPTION — Pinecone Vector DB Out of Sync',
+        alertMsg,
+        'CRITICAL'
+      );
+    } catch (alertErr) {
+      console.error('[vector-db] verifyVectorDbIntegrity: alert dispatch failed:', alertErr);
+    }
+
+    // Write to Postgres settings for dashboard display
+    try {
+      await sql`
+        INSERT INTO settings (key, value, "updatedAt")
+        VALUES (
+          'pinecone_integrity_alert',
+          ${JSON.stringify({
+            alert: 'DATA_CORRUPTION',
+            pineconeVectorCount,
+            postgresTradeCount,
+            divergencePct: Math.round(divergencePct * 10) / 10,
+            checkedAt: new Date().toISOString(),
+          })},
+          NOW()
+        )
+        ON CONFLICT (key) DO UPDATE SET
+          value = EXCLUDED.value,
+          "updatedAt" = NOW()
+      `;
+    } catch (dbErr) {
+      console.warn('[vector-db] verifyVectorDbIntegrity: settings write failed (non-fatal):', dbErr);
+    }
+
+    return {
+      ok: false,
+      pineconeVectorCount,
+      postgresTradeCount,
+      divergencePct: Math.round(divergencePct * 10) / 10,
+      namespace: POST_MORTEMS_NAMESPACE,
+      index: indexName,
+      alert: 'DATA_CORRUPTION',
+      error: alertMsg,
+    };
+  }
+
+  return {
+    ok: true,
+    pineconeVectorCount,
+    postgresTradeCount,
+    divergencePct: Math.round(divergencePct * 10) / 10,
+    namespace: POST_MORTEMS_NAMESPACE,
+    index: indexName,
+    alert: 'NONE',
+  };
 }
 
 export async function runPineconeUpsertProbe(symbol: string): Promise<{

@@ -29,7 +29,7 @@ import {
 import { buildScalpExecutionPlan, inferScalpTierFromVolatility } from '@/lib/trading/scalp-tiers';
 import { createExecutionBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-adapter';
 import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
-import { ReinforcementEngine } from '@/lib/trading/reinforcement-learning';
+import { ReinforcementEngine, fetchCurrentNeuroPlasticity } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
 import ccxt from 'ccxt';
 import { insertTradeExecution, markTradeExecutionFailed, type TradeExecutionRow } from '@/lib/db/execution-learning';
@@ -498,8 +498,24 @@ export async function executeAutonomousConsensusSignal(
       const entryPrice = applySlippage(livePrice, 'buy', 5);
       const scalpTier = inferScalpTierFromVolatility(marketVolatility);
       const scalpPlan = buildScalpExecutionPlan(symbol, scalpTier, input.finalConfidence);
-      const targetProfitPct = round2(scalpPlan.targetProfitPct);
-      const stopLossPct = round2(scalpPlan.stopLossPct);
+
+      // ── NEURO-PLASTIC SL/TP OVERRIDE ────────────────────────────────────────────────────────────
+      // Fetch the live SystemNeuroPlasticity singleton to apply RL-updated SL buffer and TP
+      // aggressiveness. The SingularityEngine adjusts these parameters after every trade post-mortem,
+      // so execution parameters continuously evolve with the AI's learned market understanding.
+      //
+      //   robotSlBufferPct (default 2.0): A wider buffer (> 2.0) expands the SL to absorb whipsaw
+      //     volatility; a tighter value (< 2.0) keeps risk minimal in clean directional flows.
+      //     Multiplier is normalized: slMultiplier = robotSlBufferPct / 2.0 → default = 1.0 (no change).
+      //
+      //   robotTpAggressiveness (default 1.0): Scales take-profit distance.
+      //     > 1.0 = AI detected high-win-rate streaks → extend TP target.
+      //     < 1.0 = AI detected low-win-rate / volatile regime → reduce TP target.
+      const neuroplasticity = await fetchCurrentNeuroPlasticity();
+      const slMultiplier = neuroplasticity.robotSlBufferPct / 2.0;
+      const tpMultiplier = neuroplasticity.robotTpAggressiveness;
+      const stopLossPct = round2(scalpPlan.stopLossPct * slMultiplier);
+      const targetProfitPct = round2(scalpPlan.targetProfitPct * tpMultiplier);
       const stopLossPx = entryPrice * (1 + stopLossPct / 100);
       assertTradeRiskWithinLimit({
         accountBalance: virtualEquityUsd,
@@ -675,6 +691,23 @@ export async function executeAutonomousConsensusSignal(
     const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
     const totalAssetAmount = roundAmount(openForSymbol.amount_usd / Math.max(openForSymbol.entry_price, 0.00000001), 8);
     const twapIdemSell = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
+
+    // ── PHASE 2 ACID FIX: Pre-exchange DB lock ─────────────────────────────
+    // Mark position as PENDING_CLOSE *before* submitting to the exchange.
+    // If the process crashes after executeTWAP() but before closeVirtualTrade(),
+    // the DB row will have status='pending_close'. On restart, the idempotency
+    // check catches the eventId and the reconciliation job can detect the
+    // orphaned state via: SELECT * FROM virtual_portfolio WHERE status='pending_close'.
+    // Without this, the system sees an OPEN position and re-sends a SELL order
+    // for assets already liquidated on the exchange — a catastrophic double-sell.
+    // ──────────────────────────────────────────────────────────────────────────
+    try {
+      await closeVirtualTrade(openForSymbol.id, livePrice ?? openForSymbol.entry_price, 'pending_close' as 'manual');
+    } catch (preCloseErr) {
+      console.error('[ExecutionEngine] ACID pre-close lock failed — aborting SELL to prevent orphan:', preCloseErr);
+      throw preCloseErr;
+    }
+
     const twapResult = await stealth.executeTWAP(
       symbol,
       mapSignalToBrokerSide(signal),
@@ -684,6 +717,7 @@ export async function executeAutonomousConsensusSignal(
       { idempotencyKeyPrefix: `${twapIdemSell}-sell` }
     );
     const exitPrice = applySlippage(livePrice, 'sell', 5);
+    // Finalize close with actual exit price (overwrites the pre-close lock price)
     const closeResult = await closeVirtualTrade(openForSymbol.id, exitPrice, 'manual');
     const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(openForSymbol.id);
     const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
@@ -878,8 +912,78 @@ function normalizeCcxtSymbol(symbol: string): string {
   return s;
 }
 
+// ── PHASE 2 FIX: Exchange Kill Switch ──────────────────────────────────────
+// Tracks consecutive Binance 500/network failures per process lifetime.
+// If EXCHANGE_KILL_SWITCH_THRESHOLD consecutive failures occur, the kill switch
+// trips and all subsequent LIVE orders are blocked until ops intervention.
+// This is an in-memory guard; for distributed deployments use a Redis flag.
+// ─────────────────────────────────────────────────────────────────────────────
+const EXCHANGE_KILL_SWITCH_THRESHOLD = parseInt(process.env.EXCHANGE_KILL_SWITCH_THRESHOLD ?? '5', 10);
+const EXCHANGE_RETRY_MAX_ATTEMPTS = 4;
+const EXCHANGE_RETRY_BASE_DELAY_MS = 500;
+
+let exchangeConsecutiveFailures = 0;
+let exchangeKillSwitchTripped = false;
+
+function isExchangeRetryable(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  const anyErr = err as { status?: number; code?: number };
+  const status = anyErr?.status ?? anyErr?.code;
+  // Retry on: 500, 502, 503, 504, network errors, rate limits (429 with backoff)
+  if (status && [429, 500, 502, 503, 504].includes(Number(status))) return true;
+  if (/timeout|timed out|econnreset|econnrefused|etimedout|enotfound|network|socket|fetch failed|aborted|unavailable|internal server/i.test(msg)) return true;
+  return false;
+}
+
+async function withExchangeRetryAndKillSwitch<T>(
+  label: string,
+  fn: () => Promise<T>
+): Promise<T> {
+  if (exchangeKillSwitchTripped) {
+    throw new Error(
+      `[KILL_SWITCH] Exchange kill switch is ACTIVE after ${EXCHANGE_KILL_SWITCH_THRESHOLD} consecutive failures. ` +
+      `All LIVE orders blocked. Ops intervention required to reset.`
+    );
+  }
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= EXCHANGE_RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const result = await fn();
+      // Success — reset consecutive failure counter
+      exchangeConsecutiveFailures = 0;
+      return result;
+    } catch (err) {
+      lastErr = err;
+      const retryable = isExchangeRetryable(err);
+      const delayMs = EXCHANGE_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1); // 500ms, 1s, 2s, 4s
+      console.warn(
+        `[LiveExecutionEngine] ${label} attempt ${attempt}/${EXCHANGE_RETRY_MAX_ATTEMPTS} failed ` +
+        `(retryable=${retryable}): ${err instanceof Error ? err.message : String(err)}`
+      );
+      if (attempt >= EXCHANGE_RETRY_MAX_ATTEMPTS || !retryable) break;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  // All retries exhausted — increment kill switch counter
+  exchangeConsecutiveFailures++;
+  if (exchangeConsecutiveFailures >= EXCHANGE_KILL_SWITCH_THRESHOLD && !exchangeKillSwitchTripped) {
+    exchangeKillSwitchTripped = true;
+    // Fire-and-forget CEO alert
+    dispatchCriticalAlert(
+      '🚨 EXCHANGE KILL SWITCH TRIPPED — ALL LIVE ORDERS BLOCKED',
+      `Binance has returned ${exchangeConsecutiveFailures} consecutive failures. ` +
+      `LIVE execution is now suspended. Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}. ` +
+      `Ops: restart the process or call /api/ops/reset-kill-switch to re-enable.`,
+      'CRITICAL'
+    ).catch(console.error);
+  }
+  throw lastErr;
+}
+
 /**
  * CEO-facing execution service: records PAPER or sends LIVE order.
+ * PHASE 2 FIX: Exponential backoff retry on exchange failures + kill switch.
  */
 export class LiveExecutionEngine {
   async executeSignal(signal: AlphaSignalExecutionInput): Promise<{
@@ -921,6 +1025,17 @@ export class LiveExecutionEngine {
       };
     }
 
+    // Kill switch check before attempting live exchange call
+    if (exchangeKillSwitchTripped) {
+      if (execution?.id) await markTradeExecutionFailed(execution.id);
+      return {
+        success: false,
+        mode,
+        reason: '[KILL_SWITCH] Exchange is DARK. All LIVE orders blocked. Ops intervention required.',
+        execution,
+      };
+    }
+
     try {
       const apiKey = process.env.BINANCE_API_KEY?.trim();
       const secret = process.env.BINANCE_SECRET?.trim();
@@ -937,7 +1052,12 @@ export class LiveExecutionEngine {
       });
 
       const ccxtSymbol = normalizeCcxtSymbol(symbol);
-      const ticker = await exchange.fetchTicker(ccxtSymbol);
+
+      // PHASE 2 FIX: Wrap ticker fetch and order creation with retry + kill switch
+      const ticker = await withExchangeRetryAndKillSwitch(
+        `fetchTicker(${ccxtSymbol})`,
+        () => exchange.fetchTicker(ccxtSymbol)
+      );
       const marketPrice = Number(ticker.last ?? ticker.close ?? ticker.ask ?? ticker.bid ?? 0);
       if (!Number.isFinite(marketPrice) || marketPrice <= 0) {
         throw new Error(`Invalid market price for ${ccxtSymbol}.`);
@@ -949,24 +1069,31 @@ export class LiveExecutionEngine {
       }
 
       const orderType = signal.orderType ?? 'market';
-      await exchange.createOrder(
-        ccxtSymbol,
-        orderType,
-        signal.side.toLowerCase() as 'buy' | 'sell',
-        amountBase,
-        orderType === 'limit' ? signal.limitPrice : undefined
+      await withExchangeRetryAndKillSwitch(
+        `createOrder(${ccxtSymbol} ${signal.side} ${orderType})`,
+        () => exchange.createOrder(
+          ccxtSymbol,
+          orderType,
+          signal.side.toLowerCase() as 'buy' | 'sell',
+          amountBase,
+          orderType === 'limit' ? signal.limitPrice : undefined
+        )
       );
 
       return { success: true, mode, reason: `LIVE ${orderType.toUpperCase()} order submitted.`, execution };
     } catch (err) {
       console.error('[LiveExecutionEngine] executeSignal failed:', err);
       if (execution?.id) await markTradeExecutionFailed(execution.id);
-      return {
-        success: false,
-        mode,
-        reason: err instanceof Error ? err.message : 'Unknown live execution failure.',
-        execution,
-      };
+      const reason = err instanceof Error ? err.message : 'Unknown live execution failure.';
+      // If kill switch just tripped, the CEO alert was already sent inside withExchangeRetryAndKillSwitch
+      if (!reason.includes('[KILL_SWITCH]')) {
+        await dispatchCriticalAlert(
+          'LiveExecutionEngine — Order Failed',
+          `${symbol} ${signal.side}: ${reason}`,
+          'CRITICAL'
+        ).catch(console.error);
+      }
+      return { success: false, mode, reason, execution };
     }
   }
 }

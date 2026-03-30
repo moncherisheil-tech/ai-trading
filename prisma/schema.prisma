@@ -328,12 +328,13 @@ model weight_change_log {
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// Records each scheduled 6-expert board meeting session (morning / evening trigger).
+/// Records each scheduled 7-expert board meeting session (morning / evening trigger).
+/// Column renamed from the_6_expert_verdicts → the_7_expert_verdicts in migration activate_singularity_v1.
 model board_meeting_logs {
   id                         Int      @id @default(autoincrement())
   timestamp                  DateTime @default(now()) @db.Timestamptz(6)
   trigger_type               String   @db.VarChar(16)
-  the_6_expert_verdicts      Json
+  the_7_expert_verdicts      Json
   overseer_final_action_plan String   @db.Text
   market_context             Json
   created_at                 DateTime @default(now()) @db.Timestamptz(6)

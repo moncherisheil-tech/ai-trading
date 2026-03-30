@@ -685,7 +685,7 @@ export async function runBoardOfExperts(context: 'morning' | 'evening'): Promise
   const overseer = await runOverseer(experts);
   await recordBoardMeetingLog({
     trigger_type: context,
-    the_6_expert_verdicts: experts,
+    the_7_expert_verdicts: experts,
     overseer_final_action_plan: overseer.actionPlan,
     market_context: {
       fearGreed: {

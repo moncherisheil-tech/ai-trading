@@ -7,10 +7,11 @@ export type RecursiveOptimizerDecision = {
 };
 
 /**
- * The 6 board experts — sourced here as the authoritative definition for learning/decay logic.
+ * All 7 board experts — the canonical authoritative definition for learning/decay logic.
  * Consensus-engine imports this type rather than maintaining a separate copy.
+ * Expert 7 (contrarian) is a full weighted contributor, not merely a veto mechanism.
  */
-export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory';
+export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory' | 'contrarian';
 
 /**
  * 7-day rolling hit-rate decay constants.
@@ -27,7 +28,7 @@ export const EXPERT_7D_DECAY_FACTOR = 0.85;
 export function computeExpert7dDecayFactors(
   hitRates7d: Partial<Record<BoardExpertKey, number>>
 ): Record<BoardExpertKey, number> {
-  const keys: BoardExpertKey[] = ['technician', 'risk', 'psych', 'macro', 'onchain', 'deepMemory'];
+  const keys: BoardExpertKey[] = ['technician', 'risk', 'psych', 'macro', 'onchain', 'deepMemory', 'contrarian'];
   const result = {} as Record<BoardExpertKey, number>;
   for (const k of keys) {
     result[k] = (hitRates7d[k] ?? 50) < EXPERT_7D_DECAY_THRESHOLD_PCT ? EXPERT_7D_DECAY_FACTOR : 1;

@@ -1,7 +1,17 @@
 /**
- * GET /api/ops/diagnostics — Internal diagnostics for admin dashboard.
- * Returns: connection status (Gemini, Groq, Pinecone, Postgres), latest consensus save, last Pinecone upsert.
- * Requires admin when session enabled.
+ * GET /api/ops/diagnostics — The Engine Room: Infrastructure + Singularity Intelligence feed.
+ *
+ * Returns:
+ *   - connections: live Gemini / Groq / Anthropic / Pinecone / Postgres / Redis ping status
+ *   - agents: all 7 MoE experts + Overseer (8 rows total)
+ *   - systemIntegrity: latest consensus record
+ *   - deepMemorySync: last Pinecone upsert
+ *   - macroHealth: DXY feed
+ *   - neuroPlasticity: live SystemNeuroPlasticity (id=1) — 7 expert weights + CEO + robot params
+ *   - episodicMemory: 10 most recent EpisodicMemory lessons written by the RL engine
+ *   - timestamp
+ *
+ * Requires admin session when SESSION_SECRET is set.
  */
 
 import { NextResponse } from 'next/server';
@@ -13,12 +23,36 @@ import { getAppSettings } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { fetchMacroContext } from '@/lib/api-utils';
 import { sql } from '@/lib/db/sql';
+import { getPrisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
 function hasEnv(key: string): boolean {
   const v = process.env[key];
   return typeof v === 'string' && v.trim().length > 0;
+}
+
+async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
+  const url = process.env.REDIS_URL;
+  if (!url) return { ok: false, latencyMs: 0, error: 'REDIS_URL not set' };
+  try {
+    const IORedis = (await import('ioredis')).default;
+    const client = new IORedis(url, {
+      maxRetriesPerRequest: 1,
+      enableReadyCheck: false,
+      connectTimeout: 5_000,
+      lazyConnect: true,
+      tls: url.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    });
+    const start = Date.now();
+    await client.connect();
+    const pong = await client.ping();
+    const latencyMs = Date.now() - start;
+    await client.quit().catch(() => client.disconnect());
+    return { ok: pong === 'PONG', latencyMs, error: null };
+  } catch (err) {
+    return { ok: false, latencyMs: 0, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export async function GET(): Promise<NextResponse> {
@@ -31,15 +65,15 @@ export async function GET(): Promise<NextResponse> {
     }
   }
 
-  const geminiKey = hasEnv('GEMINI_API_KEY');
-  const groqKey = hasEnv('GROQ_API_KEY');
+  const geminiKey  = hasEnv('GEMINI_API_KEY');
+  const groqKey    = hasEnv('GROQ_API_KEY');
   const anthropicKey = hasEnv('ANTHROPIC_API_KEY') || hasEnv('CLAUDE_API_KEY');
-  const pineconeKey = hasEnv('PINECONE_API_KEY');
+  const pineconeKey  = hasEnv('PINECONE_API_KEY');
   const pineconeIndex = hasEnv('PINECONE_INDEX_NAME');
 
-  let gemini: 'ok' | 'fail' | 'skip' = geminiKey ? 'ok' : 'skip';
-  let groq: 'ok' | 'fail' | 'skip' = groqKey ? 'ok' : 'skip';
-  let anthropic: 'ok' | 'fail' | 'skip' = anthropicKey ? 'ok' : 'skip';
+  let gemini:   'ok' | 'fail' | 'skip' = geminiKey ? 'ok' : 'skip';
+  let groq:     'ok' | 'fail' | 'skip' = groqKey ? 'ok' : 'skip';
+  let anthropic:'ok' | 'fail' | 'skip' = anthropicKey ? 'ok' : 'skip';
   let pinecone: 'ok' | 'fail' | 'skip' = pineconeKey && pineconeIndex ? 'ok' : 'skip';
   let postgres: 'ok' | 'fail' = 'fail';
   let dbHealth: { status: 'online' | 'offline'; error: string | null } = { status: 'offline', error: null };
@@ -48,6 +82,7 @@ export async function GET(): Promise<NextResponse> {
     error: null,
   };
 
+  // ── Postgres ping ──────────────────────────────────────────────────────────────────────────────
   try {
     await getAppSettings();
     await listOpenVirtualTrades();
@@ -59,6 +94,15 @@ export async function GET(): Promise<NextResponse> {
     dbHealth = { status: 'offline', error: message };
   }
 
+  // ── Redis ping ─────────────────────────────────────────────────────────────────────────────────
+  const redisPing = await pingRedis();
+  const redisStatus: 'ok' | 'fail' | 'skip' = !process.env.REDIS_URL
+    ? 'skip'
+    : redisPing.ok
+      ? 'ok'
+      : 'fail';
+
+  // ── Pinecone ping ──────────────────────────────────────────────────────────────────────────────
   if (pinecone === 'ok') {
     try {
       const { verifyPineconeConnectionStrict } = await import('@/lib/vector-db');
@@ -76,29 +120,25 @@ export async function GET(): Promise<NextResponse> {
     }
   }
 
+  // ── Latest consensus ───────────────────────────────────────────────────────────────────────────
   let latestConsensus: { saved: boolean; prediction_date: string | null; symbol?: string } = {
     saved: false,
     prediction_date: null,
   };
   try {
     const records = await getDbAsync();
-    const withConsensus = records.filter(
-      (r) => r.master_insight_he != null && r.final_confidence != null
-    );
+    const withConsensus = records.filter((r) => r.master_insight_he != null && r.final_confidence != null);
     const latest = withConsensus.sort(
       (a, b) => new Date(b.prediction_date).getTime() - new Date(a.prediction_date).getTime()
     )[0];
     if (latest) {
-      latestConsensus = {
-        saved: true,
-        prediction_date: latest.prediction_date,
-        symbol: latest.symbol,
-      };
+      latestConsensus = { saved: true, prediction_date: latest.prediction_date, symbol: latest.symbol };
     }
   } catch {
     latestConsensus = { saved: false, prediction_date: null };
   }
 
+  // ── Board meeting logs ─────────────────────────────────────────────────────────────────────────
   let latestBoardMeetingAt: string | null = null;
   try {
     const { rows } = await sql`SELECT timestamp::text FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1`;
@@ -111,7 +151,8 @@ export async function GET(): Promise<NextResponse> {
   const nowMs = Date.now();
   const lastPredictionMs = latestConsensus.prediction_date ? new Date(latestConsensus.prediction_date).getTime() : 0;
   const lastBoardMeetingMs = latestBoardMeetingAt ? new Date(latestBoardMeetingAt).getTime() : 0;
-  const isRecentActivity = (tsMs: number): boolean => Number.isFinite(tsMs) && tsMs > 0 && nowMs - tsMs <= 24 * 60 * 60 * 1000;
+  const isRecentActivity = (tsMs: number): boolean =>
+    Number.isFinite(tsMs) && tsMs > 0 && nowMs - tsMs <= 24 * 60 * 60 * 1000;
   const predictionRecent = isRecentActivity(lastPredictionMs);
   const boardRecent = isRecentActivity(lastBoardMeetingMs);
 
@@ -120,108 +161,92 @@ export async function GET(): Promise<NextResponse> {
     ready: boolean,
     lastActiveAt: string | null,
     reason: string
-  ): { name: string; status: 'ok' | 'fail'; reason: string; lastActiveAt: string | null } => ({
-    name,
-    status: ready ? 'ok' : 'fail',
-    reason,
-    lastActiveAt,
-  });
+  ) => ({ name, status: (ready ? 'ok' : 'fail') as 'ok' | 'fail', reason, lastActiveAt });
 
   const latestActivityIso = latestConsensus.prediction_date ?? null;
+
+  // All 7 MoE experts + Overseer (CEO)
   const agentStatuses = [
     buildAgentStatus(
-      'Market Scanner',
+      'Technician (Expert 1)',
       (geminiKey || groqKey) && predictionRecent,
       latestActivityIso,
       (geminiKey || groqKey)
-        ? predictionRecent
-          ? 'LLM key present and recent prediction activity detected.'
-          : 'LLM key present but no recent prediction activity.'
+        ? predictionRecent ? 'LLM key present and recent prediction activity detected.' : 'LLM key present but no recent prediction activity.'
         : 'Missing GEMINI_API_KEY/GROQ_API_KEY.'
     ),
     buildAgentStatus(
-      'Risk Analyzer',
+      'Risk Manager (Expert 2)',
       postgres === 'ok' && predictionRecent,
       latestActivityIso,
       postgres === 'ok'
-        ? predictionRecent
-          ? 'Database connected with recent prediction activity.'
-          : 'Database connected but no recent prediction activity.'
+        ? predictionRecent ? 'Database connected with recent prediction activity.' : 'Database connected but no recent prediction activity.'
         : 'Database connection check failed.'
     ),
     buildAgentStatus(
-      'Technical Analyst',
+      'Market Psychologist (Expert 3)',
       geminiKey && predictionRecent,
       latestActivityIso,
       geminiKey
-        ? predictionRecent
-          ? 'GEMINI_API_KEY present with recent prediction activity.'
-          : 'GEMINI_API_KEY present but no recent prediction activity.'
+        ? predictionRecent ? 'GEMINI_API_KEY present with recent prediction activity.' : 'GEMINI_API_KEY present but no recent prediction activity.'
         : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
-      'Fundamental Expert',
-      anthropicKey && predictionRecent,
+      'Macro & Order Book (Expert 4)',
+      (groqKey || geminiKey) && predictionRecent,
       latestActivityIso,
-      anthropicKey
-        ? predictionRecent
-          ? 'ANTHROPIC_API_KEY present with recent prediction activity.'
-          : 'ANTHROPIC_API_KEY present but no recent prediction activity.'
-        : 'Missing ANTHROPIC_API_KEY/CLAUDE_API_KEY.'
+      (groqKey || geminiKey)
+        ? predictionRecent ? 'Model key present with recent prediction activity.' : 'Model key present but no recent prediction activity.'
+        : 'Missing GROQ_API_KEY/GEMINI_API_KEY.'
     ),
     buildAgentStatus(
-      'Execution Strategist',
-      postgres === 'ok' && predictionRecent,
+      'On-Chain Sleuth (Expert 5)',
+      geminiKey && predictionRecent,
       latestActivityIso,
-      postgres === 'ok'
-        ? predictionRecent
-          ? 'Database connected with recent prediction activity.'
-          : 'Database connected but no recent prediction activity.'
-        : 'Database connection check failed.'
+      geminiKey
+        ? predictionRecent ? 'GEMINI_API_KEY present with recent prediction activity.' : 'GEMINI_API_KEY present but no recent prediction activity.'
+        : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
-      'Sentiment Evaluator',
-      anthropicKey && predictionRecent,
+      'Deep Memory (Expert 6)',
+      geminiKey && (pinecone === 'ok' || pinecone === 'skip') && predictionRecent,
       latestActivityIso,
-      anthropicKey
-        ? predictionRecent
-          ? 'ANTHROPIC_API_KEY present with recent prediction activity.'
-          : 'ANTHROPIC_API_KEY present but no recent prediction activity.'
-        : 'Missing ANTHROPIC_API_KEY/CLAUDE_API_KEY.'
+      geminiKey
+        ? predictionRecent ? 'GEMINI_API_KEY + vector store present with recent activity.' : 'Keys present but no recent prediction activity.'
+        : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
-      'System Overseer',
+      'Contrarian Devil\'s Advocate (Expert 7)',
+      geminiKey && predictionRecent,
+      latestActivityIso,
+      geminiKey
+        ? predictionRecent ? 'GEMINI_API_KEY present — adversarial expert contributing to final_confidence.' : 'GEMINI_API_KEY present but no recent prediction activity.'
+        : 'Missing GEMINI_API_KEY — Expert 7 (Contrarian) unavailable.'
+    ),
+    buildAgentStatus(
+      'CEO Overseer (Judge)',
       (geminiKey || groqKey || anthropicKey) && (boardRecent || predictionRecent),
       latestBoardMeetingAt ?? latestActivityIso,
       geminiKey || groqKey || anthropicKey
-        ? boardRecent || predictionRecent
-          ? 'Model key present with recent overseer/prediction activity.'
-          : 'Model key present but no recent overseer activity.'
+        ? boardRecent || predictionRecent ? 'Model key present with recent overseer/prediction activity.' : 'Model key present but no recent overseer activity.'
         : 'Missing model API keys.'
     ),
   ];
 
+  // ── Pinecone last upsert ───────────────────────────────────────────────────────────────────────
   let lastPineconeUpsert: string | null = null;
   try {
     lastPineconeUpsert = await getLastPineconeUpsertAt();
-  } catch {
-    // ignore
-  }
+  } catch { /* non-fatal */ }
 
+  // ── DXY macro health ──────────────────────────────────────────────────────────────────────────
   let macroDxy: {
     status: 'ok' | 'fail';
     value: number | null;
     source: string | null;
     note: string;
     updatedAt: string | null;
-  } = {
-    status: 'fail',
-    value: null,
-    source: null,
-    note: 'DXY diagnostics unavailable.',
-    updatedAt: null,
-  };
-
+  } = { status: 'fail', value: null, source: null, note: 'DXY diagnostics unavailable.', updatedAt: null };
   try {
     const macro = await fetchMacroContext();
     macroDxy = {
@@ -231,17 +256,80 @@ export async function GET(): Promise<NextResponse> {
       note: macro.dxyNote,
       updatedAt: macro.updatedAt ?? null,
     };
-  } catch {
-    // keep fail defaults
-  }
+  } catch { /* keep fail defaults */ }
+
+  // ── SystemNeuroPlasticity (id=1) ──────────────────────────────────────────────────────────────
+  type NeuroPlasticityPayload = {
+    techWeight: number;
+    riskWeight: number;
+    psychWeight: number;
+    macroWeight: number;
+    onchainWeight: number;
+    deepMemoryWeight: number;
+    contrarianWeight: number;
+    ceoConfidenceThreshold: number;
+    ceoRiskTolerance: number;
+    robotSlBufferPct: number;
+    robotTpAggressiveness: number;
+    updatedAt: string | null;
+  } | null;
+
+  let neuroPlasticity: NeuroPlasticityPayload = null;
+  try {
+    const prisma = getPrisma();
+    if (prisma) {
+      const row = await prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } });
+      if (row) {
+        neuroPlasticity = {
+          techWeight: row.techWeight,
+          riskWeight: row.riskWeight,
+          psychWeight: row.psychWeight,
+          macroWeight: row.macroWeight,
+          onchainWeight: row.onchainWeight,
+          deepMemoryWeight: row.deepMemoryWeight,
+          contrarianWeight: row.contrarianWeight,
+          ceoConfidenceThreshold: row.ceoConfidenceThreshold,
+          ceoRiskTolerance: row.ceoRiskTolerance,
+          robotSlBufferPct: row.robotSlBufferPct,
+          robotTpAggressiveness: row.robotTpAggressiveness,
+          updatedAt: row.updatedAt?.toISOString() ?? null,
+        };
+      }
+    }
+  } catch { /* non-fatal; UI handles null */ }
+
+  // ── EpisodicMemory feed (10 most recent lessons) ──────────────────────────────────────────────
+  type EpisodicLesson = {
+    id: string;
+    symbol: string;
+    marketRegime: string;
+    abstractLesson: string;
+    createdAt: string;
+  };
+  let episodicMemory: EpisodicLesson[] = [];
+  try {
+    const prisma = getPrisma();
+    if (prisma) {
+      const rows = await prisma.episodicMemory.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
+      });
+      episodicMemory = rows.map((r) => ({
+        id: r.id,
+        symbol: r.symbol,
+        marketRegime: r.marketRegime,
+        abstractLesson: r.abstractLesson,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    }
+  } catch { /* non-fatal */ }
 
   return NextResponse.json({
-    connections: {
-      gemini,
-      groq,
-      anthropic,
-      pinecone,
-      postgres,
+    connections: { gemini, groq, anthropic, pinecone, postgres, redis: redisStatus },
+    redisPing: {
+      latencyMs: redisPing.latencyMs,
+      error: redisPing.error,
     },
     healthChecks: {
       db: dbHealth,
@@ -258,9 +346,9 @@ export async function GET(): Promise<NextResponse> {
       pineconeIndex: pineconeIndex ? process.env.PINECONE_INDEX_NAME ?? null : null,
       pineconeConfigured: pineconeKey && pineconeIndex,
     },
-    macroHealth: {
-      dxy: macroDxy,
-    },
+    macroHealth: { dxy: macroDxy },
+    neuroPlasticity,
+    episodicMemory,
     timestamp: new Date().toISOString(),
   });
 }

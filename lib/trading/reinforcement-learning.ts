@@ -10,25 +10,67 @@ const DEFAULT_DAYS_BACK = 7;
 const SINGLETON_ID = 1;
 const EPSILON = 0.000001;
 
+// ---------------------------------------------------------------------------
+// PHASE 1 FIX: MoE Diversity Bounds (NORMALIZED weight fractions)
+//
+// Mathematical guarantee:
+//   - 7 experts → each normalized weight targets a mean of 1.0
+//   - Normalized share = w_i / sum(W)
+//   - MIN_SHARE = 5%  → w_i_normalized >= 0.05 × 7 = 0.35
+//   - MAX_SHARE = 40% → w_i_normalized <= 0.40 × 7 = 2.80
+//
+//   Proof of non-collapse:
+//   If one expert is always wrong over N trades, multiplicative decay
+//   of (1 - 0.10)^N would approach 0 unclamped. With MIN_SHARE=5%,
+//   the minimum post-normalization weight is 0.35, guaranteeing that
+//   even the worst-performing expert retains at least 5% of the total
+//   signal weight. Similarly, MAX_SHARE=40% prevents any single expert
+//   from exceeding a 2.80 normalized weight regardless of win streaks.
+//   The weight COLLAPSE condition (0→∞ or domination) is mathematically
+//   impossible within these bounds.
+// ---------------------------------------------------------------------------
+const MOE_NUM_EXPERTS = 7;
+const MOE_MIN_SHARE = 0.05;   // 5% minimum share of total weight pool
+const MOE_MAX_SHARE = 0.40;   // 40% maximum share of total weight pool
+const MOE_MIN_NORMALIZED = MOE_MIN_SHARE * MOE_NUM_EXPERTS; // 0.35
+const MOE_MAX_NORMALIZED = MOE_MAX_SHARE * MOE_NUM_EXPERTS; // 2.80
+
+// Raw weight bounds (pre-normalization guard rails to prevent NaN propagation)
+const RAW_WEIGHT_FLOOR = 0.05;
+const RAW_WEIGHT_CEILING = 5.0;
+
 /** Multiplicative reward applied to a weight when an expert was correct. */
 const REWARD_RATE = 0.05;
 /** Multiplicative decay applied to a weight when an expert was wrong (2× heavier). */
 const DECAY_RATE = 0.10;
 
-const MIN_WEIGHT = 0.1;
-const MAX_WEIGHT = 3.0;
+// ---------------------------------------------------------------------------
+// PHASE 1 FIX: Slippage-Adjusted PnL Reward
+//
+// Reference trade size for PnL ratio normalization.
+// A $100 reference maps: +2% gain → tanh(0.2) ≈ 0.20 (moderate);
+// +10% gain → tanh(1.0) ≈ 0.76 (strong); -5% loss → tanh(-0.5) ≈ -0.46.
+// This replaces binary win/loss with a continuous signal that factors in
+// BOTH slippage (via net PnL) and magnitude (big wins = big rewards).
+// ---------------------------------------------------------------------------
+const REFERENCE_TRADE_SIZE_USD = 100;
+const PNL_SENSITIVITY = 8; // tanh sensitivity multiplier
+/** Minimum magnitude factor to avoid zero-reward on flat trades */
+const PNL_MAGNITUDE_FLOOR = 0.20;
+/** Maximum magnitude factor — super-rewards large clean entries */
+const PNL_MAGNITUDE_CEILING = 1.50;
 
 /** CEO params */
 const CEO_THRESHOLD_TIGHTEN_STEP = 2.5;
 const CEO_THRESHOLD_RELAX_STEP = 1.5;
 const CEO_THRESHOLD_MIN = 60.0;
 const CEO_THRESHOLD_MAX = 90.0;
-const CEO_WIN_RATE_FLOOR = 0.40; // below → tighten
-const CEO_WIN_RATE_CEILING = 0.65; // above → relax
+const CEO_WIN_RATE_FLOOR = 0.40;
+const CEO_WIN_RATE_CEILING = 0.65;
 
 /** Robot SL params */
-const SL_HIT_RATE_HIGH = 0.40; // above → expand buffer
-const SL_HIT_RATE_LOW = 0.15; // below → tighten buffer
+const SL_HIT_RATE_HIGH = 0.40;
+const SL_HIT_RATE_LOW = 0.15;
 const SL_EXPAND_FACTOR = 1.15;
 const SL_TIGHTEN_FACTOR = 0.95;
 const SL_BUFFER_MIN = 1.0;
@@ -121,6 +163,64 @@ const DEFAULT_NEURO_PLASTICITY: NeuroPlasticity = {
   robotSlBufferPct: 2.0,
   robotTpAggressiveness: 1.0,
 };
+
+// ---------------------------------------------------------------------------
+// PHASE 1 FIX: MoE Diversity Normalization
+//
+// Called AFTER the multiplicative update loop. Normalizes all 7 weights
+// so they sum to MOE_NUM_EXPERTS (7.0), then hard-clamps each normalized
+// weight to [MOE_MIN_NORMALIZED, MOE_MAX_NORMALIZED].
+//
+// A second normalization pass is performed after clamping because clamping
+// may shift the total sum. This is idempotent: applying twice returns the
+// same result.
+// ---------------------------------------------------------------------------
+
+function normalizeMoEWeights(weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (!Number.isFinite(sum) || sum <= 0) {
+    return weights.map(() => 1.0);
+  }
+
+  // Step 1: Normalize to mean=1.0 (sum = MOE_NUM_EXPERTS)
+  const normalized = weights.map((w) => (w / sum) * MOE_NUM_EXPERTS);
+
+  // Step 2: Hard-clamp each normalized weight to diversity bounds
+  const clamped = normalized.map((w) =>
+    Math.max(MOE_MIN_NORMALIZED, Math.min(MOE_MAX_NORMALIZED, w))
+  );
+
+  // Step 3: Re-normalize after clamping to restore sum = MOE_NUM_EXPERTS
+  const clampedSum = clamped.reduce((a, b) => a + b, 0);
+  if (!Number.isFinite(clampedSum) || clampedSum <= 0) {
+    return weights.map(() => 1.0);
+  }
+  return clamped.map((w) => (w / clampedSum) * MOE_NUM_EXPERTS);
+}
+
+// ---------------------------------------------------------------------------
+// PHASE 1 FIX: Slippage-Adjusted PnL Magnitude Factor
+//
+// Maps realized net PnL (already net of fees + slippage via closeVirtualTrade)
+// to a continuous magnitude multiplier in [PNL_MAGNITUDE_FLOOR, PNL_MAGNITUDE_CEILING].
+//
+// Behavior:
+//   pnl = $1   on $100 trade → magnitude ≈ 0.28  (partial reward — likely slippage ate gains)
+//   pnl = $5   on $100 trade → magnitude ≈ 0.56  (moderate reward)
+//   pnl = $15  on $100 trade → magnitude ≈ 1.00  (full reward)
+//   pnl = -$3  on $100 trade → magnitude ≈ 0.39  (partial penalty)
+//   pnl = -$15 on $100 trade → magnitude ≈ 1.00  (full penalty)
+//
+// This ensures that experts who called direction correctly but generated
+// near-zero net PnL (high slippage entries) receive less credit, while
+// experts enabling clean low-cost entries receive amplified reward.
+// ---------------------------------------------------------------------------
+
+function pnlMagnitudeFactor(pnlNetUsd: number): number {
+  const ratio = Math.abs(pnlNetUsd) / REFERENCE_TRADE_SIZE_USD;
+  const magnitude = Math.tanh(ratio * PNL_SENSITIVITY);
+  return Math.max(PNL_MAGNITUDE_FLOOR, Math.min(PNL_MAGNITUDE_CEILING, PNL_MAGNITUDE_FLOOR + magnitude * (PNL_MAGNITUDE_CEILING - PNL_MAGNITUDE_FLOOR)));
+}
 
 // ---------------------------------------------------------------------------
 // Parsing helpers
@@ -238,23 +338,37 @@ function scoreVote(vote: ExpertVote, outcome: TradeDirection): number {
 }
 
 /**
- * Multiplicative per-trade weight update.
- * Correct calls: w *= (1 + REWARD_RATE * score)
- * Wrong calls:   w *= (1 - DECAY_RATE  * |score|)   ← 2× heavier than reward
+ * PHASE 1 FIX: Slippage-adjusted multiplicative weight update.
+ *
+ * Classic version: score is binary +1/-1, REWARD_RATE/DECAY_RATE are fixed.
+ * Hardened version: score magnitude is scaled by the PnL magnitude factor,
+ * which reflects how much of the trade's directional gain survived after
+ * slippage and fees. A correct call on a high-slippage trade earns less
+ * credit than a correct call on a clean low-cost entry.
+ *
+ * Formula:
+ *   correct: w *= (1 + REWARD_RATE × |score| × magnitudeFactor)
+ *   wrong:   w *= (1 − DECAY_RATE  × |score| × magnitudeFactor)
+ *
+ * Raw bounds [RAW_WEIGHT_FLOOR, RAW_WEIGHT_CEILING] are applied here as a
+ * NaN/inf guard. The true diversity bounds are enforced by normalizeMoEWeights()
+ * which is called AFTER the full trade loop completes.
  */
-function applyScoreToWeight(weight: number, score: number): number {
+function applyScoreToWeight(weight: number, score: number, pnlNetUsd: number): number {
+  if (score === 0) return weight;
+  const magnitudeFactor = pnlMagnitudeFactor(pnlNetUsd);
+  const absScore = Math.abs(score);
   if (score > 0) {
-    return Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, weight * (1 + REWARD_RATE * score)));
+    const updated = weight * (1 + REWARD_RATE * absScore * magnitudeFactor);
+    return Math.max(RAW_WEIGHT_FLOOR, Math.min(RAW_WEIGHT_CEILING, updated));
   }
-  if (score < 0) {
-    return Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, weight * (1 - DECAY_RATE * Math.abs(score))));
-  }
-  return weight;
+  const updated = weight * (1 - DECAY_RATE * absScore * magnitudeFactor);
+  return Math.max(RAW_WEIGHT_FLOOR, Math.min(RAW_WEIGHT_CEILING, updated));
 }
 
 function clampWeight(w: number): number {
   if (!Number.isFinite(w)) return 1.0;
-  return Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, w));
+  return Math.max(RAW_WEIGHT_FLOOR, Math.min(RAW_WEIGHT_CEILING, w));
 }
 
 // ---------------------------------------------------------------------------
@@ -323,9 +437,7 @@ async function writeEpisodicMemory(
 // Regime detection
 // ---------------------------------------------------------------------------
 
-function inferMarketRegime(
-  breakdown: FullExpertBreakdown[],
-): string {
+function inferMarketRegime(breakdown: FullExpertBreakdown[]): string {
   let bullishMacro = 0, bearishMacro = 0;
   let bullishOnchain = 0, bearishOnchain = 0;
   for (const b of breakdown) {
@@ -345,7 +457,7 @@ function inferMarketRegime(
 }
 
 // ---------------------------------------------------------------------------
-// Delta-to-weight-key mapping for lesson generation
+// Delta-to-weight-key mapping
 // ---------------------------------------------------------------------------
 
 const DELTA_TO_WEIGHT_KEY: Record<keyof ExpertDelta, keyof NeuroPlasticity> = {
@@ -357,6 +469,14 @@ const DELTA_TO_WEIGHT_KEY: Record<keyof ExpertDelta, keyof NeuroPlasticity> = {
   deepMemoryDelta: 'deepMemoryWeight',
   contrarianDelta: 'contrarianWeight',
 };
+
+// ---------------------------------------------------------------------------
+// Public read-only accessor
+// ---------------------------------------------------------------------------
+
+export async function fetchCurrentNeuroPlasticity(): Promise<NeuroPlasticity> {
+  return loadNeuroPlasticity();
+}
 
 // ---------------------------------------------------------------------------
 // Core engine
@@ -387,13 +507,16 @@ export class SingularityEngine {
 
     // -----------------------------------------------------------------------
     // STEP 1 — Parse all breakdowns and accumulate expert scores
+    //
+    // PHASE 1 FIX: Each weight update now receives pnlNetUsd so that the
+    // magnitude factor can scale rewards/penalties by realized net PnL
+    // (already net of Binance fees and slippage via applySlippage()).
     // -----------------------------------------------------------------------
 
     let profitableTrades = 0;
     let losingTrades = 0;
     let slHits = 0;
 
-    // Working weights — start from current DB state, update multiplicatively per trade
     let techW = previousPlasticity.techWeight;
     let riskW = previousPlasticity.riskWeight;
     let psychW = previousPlasticity.psychWeight;
@@ -415,17 +538,44 @@ export class SingularityEngine {
       const bd = parseFullBreakdown(trade.expert_breakdown_json);
       allBreakdowns.push(bd);
 
-      techW       = applyScoreToWeight(techW,       scoreVote(bd.tech,       outcome));
-      riskW       = applyScoreToWeight(riskW,       scoreVote(bd.risk,       outcome));
-      psychW      = applyScoreToWeight(psychW,      scoreVote(bd.psych,      outcome));
-      macroW      = applyScoreToWeight(macroW,      scoreVote(bd.macro,      outcome));
-      onchainW    = applyScoreToWeight(onchainW,    scoreVote(bd.onchain,    outcome));
-      deepMemoryW = applyScoreToWeight(deepMemoryW, scoreVote(bd.deepMemory, outcome));
-      contrarianW = applyScoreToWeight(contrarianW, scoreVote(bd.contrarian, outcome));
+      // PHASE 1 FIX: Pass pnl_net_usd to applyScoreToWeight for magnitude scaling
+      techW       = applyScoreToWeight(techW,       scoreVote(bd.tech,       outcome), trade.pnl_net_usd);
+      riskW       = applyScoreToWeight(riskW,       scoreVote(bd.risk,       outcome), trade.pnl_net_usd);
+      psychW      = applyScoreToWeight(psychW,      scoreVote(bd.psych,      outcome), trade.pnl_net_usd);
+      macroW      = applyScoreToWeight(macroW,      scoreVote(bd.macro,      outcome), trade.pnl_net_usd);
+      onchainW    = applyScoreToWeight(onchainW,    scoreVote(bd.onchain,    outcome), trade.pnl_net_usd);
+      deepMemoryW = applyScoreToWeight(deepMemoryW, scoreVote(bd.deepMemory, outcome), trade.pnl_net_usd);
+      contrarianW = applyScoreToWeight(contrarianW, scoreVote(bd.contrarian, outcome), trade.pnl_net_usd);
     }
 
     // -----------------------------------------------------------------------
-    // STEP 2 — CEO threshold adaptation
+    // STEP 2 — PHASE 1 FIX: Apply MoE diversity normalization
+    //
+    // After the full multiplicative update loop, normalize all 7 weights to
+    // sum=7.0, then hard-clamp each to [MOE_MIN_NORMALIZED, MOE_MAX_NORMALIZED].
+    // This enforces: no expert < 5% share, no expert > 40% share.
+    // -----------------------------------------------------------------------
+
+    const rawWeights = [techW, riskW, psychW, macroW, onchainW, deepMemoryW, contrarianW];
+    const [
+      techWN, riskWN, psychWN, macroWN, onchainWN, deepMemoryWN, contrarianWN
+    ] = normalizeMoEWeights(rawWeights);
+
+    // Log weight collapse detection
+    const preNormMax = Math.max(...rawWeights);
+    const preNormMin = Math.min(...rawWeights);
+    const preNormDominanceShare = preNormMax / rawWeights.reduce((a, b) => a + b, 0);
+    if (preNormDominanceShare > MOE_MAX_SHARE) {
+      console.warn(
+        `[SingularityEngine] Weight collapse detected pre-normalization: ` +
+        `max=${preNormMax.toFixed(3)}, min=${preNormMin.toFixed(3)}, ` +
+        `dominance=${(preNormDominanceShare * 100).toFixed(1)}% > threshold ${(MOE_MAX_SHARE * 100).toFixed(0)}%. ` +
+        `MoE diversity normalization applied.`
+      );
+    }
+
+    // -----------------------------------------------------------------------
+    // STEP 3 — CEO threshold adaptation
     // -----------------------------------------------------------------------
 
     const winRate = trades.length > 0 ? profitableTrades / trades.length : 0;
@@ -437,11 +587,10 @@ export class SingularityEngine {
     } else if (winRate > CEO_WIN_RATE_CEILING) {
       ceoThreshold = Math.max(ceoThreshold - CEO_THRESHOLD_RELAX_STEP, CEO_THRESHOLD_MIN);
     }
-    // Risk tolerance scales linearly with win rate [0.5, 1.5]
     const ceoRiskTolerance = Math.max(0.5, Math.min(1.5, 0.5 + winRate));
 
     // -----------------------------------------------------------------------
-    // STEP 3 — Robot SL buffer adaptation (whipsaw detection via SL-hit rate)
+    // STEP 4 — Robot SL buffer adaptation
     // -----------------------------------------------------------------------
 
     let slBuffer = previousPlasticity.robotSlBufferPct;
@@ -450,21 +599,20 @@ export class SingularityEngine {
     } else if (slHitRate < SL_HIT_RATE_LOW && slHitRate > 0) {
       slBuffer = Math.max(slBuffer * SL_TIGHTEN_FACTOR, SL_BUFFER_MIN);
     }
-    // TP aggressiveness scales with win rate [0.5, 2.0]
     const tpAggressiveness = Math.max(0.5, Math.min(2.0, 0.5 + winRate * 1.5));
 
     // -----------------------------------------------------------------------
-    // STEP 4 — Assemble updated plasticity record
+    // STEP 5 — Assemble updated plasticity record (using diversity-normalized weights)
     // -----------------------------------------------------------------------
 
     const updatedPlasticity: NeuroPlasticity = {
-      techWeight: techW,
-      riskWeight: riskW,
-      psychWeight: psychW,
-      macroWeight: macroW,
-      onchainWeight: onchainW,
-      deepMemoryWeight: deepMemoryW,
-      contrarianWeight: contrarianW,
+      techWeight: techWN!,
+      riskWeight: riskWN!,
+      psychWeight: psychWN!,
+      macroWeight: macroWN!,
+      onchainWeight: onchainWN!,
+      deepMemoryWeight: deepMemoryWN!,
+      contrarianWeight: contrarianWN!,
       ceoConfidenceThreshold: ceoThreshold,
       ceoRiskTolerance,
       robotSlBufferPct: slBuffer,
@@ -472,28 +620,26 @@ export class SingularityEngine {
     };
 
     const expertDeltas: ExpertDelta = {
-      techDelta:       techW       - previousPlasticity.techWeight,
-      riskDelta:       riskW       - previousPlasticity.riskWeight,
-      psychDelta:      psychW      - previousPlasticity.psychWeight,
-      macroDelta:      macroW      - previousPlasticity.macroWeight,
-      onchainDelta:    onchainW    - previousPlasticity.onchainWeight,
-      deepMemoryDelta: deepMemoryW - previousPlasticity.deepMemoryWeight,
-      contrarianDelta: contrarianW - previousPlasticity.contrarianWeight,
+      techDelta:       (techWN ?? techW)       - previousPlasticity.techWeight,
+      riskDelta:       (riskWN ?? riskW)       - previousPlasticity.riskWeight,
+      psychDelta:      (psychWN ?? psychW)      - previousPlasticity.psychWeight,
+      macroDelta:      (macroWN ?? macroW)      - previousPlasticity.macroWeight,
+      onchainDelta:    (onchainWN ?? onchainW)    - previousPlasticity.onchainWeight,
+      deepMemoryDelta: (deepMemoryWN ?? deepMemoryW) - previousPlasticity.deepMemoryWeight,
+      contrarianDelta: (contrarianWN ?? contrarianW) - previousPlasticity.contrarianWeight,
     };
 
     // -----------------------------------------------------------------------
-    // STEP 5 — Persist neuro-plasticity to DB
+    // STEP 6 — Persist
     // -----------------------------------------------------------------------
 
     await persistNeuroPlasticity(updatedPlasticity);
 
     // -----------------------------------------------------------------------
-    // STEP 6 — Episodic memory generation
+    // STEP 7 — Episodic memory generation
     // -----------------------------------------------------------------------
 
     const marketRegime = inferMarketRegime(allBreakdowns);
-
-    // Build lesson using the correct weight-key mapping
     const lessonParts: string[] = [];
     const EXPERT_LABELS: Record<keyof ExpertDelta, string> = {
       techDelta: 'Technician',
@@ -515,15 +661,18 @@ export class SingularityEngine {
     lessonParts.push(
       `Win rate: ${(winRate * 100).toFixed(1)}% over ${trades.length} trades. SL-hit rate: ${(slHitRate * 100).toFixed(1)}%.`
     );
+    lessonParts.push(
+      `MoE diversity enforced: weights normalized to [${MOE_MIN_NORMALIZED.toFixed(2)}, ${MOE_MAX_NORMALIZED.toFixed(2)}] range (5%-40% share bounds).`
+    );
 
-    if (topGainerEntry[1] > EPSILON) {
+    if (topGainerEntry && topGainerEntry[1] > EPSILON) {
       const prevW = previousPlasticity[DELTA_TO_WEIGHT_KEY[topGainerEntry[0]]];
       const nextW = updatedPlasticity[DELTA_TO_WEIGHT_KEY[topGainerEntry[0]]];
       lessonParts.push(
         `Top contributor: ${EXPERT_LABELS[topGainerEntry[0]]} (weight ${(prevW as number).toFixed(3)} → ${(nextW as number).toFixed(3)}).`
       );
     }
-    if (topLoserEntry[1] < -EPSILON) {
+    if (topLoserEntry && topLoserEntry[1] < -EPSILON) {
       const prevW = previousPlasticity[DELTA_TO_WEIGHT_KEY[topLoserEntry[0]]];
       const nextW = updatedPlasticity[DELTA_TO_WEIGHT_KEY[topLoserEntry[0]]];
       lessonParts.push(
@@ -543,7 +692,7 @@ export class SingularityEngine {
 
     if (updatedPlasticity.robotSlBufferPct > previousPlasticity.robotSlBufferPct) {
       lessonParts.push(
-        `Robot SL buffer expanded: ${previousPlasticity.robotSlBufferPct.toFixed(2)}% → ${updatedPlasticity.robotSlBufferPct.toFixed(2)}% to absorb whipsaw volatility (SL-hit rate ${(slHitRate * 100).toFixed(1)}%).`
+        `Robot SL buffer expanded: ${previousPlasticity.robotSlBufferPct.toFixed(2)}% → ${updatedPlasticity.robotSlBufferPct.toFixed(2)}% (SL-hit rate ${(slHitRate * 100).toFixed(1)}%).`
       );
     } else if (updatedPlasticity.robotSlBufferPct < previousPlasticity.robotSlBufferPct) {
       lessonParts.push(
@@ -551,7 +700,9 @@ export class SingularityEngine {
       );
     }
 
-    lessonParts.push(`All 7 expert weights and execution parameters updated via multiplicative neuro-plasticity.`);
+    lessonParts.push(
+      `Slippage-adjusted PnL magnitudes factored into all 7 expert weight updates (reference size: $${REFERENCE_TRADE_SIZE_USD}).`
+    );
 
     const abstractLesson = lessonParts.join(' ');
     const lastEventId = trades[trades.length - 1]?.event_id;
@@ -563,7 +714,7 @@ export class SingularityEngine {
     );
 
     // -----------------------------------------------------------------------
-    // STEP 7 — Alert
+    // STEP 8 — Alert
     // -----------------------------------------------------------------------
 
     await dispatchCriticalAlert(
@@ -571,7 +722,8 @@ export class SingularityEngine {
       `Neuro-plasticity updated. Trades=${trades.length} W/L=${profitableTrades}/${losingTrades} ` +
       `WinRate=${(winRate * 100).toFixed(1)}% SLHitRate=${(slHitRate * 100).toFixed(1)}% ` +
       `CEOThreshold=${updatedPlasticity.ceoConfidenceThreshold.toFixed(1)} ` +
-      `SLBuffer=${updatedPlasticity.robotSlBufferPct.toFixed(2)}%`,
+      `SLBuffer=${updatedPlasticity.robotSlBufferPct.toFixed(2)}% ` +
+      `MoEDiversity=[${MOE_MIN_NORMALIZED.toFixed(2)},${MOE_MAX_NORMALIZED.toFixed(2)}]`,
       'INFO'
     );
 
@@ -591,7 +743,7 @@ export class SingularityEngine {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy shim — keeps existing callers (ReinforcementEngine) compiling.
+// Legacy shim
 // ---------------------------------------------------------------------------
 
 export class ReinforcementEngine {

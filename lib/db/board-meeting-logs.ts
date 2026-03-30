@@ -6,7 +6,7 @@ type TriggerType = 'morning' | 'evening';
 
 export interface BoardMeetingLogInput {
   trigger_type: TriggerType;
-  the_6_expert_verdicts: Record<string, ExpertOutput>;
+  the_7_expert_verdicts: Record<string, ExpertOutput>;
   overseer_final_action_plan: string;
   market_context: {
     fearGreed: {
@@ -31,7 +31,7 @@ async function ensureTable(): Promise<boolean> {
         id SERIAL PRIMARY KEY,
         timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         trigger_type VARCHAR(16) NOT NULL CHECK (trigger_type IN ('morning', 'evening')),
-        the_6_expert_verdicts JSONB NOT NULL,
+        the_7_expert_verdicts JSONB NOT NULL,
         overseer_final_action_plan TEXT NOT NULL,
         market_context JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -55,14 +55,14 @@ export async function recordBoardMeetingLog(input: BoardMeetingLogInput): Promis
       INSERT INTO board_meeting_logs (
         timestamp,
         trigger_type,
-        the_6_expert_verdicts,
+        the_7_expert_verdicts,
         overseer_final_action_plan,
         market_context
       )
       VALUES (
         ${new Date().toISOString()},
         ${input.trigger_type},
-        ${JSON.stringify(input.the_6_expert_verdicts)},
+        ${JSON.stringify(input.the_7_expert_verdicts)},
         ${input.overseer_final_action_plan},
         ${JSON.stringify(input.market_context)}
       )
