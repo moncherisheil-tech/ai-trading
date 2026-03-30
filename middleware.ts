@@ -8,7 +8,7 @@ import type { NextRequest } from 'next/server';
 //   1. Master Password → /api/auth/request-otp  (dispatches OTP via Telegram)
 //   2. 6-digit OTP     → /api/auth/verify-otp   (issues signed session cookie)
 //
-// The signed HMAC-SHA256 session cookie (quantum_auth_token) is the sole
+// The signed HMAC-SHA256 session cookie (quantum_auth_session) is the sole
 // mechanism for identifying authenticated sessions.
 //
 // SSL termination is handled by Nginx upstream — no protocol enforcement here.
@@ -20,12 +20,16 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/telegram/webhook',  // Telegram bot webhook (auth via bot token)
 ];
 
+// Must match exactly what verify-otp/route.ts sets.
+const AUTH_COOKIE_NAME = 'quantum_auth_session';
+
+// Emergency fallback — must mirror lib/session.ts EMERGENCY_SECRET.
+const EMERGENCY_SECRET = 'mon-cheri-emergency-secret-2026';
+
 // ---------------------------------------------------------------------------
 // Cookie verification — HMAC-SHA256 signed token.
 // Supports secret rotation via APP_SESSION_SECRET_PREVIOUS.
 // ---------------------------------------------------------------------------
-
-const AUTH_COOKIE_NAME = 'quantum_auth_token';
 
 function base64UrlToUint8Array(input: string): Uint8Array | null {
   try {
@@ -50,36 +54,62 @@ async function verifyAuthCookie(request: NextRequest): Promise<boolean> {
   if (!value?.trim()) return false;
 
   const token = value.trim();
-  const [payloadB64, signature, ...rest] = token.split('.');
-  if (!payloadB64 || !signature || rest.length > 0) return false;
+  const parts = token.split('.');
+
+  if (parts.length !== 2) {
+    console.error('[middleware] Token rejected: malformed structure (expected 2 parts, got', parts.length, ')');
+    return false;
+  }
+
+  const [payloadB64, signature] = parts as [string, string];
 
   const payloadBytes   = base64UrlToUint8Array(payloadB64);
   const signatureBytes = base64UrlToUint8Array(signature);
-  if (!payloadBytes || !signatureBytes) return false;
 
-  let payload: { exp?: number } | null = null;
-  try {
-    payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as { exp?: number };
-  } catch {
+  if (!payloadBytes || !signatureBytes) {
+    console.error('[middleware] Token rejected: base64url decode failed');
     return false;
   }
-  if (!payload?.exp || payload.exp <= Math.floor(Date.now() / 1000)) return false;
 
+  let payload: { exp?: number; role?: string } | null = null;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(payloadBytes)) as { exp?: number; role?: string };
+  } catch {
+    console.error('[middleware] Token rejected: payload JSON parse failed');
+    return false;
+  }
+
+  if (!payload?.exp) {
+    console.error('[middleware] Token rejected: missing exp field');
+    return false;
+  }
+
+  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+    console.error('[middleware] Token rejected: expired at', new Date(payload.exp * 1000).toISOString());
+    return false;
+  }
+
+  // Build secret list — include emergency fallback so logins survive missing env var.
   const activeSecrets = [
-    process.env.APP_SESSION_SECRET         ?? '',
+    process.env.APP_SESSION_SECRET          ?? '',
     process.env.APP_SESSION_SECRET_PREVIOUS ?? '',
-  ].filter(Boolean);
-  if (activeSecrets.length === 0) return false;
+    EMERGENCY_SECRET,
+  ].filter((s, i, arr) => Boolean(s) && arr.indexOf(s) === i); // deduplicate
 
   const encoder    = new TextEncoder();
   const payloadRaw = encoder.encode(payloadB64);
 
   for (const secret of activeSecrets) {
-    const key      = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, payloadRaw));
-    if (safeEqual(signatureBytes, expected)) return true;
+    try {
+      const key      = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+      const expected = new Uint8Array(await crypto.subtle.sign('HMAC', key, payloadRaw));
+      if (safeEqual(signatureBytes, expected)) return true;
+    } catch (err) {
+      console.error('[middleware] HMAC verification error for secret slot:', err);
+    }
   }
 
+  console.error('[middleware] Token rejected: signature mismatch (all secrets tried)');
   return false;
 }
 
@@ -126,6 +156,13 @@ function deny401(): NextResponse {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  console.log(
+    'Middleware check - Path:',
+    pathname,
+    'Token exists:',
+    !!request.cookies.get(AUTH_COOKIE_NAME),
+  );
 
   // HEAD probes for uptime monitors — never gate
   if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();

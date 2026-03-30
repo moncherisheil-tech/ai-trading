@@ -6,15 +6,14 @@ import { createSessionToken } from '@/lib/session';
 // POST /api/auth/verify-otp
 //
 // Step 2 of the Telegram 2FA flow.
-// Validates the 6-digit OTP against the Redis-stored value.
+// Validates the 6-digit OTP against the Redis-stored value (auth:otp:<nonce>).
 // On success: deletes the OTP (single-use), issues a signed HTTP-Only
-// session cookie (quantum_auth_token) with institutional-grade SSL settings,
-// and returns { success: true, redirectTo }.
+// session cookie (quantum_auth_session) and returns { success, redirectTo }.
 // ---------------------------------------------------------------------------
 
-const OTP_KEY_PREFIX      = 'auth:otp:';
-const AUTH_COOKIE_NAME    = 'quantum_auth_token';
-const SESSION_TTL_SECONDS = 43200; // 12 hours
+const OTP_KEY_PREFIX   = 'auth:otp:';           // must match request-otp
+const AUTH_COOKIE_NAME = 'quantum_auth_session'; // must match middleware
+const SESSION_MAX_AGE  = 60 * 60 * 24;          // 24 hours
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -33,51 +32,47 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    let storedOtp: string | null;
-    let redisClient: import('ioredis').default;
-
     try {
-      redisClient = getRedisClient();
+      const redis    = getRedisClient();
       const redisKey = `${OTP_KEY_PREFIX}${nonce}`;
-      storedOtp = await redisClient.get(redisKey);
+      const stored   = await redis.get(redisKey);
 
-      if (!storedOtp) {
+      if (!stored) {
         return NextResponse.json(
           { error: 'Code has expired or was never issued. Request a new one.' },
           { status: 401 },
         );
       }
 
-      if (storedOtp !== otp) {
+      if (stored !== otp) {
         return NextResponse.json({ error: 'Invalid code.' }, { status: 401 });
       }
 
-      // ── Invalidate OTP (single-use) ───────────────────────────────────────
-      await redisClient.del(redisKey);
-    } catch (error) {
-      console.error('OTP Error:', error);
-      return NextResponse.json({ error: 'Redis Connection Error' }, { status: 500 });
+      await redis.del(redisKey); // single-use: invalidate immediately
+    } catch (err) {
+      console.error('[verify-otp] Redis error:', err);
+      return NextResponse.json({ error: 'Redis connection error.' }, { status: 500 });
     }
 
-    // ── Issue institutional-grade SSL session cookie ────────────────────────
-    const token = createSessionToken('admin', SESSION_TTL_SECONDS);
+    // ── Issue session cookie ────────────────────────────────────────────────
+    const token = createSessionToken('admin', SESSION_MAX_AGE);
+
+    console.log('SETTING COOKIE: quantum_auth_session');
 
     const response = NextResponse.json({ success: true, redirectTo: '/ops' });
 
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   true,       // hard-coded — domain is exclusively https://quantum.moncherigroup.co.il
-      sameSite: 'strict',
+      secure:   true,
+      sameSite: 'lax',  // 'lax' allows the cookie to be sent after redirects
       path:     '/',
-      maxAge:   SESSION_TTL_SECONDS,
+      maxAge:   SESSION_MAX_AGE,
     });
-
-    console.log('✅ Production Session Cookie issued for SSL domain.');
 
     return response;
 
   } catch (err) {
-    console.error('[verify-otp] Unhandled error during session issuance:', err);
+    console.error('[verify-otp] Unhandled error:', err);
     return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
   }
 }
