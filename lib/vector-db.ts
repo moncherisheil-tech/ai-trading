@@ -31,10 +31,10 @@ function sleep(ms: number): Promise<void> {
 
 function isNonRetryablePineconeMessage(message: string): boolean {
   const m = message.toLowerCase();
-  if (/dimension mismatch|embedding dimension|vectors have a different dimension|pinecone index 1002|index 1002/i.test(m)) {
+  if (/dimension mismatch|embedding dimension|vectors have a different dimension/i.test(m)) {
     return true;
   }
-  if (/embedding vector is empty|cannot embed empty|invalid api key|missing pinecone|not found.*index/i.test(m)) {
+  if (/embedding vector is empty|cannot embed empty|invalid api key|missing pinecone|not found.*index|index.*not found|404/i.test(m)) {
     return true;
   }
   return false;
@@ -84,9 +84,21 @@ function getPineconeIndexName(): string | undefined {
 
 async function getPineconeIndexOrThrow() {
   const apiKey = getPineconeApiKey();
-  if (!apiKey) throw new Error('Missing PINECONE_API_KEY');
+  if (!apiKey) throw new Error('Missing PINECONE_API_KEY — set this env var to enable vector memory.');
   const indexName = getPineconeIndexName();
-  if (!indexName) throw new Error('Missing PINECONE_INDEX_NAME');
+  if (!indexName) {
+    throw new Error(
+      'Missing PINECONE_INDEX_NAME — this env var is required when PINECONE_API_KEY is set. ' +
+      'Set it to your actual Pinecone index name (e.g., "quantum-memory"), NOT a numeric ID.'
+    );
+  }
+  if (/^\d+$/.test(indexName)) {
+    throw new Error(
+      `[FATAL] PINECONE_INDEX_NAME="${indexName}" is invalid — index names cannot be purely numeric. ` +
+      'This is a misconfiguration. Set PINECONE_INDEX_NAME to your actual Pinecone index name ' +
+      '(e.g., "quantum-memory"). A numeric value will always return HTTP 404.'
+    );
+  }
   const { Pinecone } = await import('@pinecone-database/pinecone');
   const pc = new Pinecone({ apiKey });
   return { index: pc.index(indexName), indexName };
@@ -312,22 +324,22 @@ export async function storePostMortem(
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
     const expectedDim = getExpectedEmbeddingDim();
-    const isIndexError = /1002|index/i.test(message);
+    const isIndexError = /not found|404|index/i.test(message);
     const fullErrorMsg = isDimError
-      ? `Pinecone index 1002 ERROR: Dimension mismatch detected. Generated vectors have a different dimension than the index expects. Expected: ${expectedDim}. ${message}`
+      ? `Pinecone index '${indexName}' ERROR: Dimension mismatch. Generated vectors have a different dimension than the index expects. Expected: ${expectedDim}. ${message}`
       : isIndexError
-        ? `Pinecone index 1002 ERROR: ${message}. This typically indicates dimension mismatch (generated vs index expected: ${expectedDim}). Verify PINECONE_INDEX_NAME and PINECONE_EMBEDDING_DIM configuration.`
+        ? `Pinecone index '${indexName}' ERROR: ${message}. Verify PINECONE_INDEX_NAME="${indexName}" exists in your Pinecone project and PINECONE_EMBEDDING_DIM=${expectedDim} matches the index configuration.`
         : message;
     console.error('[vector-db] Pinecone upsert failed.', {
       index: indexName,
       namespace: POST_MORTEMS_NAMESPACE,
       expectedDimension: expectedDim,
       error: fullErrorMsg,
-      errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
+      errorCode: isIndexError ? 'INDEX_NOT_FOUND_OR_ERROR' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
         ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
         : isIndexError
-          ? `Pinecone index 1002 error indicates dimension mismatch or misconfiguration. Check that the index supports ${expectedDim}-dimensional vectors.`
+          ? `HTTP 404 — index '${indexName}' not found. Ensure PINECONE_INDEX_NAME env var matches an existing index in your Pinecone project. Index names cannot be numeric.`
           : undefined,
     });
   }
@@ -395,11 +407,11 @@ export async function querySimilarTrades(
     const message = err instanceof Error ? err.message : String(err);
     const isDimError = /dimension/i.test(message);
     const expectedDim = getExpectedEmbeddingDim();
-    const isIndexError = /1002|index/i.test(message);
+    const isIndexError = /not found|404|index/i.test(message);
     const fullErrorMsg = isDimError
-      ? `Pinecone query failed: Dimension mismatch detected. Expected: ${expectedDim}. ${message}`
+      ? `Pinecone query failed on index '${indexName}': Dimension mismatch. Expected: ${expectedDim}. ${message}`
       : isIndexError
-        ? `Pinecone index 1002 ERROR during query: ${message}. This typically indicates dimension mismatch (generated vs index expected: ${expectedDim}). Verify PINECONE_INDEX_NAME and PINECONE_EMBEDDING_DIM configuration.`
+        ? `Pinecone index '${indexName}' ERROR during query: ${message}. Verify PINECONE_INDEX_NAME="${indexName}" exists in your Pinecone project and PINECONE_EMBEDDING_DIM=${expectedDim} matches the index.`
         : message;
 
     console.error('[vector-db] Pinecone query failed.', {
@@ -407,11 +419,11 @@ export async function querySimilarTrades(
       namespace: POST_MORTEMS_NAMESPACE,
       expectedDimension: expectedDim,
       error: fullErrorMsg,
-      errorCode: isIndexError ? 'INDEX_ERROR_1002' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
+      errorCode: isIndexError ? 'INDEX_NOT_FOUND_OR_ERROR' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
       hint: isDimError
         ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
         : isIndexError
-          ? `Pinecone index 1002 error indicates dimension mismatch or misconfiguration. Check that the index supports ${expectedDim}-dimensional vectors.`
+          ? `HTTP 404 — index '${indexName}' not found. Ensure PINECONE_INDEX_NAME env var matches an existing index in your Pinecone project.`
           : undefined,
     });
     return [];
@@ -740,9 +752,9 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
     const message = err instanceof Error ? err.message : String(err);
     const expectedDim = getExpectedEmbeddingDim();
     const isDimError = /dimension/i.test(message);
-    const isIndexError = /1002|index/i.test(message);
+    const isIndexError = /not found|404|index/i.test(message);
     const enhancedError = isDimError || isIndexError
-      ? `${message} [Expected dimension: ${expectedDim}]`
+      ? `${message} [index: '${indexName}', expectedDimension: ${expectedDim}]`
       : message;
     return {
       ok: false,

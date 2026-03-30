@@ -67,13 +67,15 @@ export async function fetchWithBackoff(
           }
         }
         waitMs = Math.min(waitMs, MAX_DELAY_MS);
-        const waitSec = (waitMs / 1000).toFixed(1);
+        // True random jitter (0–25% of waitMs) prevents synchronized retry storms
+        const jitter = Math.floor(Math.random() * Math.max(500, waitMs * 0.25));
+        const totalWaitMs = waitMs + jitter;
+        const waitSec = (totalWaitMs / 1000).toFixed(1);
         if (typeof console !== 'undefined' && console.warn) {
           const label = isRateLimited ? 'Rate limit' : 'Server error';
-          console.warn(`[fetchWithBackoff] ${label} (${res.status}), backing off for ${waitSec} seconds.`);
+          console.warn(`[fetchWithBackoff] ${label} (${res.status}), backing off for ${waitSec}s (attempt ${attempt + 1}/${maxRetries}).`);
         }
-        const jitter = Math.min(400, attempt * 100);
-        await new Promise((r) => setTimeout(r, waitMs + jitter));
+        await new Promise((r) => setTimeout(r, totalWaitMs));
         continue;
       }
 
@@ -84,7 +86,7 @@ export async function fetchWithBackoff(
       const isAbort = lastError.name === 'AbortError';
       if (attempt < maxRetries - 1 && (isAbort || /timeout|network|ECONNRESET/i.test(lastError.message))) {
         const waitMs = Math.min(BASE_DELAY_MS * Math.pow(2, attempt), MAX_DELAY_MS);
-        const jitter = Math.min(400, attempt * 100);
+        const jitter = Math.floor(Math.random() * Math.max(500, waitMs * 0.25));
         await new Promise((r) => setTimeout(r, waitMs + jitter));
         continue;
       }

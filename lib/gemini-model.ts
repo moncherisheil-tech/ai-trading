@@ -94,8 +94,10 @@ export async function withGeminiRateLimitRetry<T>(
       if (!retryable || attempt === maxAttempts - 1) {
         throw err;
       }
-      const delay = baseDelayMs * 2 ** attempt;
-      await sleepMs(delay);
+      const base = baseDelayMs * 2 ** attempt;
+      // True random jitter (0–15%) prevents synchronized retry storms across concurrent callers
+      const jitter = Math.floor(Math.random() * Math.max(500, base * 0.15));
+      await sleepMs(base + jitter);
     }
   }
   throw lastErr;

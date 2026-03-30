@@ -17,6 +17,11 @@
  */
 
 import 'dotenv/config';
+// Infrastructure pre-flight: validate critical env vars before the worker boots.
+// Throws immediately if PINECONE_INDEX_NAME is misconfigured (e.g. purely numeric).
+import { validateInfraEnv } from '@/lib/env';
+validateInfraEnv();
+
 import { Worker, type Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { getRedisClient, closeRedisClient } from './redis-client';

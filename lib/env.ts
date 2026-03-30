@@ -63,3 +63,58 @@ export function getRequiredAnthropicApiKey(): string {
   }
   return key;
 }
+
+/**
+ * Returns the Pinecone index name from PINECONE_INDEX_NAME, or undefined if not configured.
+ * Strips wrapping quotes that some deployment tools leave in env values.
+ */
+export function getPineconeIndexName(): string | undefined {
+  const v = stripEnvQuotes(process.env.PINECONE_INDEX_NAME);
+  if (!v || v.trim() === '') return undefined;
+  return v.trim();
+}
+
+/**
+ * Infrastructure pre-flight validation. Call once at process start (e.g., in instrumentation.ts
+ * or the top-level layout/server entrypoint).
+ *
+ * Rules:
+ *   - PINECONE_INDEX_NAME must NOT be purely numeric (e.g., "1002") — that is always wrong
+ *     and will produce HTTP 404 from Pinecone. Throws a fatal Error to prevent silent failure.
+ *   - REDIS_URL, if set, must not be a bare localhost URL in production (warning only).
+ *
+ * This function is safe to call multiple times (idempotent warn/throw logic).
+ */
+export function validateInfraEnv(): void {
+  // ── Pinecone index name guard ─────────────────────────────────────────────
+  const indexName = getPineconeIndexName();
+  if (indexName !== undefined) {
+    if (/^\d+$/.test(indexName)) {
+      const msg =
+        `[FATAL BOOT ERROR] PINECONE_INDEX_NAME="${indexName}" is invalid — ` +
+        'index names cannot be purely numeric. A numeric value will always return HTTP 404 from Pinecone. ' +
+        'Set PINECONE_INDEX_NAME to your actual index name (e.g., "quantum-memory").';
+      console.error(msg);
+      throw new Error(msg);
+    }
+    // Warn but don't throw for other suspicious patterns
+    if (indexName.length < 3 || indexName.length > 64) {
+      console.warn(
+        `[env] PINECONE_INDEX_NAME="${indexName}" has an unusual length. ` +
+        'Verify this matches an existing index in your Pinecone project.'
+      );
+    }
+  }
+
+  // ── Redis URL sanity check ────────────────────────────────────────────────
+  const redisUrl = process.env.REDIS_URL?.trim();
+  if (redisUrl && /^redis:\/\/(127\.0\.0\.1|localhost)/i.test(redisUrl)) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.warn(
+        '[env] REDIS_URL appears to point to localhost in a production environment. ' +
+        'Ensure this is intentional. For Upstash, use rediss:// TLS URL.'
+      );
+    }
+  }
+}
