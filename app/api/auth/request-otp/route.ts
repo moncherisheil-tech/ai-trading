@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getRedisClient } from '@/lib/queue/redis-client';
 
@@ -5,20 +6,22 @@ import { getRedisClient } from '@/lib/queue/redis-client';
 // POST /api/auth/request-otp
 //
 // Step 1 of the Telegram 2FA flow.
-// Validates the master password, generates a 6-digit OTP, stores it in Redis
-// with a 3-minute TTL, and dispatches it to the admin's Telegram chat.
+// Validates the master password using a timing-safe byte-level comparison to
+// prevent timing-oracle attacks. On success: generates a 6-digit OTP, stores
+// it in Redis with a 3-minute TTL, and dispatches it to the admin Telegram
+// chat (CHAT_ID 8568627389).
 //
-// The OTP is stored under a session-scoped key (auth:otp:<nonce>) rather than
-// a single global key to prevent race conditions where a second call to this
-// endpoint overwrites the OTP before verify-otp can read it.
-// The nonce is returned to the client and must be echoed back on verify-otp.
+// The OTP is scoped to a per-request nonce (auth:otp:<nonce>) to prevent
+// race conditions where a concurrent call overwrites the OTP before
+// verify-otp can consume it. The nonce is returned to the client and must
+// be echoed back on verify-otp.
 // ---------------------------------------------------------------------------
 
-const OTP_KEY_PREFIX    = 'auth:otp:';
-const OTP_TTL_SECONDS   = 180; // 3 minutes
+const OTP_KEY_PREFIX  = 'auth:otp:';
+const OTP_TTL_SECONDS = 180; // 3 minutes
+const TELEGRAM_CHAT_ID = '8568627389';
 
 function generateOtp(): string {
-  // crypto.getRandomValues gives a uniform distribution — no modulo bias
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
   return String(buf[0]! % 1_000_000).padStart(6, '0');
@@ -28,6 +31,13 @@ function generateNonce(): string {
   const buf = new Uint8Array(16);
   crypto.getRandomValues(buf);
   return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  // Pad both to the same byte length so length differences don't leak timing.
+  const bufA = Buffer.from(a.padEnd(Math.max(a.length, b.length), '\0'));
+  const bufB = Buffer.from(b.padEnd(Math.max(a.length, b.length), '\0'));
+  return timingSafeEqual(bufA, bufB);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -41,16 +51,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const correctPassword = process.env.ADMIN_LOGIN_PASSWORD;
     if (!correctPassword) {
-      console.error('[OTP] ADMIN_LOGIN_PASSWORD env var is not set.');
+      console.error('[request-otp] ADMIN_LOGIN_PASSWORD env var is not set.');
       return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
     }
 
-    // Constant-time simulation — always wait a fixed window to prevent
-    // timing oracles that could confirm whether the env var is set.
-    await new Promise((r) => setTimeout(r, 120 + Math.random() * 80));
-
-    const isMatch = masterPassword === correctPassword;
-    console.log("Password match: ", isMatch);
+    // Timing-safe comparison — prevents byte-by-byte timing oracles.
+    const isMatch = timingSafeStringEqual(masterPassword, correctPassword);
 
     if (!isMatch) {
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
@@ -64,10 +70,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ── Dispatch via Telegram ───────────────────────────────────────────────
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    const chatId   = process.env.TELEGRAM_ADMIN_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+    const chatId   = TELEGRAM_CHAT_ID;
 
-    if (!botToken || !chatId) {
-      console.error('[OTP] TELEGRAM_BOT_TOKEN or chat ID env var is not set.');
+    if (!botToken) {
+      console.error('[request-otp] TELEGRAM_BOT_TOKEN env var is not set.');
       return NextResponse.json({ error: 'Notification service not configured.' }, { status: 500 });
     }
 
@@ -94,14 +100,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!telegramRes.ok) {
       const errBody = await telegramRes.text().catch(() => '');
-      console.error('[OTP] Telegram dispatch failed:', telegramRes.status, errBody);
+      console.error('[request-otp] Telegram dispatch failed:', telegramRes.status, errBody);
       return NextResponse.json({ error: 'Failed to send verification code.' }, { status: 502 });
     }
 
     return NextResponse.json({ success: true, nonce });
 
   } catch (err) {
-    console.error('[OTP] request-otp unhandled error:', err);
+    console.error('[request-otp] Unhandled error:', err);
     return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
   }
 }

@@ -4,13 +4,15 @@ import type { NextRequest } from 'next/server';
 // ---------------------------------------------------------------------------
 // OOB Telegram 2FA Auth Model
 //
-// Access control is now exclusively cookie-based. IP whitelisting has been
-// removed to support global CEO mobility. Authentication is gated by:
+// Access control is exclusively cookie-based. Authentication is gated by:
 //   1. Master Password → /api/auth/request-otp  (dispatches OTP via Telegram)
 //   2. 6-digit OTP     → /api/auth/verify-otp   (issues signed session cookie)
 //
-// The signed HMAC-SHA256 session cookie (app_auth_token) is the sole
+// The signed HMAC-SHA256 session cookie (quantum_auth_token) is the sole
 // mechanism for identifying authenticated sessions.
+//
+// Protocol enforcement: any plain-HTTP request is permanently redirected (301)
+// to the HTTPS canonical domain before authentication checks run.
 // ---------------------------------------------------------------------------
 
 const PUBLIC_API_PREFIXES: string[] = [
@@ -20,11 +22,11 @@ const PUBLIC_API_PREFIXES: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Cookie verification — HMAC-SHA256 signed token (unchanged core logic)
+// Cookie verification — HMAC-SHA256 signed token.
 // Supports secret rotation via APP_SESSION_SECRET_PREVIOUS.
 // ---------------------------------------------------------------------------
 
-const AUTH_COOKIE_NAME = 'app_auth_token';
+const AUTH_COOKIE_NAME = 'quantum_auth_token';
 
 function base64UrlToUint8Array(input: string): Uint8Array | null {
   try {
@@ -126,13 +128,23 @@ function deny401(): NextResponse {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ── Protocol enforcement — hard redirect HTTP → HTTPS (301) ───────────────
+  // Nginx forwards the original protocol in x-forwarded-proto. Any plain-HTTP
+  // request is permanently redirected before any other processing occurs.
+  const proto = request.headers.get('x-forwarded-proto');
+  if (proto === 'http') {
+    const httpsUrl = new URL(request.url);
+    httpsUrl.protocol = 'https:';
+    return NextResponse.redirect(httpsUrl.toString(), { status: 301 });
+  }
+
   // HEAD probes for uptime monitors — never gate
   if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();
 
   // Static assets / Next.js internals
   if (shouldBypassAuth(pathname)) return NextResponse.next();
 
-  // ── Auth endpoints — always pass through, no rate limiting ────────────────
+  // ── Auth endpoints — always pass through ──────────────────────────────────
   if (isPublicApiRoute(pathname)) return NextResponse.next();
 
   // ── All other /api/ routes ─────────────────────────────────────────────────

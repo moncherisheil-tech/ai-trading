@@ -8,12 +8,13 @@ import { createSessionToken } from '@/lib/session';
 // Step 2 of the Telegram 2FA flow.
 // Validates the 6-digit OTP against the Redis-stored value.
 // On success: deletes the OTP (single-use), issues a signed HTTP-Only
-// session cookie (app_auth_token), and returns { success: true, redirectTo }.
+// session cookie (quantum_auth_token) with institutional-grade SSL settings,
+// and returns { success: true, redirectTo }.
 // ---------------------------------------------------------------------------
 
 const OTP_KEY_PREFIX      = 'auth:otp:';
-const AUTH_COOKIE_NAME    = 'app_auth_token';
-const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
+const AUTH_COOKIE_NAME    = 'quantum_auth_token';
+const SESSION_TTL_SECONDS = 43200; // 12 hours
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -50,25 +51,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // ── Invalidate OTP (single-use) ─────────────────────────────────────────
     await redis.del(redisKey);
 
-    // ── Issue session cookie ────────────────────────────────────────────────
+    // ── Issue institutional-grade SSL session cookie ────────────────────────
     const token = createSessionToken('admin', SESSION_TTL_SECONDS);
 
     const response = NextResponse.json({ success: true, redirectTo: '/ops' });
 
-    // secure: false — server is on bare-metal HTTP (178.104.75.47); browsers
-    // silently drop Secure cookies over plain HTTP causing an auth loop.
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   false,
-      sameSite: 'lax',
+      secure:   true,       // hard-coded — domain is exclusively https://quantum.moncherigroup.co.il
+      sameSite: 'strict',
       path:     '/',
       maxAge:   SESSION_TTL_SECONDS,
     });
 
+    console.log('✅ Production Session Cookie issued for SSL domain.');
+
     return response;
 
   } catch (err) {
-    console.error('[OTP] verify-otp unhandled error:', err);
+    console.error('[verify-otp] Unhandled error during session issuance:', err);
     return NextResponse.json({ error: 'Internal server error.' }, { status: 500 });
   }
 }

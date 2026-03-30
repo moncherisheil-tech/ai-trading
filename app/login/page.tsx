@@ -39,8 +39,8 @@ function OtpInputs({ otp, loading, refs, onChange, onKeyDown, onPaste }: OtpInpu
       {otp.map((digit, i) => (
         <input
           key={i}
-          id={`otp-digit-${i}`}
-          name={`otp-digit-${i}`}
+          id={`otp-${i}`}
+          name={`otp-${i}`}
           ref={(el) => { refs.current[i] = el; }}
           type="text"
           inputMode="numeric"
@@ -77,6 +77,7 @@ function LoginForm() {
   // ── Step 1 — submit master password ────────────────────────────────────────
   const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError(null);
     setLoading(true);
     try {
@@ -132,6 +133,7 @@ function LoginForm() {
   // ── Step 2 — submit OTP ────────────────────────────────────────────────────
   const handleOtpSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     const code = otp.join('');
     if (code.length < 6) { setError('Enter all 6 digits.'); return; }
 
