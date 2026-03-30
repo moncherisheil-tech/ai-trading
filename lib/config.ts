@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, normalizeGeminiModelId } from './gemini-model';
 import { CRYPTO_SYMBOLS } from './symbols';
 

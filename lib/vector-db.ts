@@ -108,6 +108,9 @@ export const GEMINI_EMBEDDING_MODEL_ID = 'gemini-embedding-001';
 export const GEMINI_EMBEDDING_DIMENSION = 768;
 const EMBEDDING_FAILFAST_TIMEOUT_MS = 25_000;
 
+/** Warn at most once per process about a misconfigured PINECONE_EMBEDDING_DIM. */
+let _embeddingDimWarnedOnce = false;
+
 function getEmbeddingModelCandidates(): string[] {
   const env = process.env.GEMINI_EMBEDDING_MODEL_ID?.trim();
   const stable = GEMINI_EMBEDDING_MODEL_ID;
@@ -120,21 +123,26 @@ function normalizeEmbeddingModelId(modelId: string): string {
 }
 
 /**
- * Returns the expected embedding dimension.
- * Strictly enforces 768 (Gemini `gemini-embedding-001` Matryoshka standard).
- * If PINECONE_EMBEDDING_DIM is set in env, it is accepted ONLY when it equals 768;
- * any other value is rejected and the Gemini standard (768) is used instead with a warning.
+ * Returns the required embedding dimension (always 768 — Gemini gemini-embedding-001 standard).
+ * If PINECONE_EMBEDDING_DIM is set to any value other than 768, a single warning is emitted
+ * and the canonical 768 is used regardless. This prevents dimension-mismatch errors and
+ * eliminates log spam on every embedding call.
  */
 function getExpectedEmbeddingDim(): number {
-  const raw = process.env.PINECONE_EMBEDDING_DIM;
-  if (typeof raw === 'undefined' || raw.trim() === '') return GEMINI_EMBEDDING_DIMENSION;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed !== GEMINI_EMBEDDING_DIMENSION) {
-    console.warn(
-      `[vector-db] PINECONE_EMBEDDING_DIM=${raw} does not equal the Gemini standard ${GEMINI_EMBEDDING_DIMENSION}. ` +
-      `Overriding to ${GEMINI_EMBEDDING_DIMENSION} to prevent dimension mismatch errors.`
-    );
-    return GEMINI_EMBEDDING_DIMENSION;
+  if (!_embeddingDimWarnedOnce) {
+    const raw = process.env.PINECONE_EMBEDDING_DIM;
+    if (typeof raw !== 'undefined' && raw.trim() !== '') {
+      const stripped = raw.trim().replace(/^["']|["']$/g, '');
+      const parsed = Number(stripped);
+      if (!Number.isFinite(parsed) || parsed !== GEMINI_EMBEDDING_DIMENSION) {
+        console.warn(
+          `[vector-db] PINECONE_EMBEDDING_DIM=${raw.trim()} does not equal the Gemini standard ` +
+          `${GEMINI_EMBEDDING_DIMENSION}. Update your env to PINECONE_EMBEDDING_DIM=768 or ` +
+          `remove this variable. Overriding to ${GEMINI_EMBEDDING_DIMENSION}. (This warning fires once per process.)`
+        );
+      }
+    }
+    _embeddingDimWarnedOnce = true;
   }
   return GEMINI_EMBEDDING_DIMENSION;
 }
