@@ -3,11 +3,11 @@ import 'dotenv/config';
 /**
  * verify-save.mjs — Persistence verification script
  * Verifies that POST /api/settings/app persists data and GET returns it.
- * Usage: set BASE_URL (e.g. http://localhost:3000), then: node scripts/verify-save.mjs
+ * Usage: set BASE_URL (e.g. https://quantum.moncherigroup.co.il), then: node scripts/verify-save.mjs
  * For authenticated routes, set COOKIE_HEADER to a valid app_auth_token cookie if required.
  */
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL || 'https://quantum.moncherigroup.co.il';
 const COOKIE_HEADER = process.env.COOKIE_HEADER || '';
 
 async function fetchJson(url, options = {}) {

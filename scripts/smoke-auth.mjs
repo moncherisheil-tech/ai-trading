@@ -1,4 +1,4 @@
-const baseUrl = process.env.APP_URL || 'http://localhost:3000';
+const baseUrl = process.env.APP_URL || 'https://quantum.moncherigroup.co.il';
 const password = process.env.ADMIN_LOGIN_PASSWORD;
 
 if (!password) {

@@ -29,16 +29,16 @@ function normalizeAppUrl(raw: string | undefined): string {
 
 /**
  * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
- * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → http://localhost:3000
+ * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → production domain
  */
 export function getBaseUrl(): string {
   const u = normalizeAppUrl(
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     process.env.PUBLIC_URL ||
-    'http://localhost:3000'
+    'https://quantum.moncherigroup.co.il'
   );
-  return u || 'http://localhost:3000';
+  return u || 'https://quantum.moncherigroup.co.il';
 }
 
 /** Secure cookies only when APP_URL is explicitly https. */
