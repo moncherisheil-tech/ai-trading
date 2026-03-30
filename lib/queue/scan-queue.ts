@@ -247,3 +247,57 @@ export function customBackoffStrategy(
 ): number {
   return computeBackoffMs(attemptsMade, err);
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Zero-Touch Automation: BullMQ Repeatable Job Scheduler
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface TriggerMasterScanJobData {
+  triggeredAt: number;
+}
+
+/**
+ * Setup the auto-scanner as a BullMQ repeatable job.
+ * Runs every 20 minutes (cron pattern: '*/20 * * * *').
+ * Call once at worker startup.
+ *
+ * The Worker will detect this job by name and enqueue the scan cycle.
+ */
+export async function setupAutoScanner(): Promise<void> {
+  if (!isRedisAvailable()) {
+    console.warn('[AutoScanner] Redis unavailable; skipping repeatable job setup.');
+    return;
+  }
+
+  const queue = getCoinScanQueue();
+
+  try {
+    // Check if job already exists to avoid duplicates
+    const existingJobs = await queue.getRepeatableJobs();
+    const alreadyExists = existingJobs.some((j) => j.name === 'trigger-master-scan');
+
+    if (alreadyExists) {
+      console.log('[AutoScanner] Repeatable job "trigger-master-scan" already exists; skipping.');
+      return;
+    }
+
+    // Add repeatable job: every 20 minutes
+    await queue.add(
+      'trigger-master-scan',
+      { triggeredAt: Date.now() } satisfies TriggerMasterScanJobData,
+      {
+        repeat: {
+          pattern: '*/20 * * * *',
+        },
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+
+    console.log('[AutoScanner] Repeatable job "trigger-master-scan" registered (every 20 minutes).');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[AutoScanner] Failed to setup repeatable job:', msg);
+    throw err;
+  }
+}

@@ -106,8 +106,6 @@ const state: ScannerState = {
   lastDiagnostics: null,
 };
 
-let intervalId: ReturnType<typeof setInterval> | null = null;
-
 export function getScannerState(): ScannerState {
   return {
     ...state,
@@ -514,26 +512,19 @@ export async function runOneCycle(): Promise<void> {
   }
 }
 
+/**
+ * @deprecated Use BullMQ repeatable jobs instead (setupAutoScanner in queue-worker.ts).
+ * This function is kept for backwards compatibility with legacy HTTP endpoints.
+ * No-op when running the PM2 queue worker with QUEUE_ENABLED=true.
+ */
 export function startMarketScanner(): void {
-  if (intervalId != null) {
-    return;
-  }
-  runOneCycle().catch((err) => {
-    void sendWorkerFailureAlert('scanner.startup', err);
-  });
-  intervalId = setInterval(() => {
-    runOneCycle().catch((err) => {
-      void sendWorkerFailureAlert('scanner.interval', err);
-    });
-  }, SCAN_INTERVAL_MS);
-  console.log('[HEARTBEAT] Market scanner started (20m interval).');
+  console.log('[HEARTBEAT] startMarketScanner() deprecated — using BullMQ repeatable jobs instead.');
 }
 
+/**
+ * @deprecated Use BullMQ repeatable jobs instead.
+ * This function is kept for backwards compatibility.
+ */
 export function stopMarketScanner(): void {
-  if (intervalId != null) {
-    clearInterval(intervalId);
-    intervalId = null;
-    state.status = 'IDLE';
-    console.log('[HEARTBEAT] Market scanner stopped.');
-  }
+  console.log('[HEARTBEAT] stopMarketScanner() deprecated — no-op (handled by BullMQ worker).');
 }

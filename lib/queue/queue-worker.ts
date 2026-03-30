@@ -18,6 +18,7 @@
 
 import 'dotenv/config';
 import { Worker, type Job } from 'bullmq';
+import { randomUUID } from 'crypto';
 import { getRedisClient, closeRedisClient } from './redis-client';
 import {
   QUEUE_NAME,
@@ -25,13 +26,18 @@ import {
   persistJobResult,
   customBackoffStrategy,
   closeCoinScanQueueEvents,
+  setupAutoScanner,
+  enqueueScanCycle,
   type CoinScanJobData,
   type CoinScanJobResult,
+  type TriggerMasterScanJobData,
 } from './scan-queue';
 import { doAnalysisCore } from '@/lib/analysis-core';
 import { generateTieredReport } from '@/lib/reports/tiered-report-generator';
 import { emitJobComplete } from '@/lib/webhooks/emitter';
 import { writeAudit } from '@/lib/audit';
+import { buildCandidateList } from '@/lib/workers/market-scanner';
+import { getScannerSettings } from '@/lib/db/system-settings';
 import type { ConnectionOptions } from 'bullmq';
 
 const CONCURRENCY = Number(process.env.QUEUE_CONCURRENCY ?? 3);
@@ -45,10 +51,58 @@ const cycleStartTimes = new Map<string, number>();
 // ────────────────────────────────────────────────────────────────────────────
 
 async function processJob(
-  job: Job<CoinScanJobData, CoinScanJobResult>
-): Promise<CoinScanJobResult> {
-  const { symbol, cycleId, macroCtx } = job.data;
+  job: Job<CoinScanJobData | TriggerMasterScanJobData, CoinScanJobResult | void>
+): Promise<CoinScanJobResult | void> {
   const start = Date.now();
+
+  // ── Handle trigger-master-scan: enqueue all candidates ──
+  if (job.name === 'trigger-master-scan') {
+    console.log('[Worker] Processing trigger-master-scan (repeatable scheduler)');
+    try {
+      const settings = await getScannerSettings();
+      if (settings && !settings.scanner_is_active) {
+        console.log('[Worker] Scanner disabled in settings; skipping this cycle.');
+        writeAudit({ event: 'queue.scanner_disabled', level: 'info' });
+        return;
+      }
+
+      const cycleId = randomUUID();
+      const { candidates, macroCtx } = await buildCandidateList();
+
+      if (candidates.length === 0) {
+        console.log('[Worker] No candidates found for this cycle.');
+        writeAudit({ event: 'queue.trigger_no_candidates', level: 'warn', meta: { cycleId } });
+        return;
+      }
+
+      await enqueueScanCycle(candidates, cycleId, macroCtx);
+      const durationMs = Date.now() - start;
+
+      writeAudit({
+        event: 'queue.trigger_master_scan_executed',
+        level: 'info',
+        meta: { cycleId, count: candidates.length, durationMs },
+      });
+
+      console.log(
+        `[Worker] trigger-master-scan completed in ${durationMs}ms — enqueued ${candidates.length} jobs for cycle ${cycleId}`
+      );
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Worker] trigger-master-scan failed:', msg);
+      writeAudit({
+        event: 'queue.trigger_master_scan_failed',
+        level: 'error',
+        meta: { error: msg },
+      });
+      throw err;
+    }
+  }
+
+  // ── Handle standard scan job: analyze a single symbol ──
+  const jobData = job.data as CoinScanJobData;
+  const { symbol, cycleId, macroCtx } = jobData;
 
   if (!cycleStartTimes.has(cycleId)) {
     cycleStartTimes.set(cycleId, start);
@@ -144,7 +198,7 @@ async function processJob(
 
 const connection = getRedisClient() as unknown as ConnectionOptions;
 
-const worker = new Worker<CoinScanJobData, CoinScanJobResult>(
+const worker = new Worker<CoinScanJobData | TriggerMasterScanJobData, CoinScanJobResult | void>(
   QUEUE_NAME,
   processJob,
   {
@@ -180,6 +234,17 @@ attachDrainListener(async (cycleId: string) => {
     cycleStartTimes.delete(cycleId);
   }
 });
+
+// Initialize the auto-scanner repeatable job on startup
+setupAutoScanner()
+  .then(() => {
+    console.log('[Worker] Auto-scanner scheduler initialized.');
+  })
+  .catch((err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Worker] Failed to initialize auto-scanner:', msg);
+    process.exit(1);
+  });
 
 console.log(
   `[Worker] BullMQ worker started — queue="${QUEUE_NAME}", concurrency=${CONCURRENCY}`

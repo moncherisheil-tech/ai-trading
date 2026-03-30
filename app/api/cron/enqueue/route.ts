@@ -1,19 +1,21 @@
 /**
- * Enqueue Scan Cycle — replaces the fire-and-forget /api/cron/worker chain.
+ * @deprecated Use BullMQ repeatable jobs for automatic scheduling.
  *
- * Fetches coin candidates (same logic as market-scanner.ts) and enqueues
- * one BullMQ job per candidate. Returns immediately — the Worker process
- * runs the jobs in the background.
+ * This endpoint is now MANUAL ONLY and should NOT be called automatically.
+ * Automatic scheduling is handled by setupAutoScanner() in lib/queue/queue-worker.ts
+ * as a BullMQ repeatable job that triggers every 20 minutes.
  *
- * Authorization: same CRON_SECRET / ADMIN_SECRET as existing routes.
- * Only active when QUEUE_ENABLED=true.
+ * You may still call this endpoint manually for on-demand scans, but:
+ * - Remove from vercel.json cron configuration
+ * - Do NOT set up external cron triggers (e.g. cron-job.org) to call this
+ * - The repeatable job is now idempotent and handles scheduling entirely
  */
 
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { getAuthorizedToken } from '@/lib/cron-auth';
 import { getScannerSettings } from '@/lib/db/system-settings';
-import { buildCandidateList, buildCycleMacroContext } from '@/lib/workers/market-scanner';
+import { buildCandidateList } from '@/lib/workers/market-scanner';
 import { enqueueScanCycle } from '@/lib/queue/scan-queue';
 import { writeAudit } from '@/lib/audit';
 
@@ -49,9 +51,9 @@ export async function GET(request: Request): Promise<NextResponse> {
     await enqueueScanCycle(candidates, cycleId, macroCtx);
 
     writeAudit({
-      event: 'queue.cycle_enqueued',
+      event: 'queue.cycle_enqueued_manual',
       level: 'info',
-      meta: { cycleId, count: candidates.length, symbols: candidates },
+      meta: { cycleId, count: candidates.length, symbols: candidates, source: 'manual_http_trigger' },
     });
 
     return NextResponse.json({
@@ -59,6 +61,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       cycleId,
       enqueued: candidates.length,
       symbols: candidates,
+      note: 'Manual trigger only — automatic scheduling is handled by BullMQ repeatable jobs.',
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
