@@ -24,26 +24,32 @@ export const SANDBOX_MOCK_PAYLOAD: ConsensusMockPayload = {
   tech: {
     tech_score: 87,
     tech_logic: 'מבנה טכני חיובי עם תמיכה ב-HVN וסטייה חיובית מתונה; עדיפות להמשך מגמה.',
+    is_fallback: false,
   },
   risk: {
     risk_score: 81,
     risk_logic: 'R:R מעל 1:2, תנודתיות נשלטת, וגודל פוזיציה שמרני עומד בכללי סיכון.',
+    is_fallback: false,
   },
   psych: {
     psych_score: 79,
     psych_logic: 'סנטימנט יציב ללא אופוריה קיצונית; נתוני מימון ו-OI תומכים בתרחיש חיובי.',
+    is_fallback: false,
   },
   macro: {
     macro_score: 83,
     macro_logic: 'מקרו ניטרלי-חיובי עם לחץ דולר מתון וזרימת הון מוסדית תומכת.',
+    is_fallback: false,
   },
   onchain: {
     onchain_score: 86,
     onchain_logic: 'זרימות On-Chain מצביעות על צבירה הדרגתית ולחץ מכירה נמוך.',
+    is_fallback: false,
   },
   deepMemory: {
     deep_memory_score: 82,
     deep_memory_logic: 'עסקאות דומות הראו יתרון כאשר On-Chain חיובי יחד עם משמעת סיכון.',
+    is_fallback: false,
   },
   judge: {
     master_insight_he: 'קונצנזוס מלא של מועצת ה-AI: התנאים בשלים ל-Alpha Signal חיובי תחת ניהול סיכון שמרני.',

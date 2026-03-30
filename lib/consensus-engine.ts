@@ -45,6 +45,7 @@ import {
 } from '@/lib/gemini-model';
 import { createHash } from 'crypto';
 import { withCircuitBreaker } from '@/lib/queue/circuit-breaker';
+import { withExponentialBackoff, withFallbackFlag } from '@/lib/utils/with-retry';
 
 /**
  * Wall-clock cap for one MoE round. Must exceed parallel expert timeouts (each can run up to ~timeoutMs)
@@ -230,34 +231,42 @@ async function withRetry<T>(
   throw lastError as Error;
 }
 
+/** Enterprise-Grade LLM Resilience: all expert outputs track fallback status */
 export interface ExpertTechnicianOutput {
   tech_score: number;
   tech_logic: string;
+  /** true when score is 50 (fallback); false when API call succeeded */
+  is_fallback: boolean;
 }
 
 export interface ExpertRiskOutput {
   risk_score: number;
   risk_logic: string;
+  is_fallback: boolean;
 }
 
 export interface ExpertPsychOutput {
   psych_score: number;
   psych_logic: string;
+  is_fallback: boolean;
 }
 
 export interface ExpertMacroOutput {
   macro_score: number;
   macro_logic: string;
+  is_fallback: boolean;
 }
 
 export interface ExpertOnChainOutput {
   onchain_score: number;
   onchain_logic: string;
+  is_fallback: boolean;
 }
 
 export interface ExpertDeepMemoryOutput {
   deep_memory_score: number;
   deep_memory_logic: string;
+  is_fallback: boolean;
 }
 
 export interface ExpertContrarianOutput {
@@ -265,6 +274,8 @@ export interface ExpertContrarianOutput {
   trap_type: 'none' | 'bull_trap' | 'bear_trap' | 'liquidity_trap';
   attack_on_consensus_he: string;
   trap_hypothesis_he: string;
+  /** Expert 7 (Contrarian) resilience flag: true when API failed or retries exhausted */
+  is_fallback: boolean;
 }
 
 type FundamentalMetricsSnapshot = {
@@ -327,12 +338,20 @@ export interface ConsensusResult {
   macro_logic: string;
   onchain_logic: string;
   deep_memory_logic: string;
+  /** True when Technician expert failed and score used fallback. */
+  tech_fallback_used?: boolean;
+  /** True when Risk expert failed and score used fallback. */
+  risk_fallback_used?: boolean;
+  /** True when Psych expert failed and score used fallback. */
+  psych_fallback_used?: boolean;
   /** True when Macro agent (Groq) failed and score used fallback. */
   macro_fallback_used?: boolean;
   /** True when On-Chain Sleuth failed and score used fallback. */
   onchain_fallback_used?: boolean;
   /** True when Deep Memory (Vector) agent failed and score used fallback. */
   deep_memory_fallback_used?: boolean;
+  /** True when Contrarian (Expert 7) expert failed and gate is weakened (cannot veto). */
+  contrarian_fallback_used?: boolean;
   contrarian_confidence?: number;
   contrarian_trap_type?: ExpertContrarianOutput['trap_type'];
   contrarian_attack_he?: string;
@@ -793,7 +812,7 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
 
   // Gemini fallback — shared by the direct path (no groqKey) and the CB fallback.
   const runGeminiTechnician = async (): Promise<ExpertTechnicianOutput> => {
-    const out = await callGeminiJson<ExpertTechnicianOutput>(
+    const out = await callGeminiJson<Omit<ExpertTechnicianOutput, 'is_fallback'>>(
       prompt,
       ['tech_score', 'tech_logic'],
       model,
@@ -801,7 +820,11 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
       { symbol: input.symbol, expert: 'Technician (Gemini fallback)' }
     );
     const tech_score = Math.max(0, Math.min(100, Number(out.tech_score) || 50));
-    return { tech_score, tech_logic: String(out.tech_logic || 'ללא נימוק').slice(0, 500) };
+    return { 
+      tech_score, 
+      tech_logic: String(out.tech_logic || 'ללא נימוק').slice(0, 500),
+      is_fallback: false 
+    };
   };
 
   if (groqKey) {
@@ -837,7 +860,7 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
         const parsed = JSON.parse(extractFirstJsonObject(raw.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
         const tech_score = Math.max(0, Math.min(100, Number(parsed.tech_score) || 50));
         const tech_logic = String(parsed.tech_logic || 'ללא נימוק').slice(0, 500);
-        return { tech_score, tech_logic };
+        return { tech_score, tech_logic, is_fallback: false };
       } catch (e) {
         recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
         console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
@@ -883,7 +906,7 @@ ${input.deep_memory_context}
 
 כללים: (1) Volatility — נתח תנודתיות באמצעות ATR וסטיית תקן (סטיית תקן משתמעת/היסטורית אם עולה מן ההקשר): ATR% גבוה או סטיית תקן קיצונית → הקטן גודל פוזיציה וציון. (2) Position Sizing — חשב גודל פוזיציה נאות ביחס להון על בסיס Kelly Criterion משוער (Full/half Kelly): אם ה־Kelly fraction מרמז על הקצאה <1% מההון, ציין זאת במפורש והורד ציון. (3) יחס סיכון/תגמול (R:R) מינימלי חובה ${rrMin}; אם R:R נמוך — risk_score ≤ 40 ו"דחייה: R:R מתחת ל־${rrMin}". (4) Drawdown Protection — הערך איך SL מוגדר ביחס ל־max drawdown סביר לתיק; מבנה שיכול לגרור גרירת סטופס סדרתית או drawdown חד → ציון נמוך. (5) Slippage ו-Spread — חשב רווחיות לאחר החלקה ועמלות; נזילות רדודה/ספר לא רציף = risk_score נמוך. (6) Hard Stop Loss ברור חובה; ללא SL או SL רחוק מדי ⇢ הורד ציון. (7) ציון 100 רק כאשר R:R≥${rrMin}, SL/TP מתואמים לתנודתיות, וגודל הפוזיציה עקבי עם Kelly ועם מגבלת drawdown.
 החזר risk_score (0-100) והסבר ב־risk_logic בעברית (Volatility/ATR/סטיית תקן, Kelly position sizing, R:R, Drawdown protection, Slippage/Spread, Hard Stop). החזר JSON בלבד: risk_score, risk_logic.`;
-  const out = await callGeminiJson<ExpertRiskOutput>(
+  const out = await callGeminiJson<Omit<ExpertRiskOutput, 'is_fallback'>>(
     prompt,
     ['risk_score', 'risk_logic'],
     model,
@@ -891,7 +914,7 @@ ${input.deep_memory_context}
     { symbol: input.symbol, expert: 'Risk' }
   );
   const risk_score = Math.max(0, Math.min(100, Number(out.risk_score) ?? 50));
-  return { risk_score, risk_logic: String(out.risk_logic || 'ללא נימוק').slice(0, 500) };
+  return { risk_score, risk_logic: String(out.risk_logic || 'ללא נימוק').slice(0, 500), is_fallback: false };
 }
 
 /**
@@ -925,7 +948,7 @@ ${input.deep_memory_context}
 
 כללים: (1) Funding Rates — זהה מימון חיובי קיצוני כ"רוויה לונגים" ומימון שלילי קיצוני כ"רוויה שורטים"; מצבי Funding crowded = סיגנל קונטרארי. (2) Liquidations Heatmaps — התייחס לאזורי ריכוז ליקווידציות (clustered liquidations) מעל/מתחת למחיר; אם תרחיש העסקה דורש "לרדוף" אחרי ליקווידציות פתוחות, הורד ציון. (3) Euphoria/FOMO מול פחד לא מוצדק — זהה תאוות קנייה, הייפ, "כולם קונים" מול פאניקה כש-fundamentals לא תומכים. (4) Setups קונטראריים: Euphoria בעדר + Funding חיובי קיצוני + ליקווידציות לונגים פתוחות = דחייה/ציון נמוך; פחד לא מוצדק + Funding נייטרלי/שלילי + ליקווידציות שורטים מעל = ציון גבוה (silent accumulation). (5) Smart Money vs Retail: צבירה שקטה = גבוה; FOMO/distribution/עדר = נמוך. (6) Social dominance volume — נפח/דומיננטיות בסושיאל/חדשות; הייפ מוחלט vs שקט = התאמה לקונטרארי. (7) טוויטר/סושיאל בזמן אמת — השתמש בציטוטים לעיל כדי לבסס את psych_score על מדדי סושיאל חיים ולא רק על תיאוריה כללית. (8) הגדר במפורש: FOMO distribution / silent accumulation / פחד לא מוצדק (קונטרארי). (9) Open Interest — השתמש ב-OI כפרוקסי להשתתפות השוק (market participation) ו"עסקאות צפופות" (Crowded Trades): OI עולה עם מחיר = כניסת כסף חדש/לחץ; OI יורד = סגירת פוזיציות או ליקווידציות; OI גבוה יציב עם מחיר חלש = סיכון ללונגים צפופים.
 החזר psych_score (0-100) והסבר ב־psych_logic בעברית (Funding, Liquidations heatmap/high-risk zones, Euphoria/פחד, on-chain, סושיאל, טוויטר, accumulation/distribution, OI). החזר JSON בלבד: psych_score, psych_logic.`;
-  const out = await callGeminiJson<ExpertPsychOutput>(
+  const out = await callGeminiJson<Omit<ExpertPsychOutput, 'is_fallback'>>(
     prompt,
     ['psych_score', 'psych_logic'],
     model,
@@ -933,7 +956,7 @@ ${input.deep_memory_context}
     { symbol: input.symbol, expert: 'Psych' }
   );
   const psych_score = Math.max(0, Math.min(100, Number(out.psych_score) ?? 50));
-  return { psych_score, psych_logic: String(out.psych_logic || 'ללא נימוק').slice(0, 500) };
+  return { psych_score, psych_logic: String(out.psych_logic || 'ללא נימוק').slice(0, 500), is_fallback: false };
 }
 
 /** Extract first top-level JSON object from text (handles "Here is the JSON: {...}" and markdown-wrapped). */
@@ -988,7 +1011,7 @@ function parseMacroJson(raw: string): ExpertMacroOutput {
   const macro_score = Number(obj.macro_score);
   const macro_logic = typeof obj.macro_logic === 'string' ? obj.macro_logic : String(obj.macro_logic ?? '');
   const score = Number.isFinite(macro_score) ? Math.max(0, Math.min(100, macro_score)) : 50;
-  return { macro_score: score, macro_logic: macro_logic.slice(0, 500) };
+  return { macro_score: score, macro_logic: macro_logic.slice(0, 500), is_fallback: false };
 }
 
 /** Gemini model used when Groq Macro agent hits 429 rate limit; keeps all 6 experts active. */
@@ -1070,7 +1093,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
   const gemModelMacro = geminiFallbackModel ?? GEMINI_MACRO_FALLBACK_MODEL;
   if (!useGroqMacro) {
     try {
-      const gemOut = await callGeminiJson<ExpertMacroOutput>(
+      const gemOut = await callGeminiJson<Omit<ExpertMacroOutput, 'is_fallback'>>(
         userPrompt,
         ['macro_score', 'macro_logic'],
         gemModelMacro,
@@ -1081,6 +1104,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
       return {
         macro_score,
         macro_logic: String(gemOut.macro_logic || 'ללא נימוק').slice(0, 500),
+        is_fallback: false,
       };
     } catch (gemErr) {
       console.warn('[ConsensusEngine] Gemini Macro primary failed, falling back to Groq if available:', gemErr instanceof Error ? gemErr.message : gemErr);
@@ -1096,6 +1120,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
     return {
       macro_score: 50,
       macro_logic: 'סוכן Groq (מקרו/Order Book) הושבת — מפתח API חסר. המערכת עוקפת ומשתמשת בשלושת סוכני Gemini בלבד; ציון מקרו 50.',
+      is_fallback: true,
     };
   }
   const groq = new Groq({ apiKey });
@@ -1125,7 +1150,8 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
     recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
     const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
     if (!raw) throw new Error('Empty Groq response');
-    return parseMacroJson(raw);
+    const result = parseMacroJson(raw);
+    return { ...result, is_fallback: false };
   } catch (err) {
     recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
     const msg = err instanceof Error ? err.message : String(err);
@@ -1139,7 +1165,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
         { groqModel: GROQ_MODEL, fallbackModel }
       );
       try {
-        const out = await callGeminiJson<ExpertMacroOutput>(
+        const out = await callGeminiJson<Omit<ExpertMacroOutput, 'is_fallback'>>(
           userPrompt,
           ['macro_score', 'macro_logic'],
           fallbackModel,
@@ -1150,12 +1176,14 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
         return {
           macro_score,
           macro_logic: String(out.macro_logic || 'ניתוח מקרו (Gemini גיבוי לאחר 429 מ־Groq).').slice(0, 500),
+          is_fallback: false,
         };
       } catch (geminiErr) {
         console.error('[ConsensusEngine] Gemini Macro fallback also failed:', geminiErr);
         return {
           macro_score: FALLBACK_EXPERT_SCORE,
           macro_logic: `${NEUTRAL_FALLBACK_LOGIC} (מקרו: Groq וגיבוי Gemini נכשלו).`,
+          is_fallback: true,
         };
       }
     }
@@ -1163,6 +1191,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
     return {
       macro_score: FALLBACK_EXPERT_SCORE,
       macro_logic: `${NEUTRAL_FALLBACK_LOGIC} (מקרו/Groq: ${msg.slice(0, 120)}).`,
+      is_fallback: true,
     };
   }
 }
@@ -1260,7 +1289,7 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
 
   // Gemini fallback — shared by the direct path (no anthropicKey) and the CB fallback.
   const runGeminiOnChain = async (): Promise<ExpertOnChainOutput> => {
-    const out = await callGeminiJson<ExpertOnChainOutput>(
+    const out = await callGeminiJson<Omit<ExpertOnChainOutput, 'is_fallback'>>(
       prompt,
       ['onchain_score', 'onchain_logic'],
       model,
@@ -1268,7 +1297,7 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
       { symbol: input.symbol, expert: 'On-Chain (Gemini fallback)' }
     );
     const onchain_score = Math.max(0, Math.min(100, Number(out.onchain_score) ?? 50));
-    return { onchain_score, onchain_logic: String(out.onchain_logic || 'ללא נימוק').slice(0, 500) };
+    return { onchain_score, onchain_logic: String(out.onchain_logic || 'ללא נימוק').slice(0, 500), is_fallback: false };
   };
 
   if (anthropicKey) {
@@ -1306,7 +1335,7 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
       const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
       const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
       const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
-      return { onchain_score, onchain_logic };
+      return { onchain_score, onchain_logic, is_fallback: false };
     };
 
     return withCircuitBreaker('anthropic', runAnthropicOnChain, runGeminiOnChain);
@@ -1348,7 +1377,7 @@ Fundamental metrics (${fundamentalMetrics.status}): ${fundamentalMetrics.summary
 
 כללים: (1) חובה לשקלל גם fundamentals חיים: יחס FDV/Market Cap, TVL (כאשר זמין), Active Addresses (כאשר זמין), ונתוני היצע (circulating/total). (2) אם יש לפחות עסקה דומה אחת — הסק מגוף הטקסט האם היו בעיות טוקנומיקס (FDV מנופח לעומת Market Cap, לוחות וסטינג אגרסיביים, אינפלציית טוקן, מודל הכנסות חלש) או יתרונות (FDV סביר, Vesting הדרגתי, הכנסות פרוטוקול יציבות); תרגם זאת לציון סיכוי/סיכון. (3) אם בתחקירי past trades מופיעים אירועי "unlock", "VC dump" או שחיקה מתמשכת במחיר סביב unlocks — סימן ברור ליתרון/חיסרון טוקנומיקס שיש לשקלל בציון. (4) נסח deep_memory_logic בעברית במשפט אחד ברור: "על בסיס X עסקאות היסטוריות דומות + metrics פונדמנטליים חיים, הסתברות ההצלחה להערכתי Y%." (5) אם אין עסקאות דומות או שה-fundamentals לא זמינים, ציין זאת מפורשות אך אל תמציא ערכים; החזר ציון ניטרלי כשהראיות חלשות.
 החזר JSON בלבד: deep_memory_score, deep_memory_logic.`;
-  const out = await callGeminiJson<ExpertDeepMemoryOutput>(
+  const out = await callGeminiJson<Omit<ExpertDeepMemoryOutput, 'is_fallback'>>(
     prompt,
     ['deep_memory_score', 'deep_memory_logic'],
     model,
@@ -1357,7 +1386,7 @@ Fundamental metrics (${fundamentalMetrics.status}): ${fundamentalMetrics.summary
   );
   const deep_memory_score = Math.max(0, Math.min(100, Number(out.deep_memory_score) ?? 50));
   const deep_memory_logic = String(out.deep_memory_logic || 'אין מספיק נתוני Deep Memory.').slice(0, 500);
-  return { deep_memory_score, deep_memory_logic };
+  return { deep_memory_score, deep_memory_logic, is_fallback: false };
 }
 
 function getContrarianGeminiModelId(): string {
@@ -1382,23 +1411,40 @@ async function runExpertContrarian(
   timeoutMs: number
 ): Promise<ExpertContrarianOutput> {
   const prompt = `Expert 7 CONTRARIAN — destroy the consensus. Board lean=${board.boardLean} avg=${board.avgScore.toFixed(1)}. Symbol ${input.symbol} price ${input.current_price}. Scores T/R/P/M/O/D=${board.tech.tech_score}/${board.risk.risk_score}/${board.psych.psych_score}/${board.macro.macro_score}/${board.onchain.onchain_score}/${board.deep.deep_memory_score}. OB: ${(input.order_book_summary ?? '').slice(0, 400)} Micro: ${(input.microstructure_signal ?? '').slice(0, 400)}. If lean is bullish, argue bull trap / distribution; if bearish, argue bear trap / short squeeze. Hebrew in trap_hypothesis_he and attack_on_consensus_he. JSON only: contrarian_confidence (0-100), trap_type (none|bull_trap|bear_trap|liquidity_trap), trap_hypothesis_he, attack_on_consensus_he.`;
-  const out = await callGeminiJson<ExpertContrarianOutput>(
-    prompt,
-    ['contrarian_confidence', 'trap_type', 'trap_hypothesis_he', 'attack_on_consensus_he'],
-    contrarianModel,
-    timeoutMs,
-    { symbol: input.symbol, expert: 'Contrarian' }
-  );
-  const tt = String(out.trap_type || 'none');
-  const trap_type = (['none', 'bull_trap', 'bear_trap', 'liquidity_trap'].includes(tt)
-    ? tt
-    : 'none') as ExpertContrarianOutput['trap_type'];
-  return {
-    contrarian_confidence: Math.max(0, Math.min(100, Number(out.contrarian_confidence) || 0)),
-    trap_type,
-    trap_hypothesis_he: String(out.trap_hypothesis_he || '').slice(0, 500),
-    attack_on_consensus_he: String(out.attack_on_consensus_he || '').slice(0, 500),
-  };
+  
+  try {
+    const out = await withExponentialBackoff(
+      () => callGeminiJson<Omit<ExpertContrarianOutput, 'is_fallback'>>(
+        prompt,
+        ['contrarian_confidence', 'trap_type', 'trap_hypothesis_he', 'attack_on_consensus_he'],
+        contrarianModel,
+        timeoutMs,
+        { symbol: input.symbol, expert: 'Contrarian' }
+      ),
+      { maxRetries: 3 },
+      { symbol: input.symbol, expert: 'Contrarian', provider: 'Gemini' }
+    );
+    const tt = String(out.trap_type || 'none');
+    const trap_type = (['none', 'bull_trap', 'bear_trap', 'liquidity_trap'].includes(tt)
+      ? tt
+      : 'none') as ExpertContrarianOutput['trap_type'];
+    return {
+      contrarian_confidence: Math.max(0, Math.min(100, Number(out.contrarian_confidence) || 0)),
+      trap_type,
+      trap_hypothesis_he: String(out.trap_hypothesis_he || '').slice(0, 500),
+      attack_on_consensus_he: String(out.attack_on_consensus_he || '').slice(0, 500),
+      is_fallback: false,
+    };
+  } catch (err) {
+    console.error('[ConsensusEngine] Contrarian expert failed after retries:', err instanceof Error ? err.message : err);
+    return {
+      contrarian_confidence: 0,
+      trap_type: 'none',
+      trap_hypothesis_he: 'Fallback engaged: Contrarian API unavailable after retries.',
+      attack_on_consensus_he: 'Fallback engaged: Unable to challenge consensus.',
+      is_fallback: true,
+    };
+  }
 }
 
 function isPolarizedExpertBoard(scores: number[]): boolean {
@@ -1669,19 +1715,19 @@ export async function runConsensusEngine(
   const expert1: ExpertTechnicianOutput =
     techSettled.status === 'fulfilled'
       ? techSettled.value
-      : { tech_score: FALLBACK_EXPERT_SCORE, tech_logic: 'מומחה טכני לא זמין (timeout/שגיאה).' };
+      : { tech_score: FALLBACK_EXPERT_SCORE, tech_logic: 'מומחה טכני לא זמין (timeout/שגיאה).', is_fallback: true };
   const expert2: ExpertRiskOutput =
     riskSettled.status === 'fulfilled'
       ? riskSettled.value
-      : { risk_score: FALLBACK_EXPERT_SCORE, risk_logic: 'מנהל סיכונים לא זמין (timeout/שגיאה).' };
+      : { risk_score: FALLBACK_EXPERT_SCORE, risk_logic: 'מנהל סיכונים לא זמין (timeout/שגיאה).', is_fallback: true };
   const expert3: ExpertPsychOutput =
     psychSettled.status === 'fulfilled'
       ? psychSettled.value
-      : { psych_score: FALLBACK_EXPERT_SCORE, psych_logic: 'פסיכולוג שוק לא זמין (timeout/שגיאה).' };
+      : { psych_score: FALLBACK_EXPERT_SCORE, psych_logic: 'פסיכולוג שוק לא זמין (timeout/שגיאה).', is_fallback: true };
 
-  const techFailed = techSettled.status !== 'fulfilled';
-  const riskFailed = riskSettled.status !== 'fulfilled';
-  const psychFailed = psychSettled.status !== 'fulfilled';
+  const techFailed = techSettled.status !== 'fulfilled' || expert1.is_fallback;
+  const riskFailed = riskSettled.status !== 'fulfilled' || expert2.is_fallback;
+  const psychFailed = psychSettled.status !== 'fulfilled' || expert3.is_fallback;
   const macroFailed = macroSettled.status !== 'fulfilled';
   const expert4: ExpertMacroOutput =
     macroSettled.status === 'fulfilled'
@@ -1689,25 +1735,29 @@ export async function runConsensusEngine(
       : {
           macro_score: FALLBACK_EXPERT_SCORE,
           macro_logic: 'מומחה מקרו/Order Book לא זמין (Groq timeout/שגיאה/מפתח חסר).',
+          is_fallback: true,
         };
 
-  const onchainFailed = onchainSettled.status !== 'fulfilled';
   const expert5: ExpertOnChainOutput =
     onchainSettled.status === 'fulfilled'
       ? onchainSettled.value
       : {
           onchain_score: FALLBACK_EXPERT_SCORE,
           onchain_logic: NEUTRAL_FALLBACK_LOGIC,
+          is_fallback: true,
         };
 
-  const deepMemoryFailed = deepMemorySettled.status !== 'fulfilled';
   const expert6: ExpertDeepMemoryOutput =
     deepMemorySettled.status === 'fulfilled'
       ? deepMemorySettled.value
       : {
           deep_memory_score: FALLBACK_EXPERT_SCORE,
           deep_memory_logic: NEUTRAL_FALLBACK_LOGIC,
+          is_fallback: true,
         };
+
+  const onchainFailed = onchainSettled.status !== 'fulfilled' || expert5.is_fallback;
+  const deepMemoryFailed = deepMemorySettled.status !== 'fulfilled' || expert6.is_fallback;
 
   const logModel = model ?? 'MODEL_NAME_ERROR';
   if (techSettled.status === 'rejected') {
@@ -1734,6 +1784,7 @@ export async function runConsensusEngine(
     trap_type: 'none',
     trap_hypothesis_he: '',
     attack_on_consensus_he: '',
+    is_fallback: false,
   };
   try {
     const avgBoard =
@@ -1921,27 +1972,42 @@ export async function runConsensusEngine(
     confidence: expert6.deep_memory_score,
   });
 
+  /**
+   * DYNAMIC WEIGHT REDISTRIBUTION (The Overseer):
+   * Experts 1-6: Scored experts (contribute to final_confidence)
+   * If any has is_fallback: true, it is ENTIRELY EXCLUDED from the weighted average.
+   * The final score is mathematically pure — not dragged to neutral 50 by a dead API.
+   * We recalculate the divisor based ONLY on successful experts.
+   *
+   * Expert 7 (Contrarian): NOT scored, but serves as adversarial gate/veto mechanism.
+   * If Expert 7 is_fallback: true, the CEO cannot challenge the consensus (weaker veto power).
+   */
   const weightedExperts = [
-    { score: expert1.tech_score, weight: weightByExpert.technician, failed: techFailed },
-    { score: expert2.risk_score, weight: weightByExpert.risk, failed: riskFailed },
-    { score: expert3.psych_score, weight: weightByExpert.psych, failed: psychFailed },
-    { score: expert4.macro_score, weight: weightByExpert.macro, failed: macroFailed },
-    { score: expert5.onchain_score, weight: weightByExpert.onchain, failed: onchainFailed },
-    { score: expert6.deep_memory_score, weight: weightByExpert.deepMemory, failed: deepMemoryFailed },
+    { score: expert1.tech_score, weight: weightByExpert.technician, isFallback: expert1.is_fallback },
+    { score: expert2.risk_score, weight: weightByExpert.risk, isFallback: expert2.is_fallback },
+    { score: expert3.psych_score, weight: weightByExpert.psych, isFallback: expert3.is_fallback },
+    { score: expert4.macro_score, weight: weightByExpert.macro, isFallback: expert4.is_fallback },
+    { score: expert5.onchain_score, weight: weightByExpert.onchain, isFallback: expert5.is_fallback },
+    { score: expert6.deep_memory_score, weight: weightByExpert.deepMemory, isFallback: expert6.is_fallback },
   ];
-  const availableWeight = weightedExperts
-    .filter((item) => !item.failed)
-    .reduce((sum, item) => sum + item.weight, 0);
+  
+  const successfulExperts = weightedExperts.filter((item) => !item.isFallback);
+  const availableWeight = successfulExperts.reduce((sum, item) => sum + item.weight, 0);
   const final_confidence =
     availableWeight > 0
-      ? weightedExperts
-          .filter((item) => !item.failed)
-          .reduce((sum, item) => sum + item.score * item.weight, 0) / availableWeight
+      ? successfulExperts.reduce((sum, item) => sum + item.score * item.weight, 0) / availableWeight
       : FALLBACK_EXPERT_SCORE;
   const weightedDirection = scoreToDirection(final_confidence);
+  
+  /**
+   * EXPERT 7 (CONTRARIAN) GATE LOGIC:
+   * Expert 7 is NOT part of the scoring average (it's purely adversarial/veto).
+   * However, if Expert 7 is_fallback: true, the CEO is blind and cannot challenge.
+   */
   const trapDir = trapDirection(expert7.trap_type);
+  const contrarianIsAlive = !expert7.is_fallback;  // Track Expert 7 health
   const strongContrarianTrap =
-    trapDir !== null && expert7.contrarian_confidence >= CONTRARIAN_STRONG_TRAP_CONFIDENCE;
+    contrarianIsAlive && trapDir !== null && expert7.contrarian_confidence >= CONTRARIAN_STRONG_TRAP_CONFIDENCE;
   const refutation = judgeResult.contrarian_refutation_he.trim();
   const contrarianCoverageOk =
     judgeResult.contrarian_addressed && refutation.length >= CONTRARIAN_REFUTATION_MIN_LEN;
@@ -2012,10 +2078,13 @@ export async function runConsensusEngine(
     macro_logic: expert4.macro_logic,
     onchain_logic: expert5.onchain_logic,
     deep_memory_logic: expert6.deep_memory_logic,
-    ...((macroFailed ||
-      /\(מקרו\/Groq|מקרו: Groq וגיבוי/.test(expert4.macro_logic)) && { macro_fallback_used: true }),
-    ...(onchainFailed && { onchain_fallback_used: true }),
-    ...(deepMemoryFailed && { deep_memory_fallback_used: true }),
+    ...(expert1.is_fallback && { tech_fallback_used: true }),
+    ...(expert2.is_fallback && { risk_fallback_used: true }),
+    ...(expert3.is_fallback && { psych_fallback_used: true }),
+    ...(expert4.is_fallback && { macro_fallback_used: true }),
+    ...(expert5.is_fallback && { onchain_fallback_used: true }),
+    ...(expert6.is_fallback && { deep_memory_fallback_used: true }),
+    ...(expert7.is_fallback && { contrarian_fallback_used: true }),
     contrarian_confidence: expert7.contrarian_confidence,
     contrarian_trap_type: expert7.trap_type,
     contrarian_attack_he: expert7.attack_on_consensus_he,
