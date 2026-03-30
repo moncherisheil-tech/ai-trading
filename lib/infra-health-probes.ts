@@ -1,6 +1,11 @@
 /**
  * Shared live probes for DB + AI (Telegram executive terminal, provider heartbeat).
  * Keeps checks lightweight and independent of `lib/db/sql.ts` pool lifecycle.
+ *
+ * RATE-LIMIT SAFETY: pingGeminiResolved() no longer fires a live generateContent request.
+ * Sending real inference requests just to confirm key presence hammers the Gemini free-tier
+ * quota (RPM limit), causing 429 → 60-second backoffs that propagate as 504s to the frontend.
+ * Key presence + format validation is sufficient for a health/diagnostics context.
  */
 
 import { Pool } from 'pg';
@@ -8,7 +13,6 @@ import {
   assertAuthorizedDatabaseUrl,
   normalizeDatabaseUrlEnv,
 } from '@/lib/db/sovereign-db-url';
-import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 
 const PROBE_MS = 6_000;
 
@@ -42,42 +46,27 @@ export async function probePostgresSelect1(url: string): Promise<DatabaseProbeSt
   }
 }
 
-export async function pingGeminiResolved(): Promise<boolean> {
+/**
+ * Returns true when a non-placeholder GEMINI_API_KEY is present.
+ *
+ * Previously this fired a live generateContent request to confirm the key works. That approach
+ * consumes RPM quota on every health check and, when rate-limited (429 with Retry-After: 60s),
+ * caused cascading 504s on every page that calls getLiveInfraHealth(). Env-var presence is the
+ * correct signal for "is this provider configured?"; actual inference health is validated by the
+ * trading pipeline itself during normal operation.
+ */
+export function pingGeminiResolved(): boolean {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey || /todo|changeme|example/i.test(apiKey)) return false;
-  const id = resolveGeminiModel(GEMINI_DEFAULT_FLASH_MODEL_ID).model.replace(/^models\//, '');
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(id)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: 'Reply: OK' }] }],
-        }),
-        cache: 'no-store',
-        signal: AbortSignal.timeout(PROBE_MS),
-      }
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return Boolean(apiKey && apiKey.length >= 8 && !/todo|changeme|example/i.test(apiKey));
 }
 
-export async function pingGroqApi(): Promise<boolean> {
+/**
+ * Returns true when a non-placeholder GROQ_API_KEY is present.
+ * Avoids a live /v1/models call to prevent Groq rate-limit cascades on health checks.
+ */
+export function pingGroqApi(): boolean {
   const key = process.env.GROQ_API_KEY?.trim();
-  if (!key) return false;
-  try {
-    const res = await fetch('https://api.groq.com/openai/v1/models', {
-      headers: { authorization: `Bearer ${key}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(PROBE_MS),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return Boolean(key && key.length >= 8 && !/todo|changeme|example/i.test(key));
 }
 
 export type LiveInfraHealth = {
@@ -86,12 +75,14 @@ export type LiveInfraHealth = {
   groq: boolean;
 };
 
+/**
+ * Checks infrastructure health sequentially to avoid concurrent rate-limit storms.
+ * DB probe is the only truly async operation; AI key checks are synchronous env reads.
+ */
 export async function getLiveInfraHealth(): Promise<LiveInfraHealth> {
   const url = process.env.DATABASE_URL;
-  const [database, gemini, groq] = await Promise.all([
-    probePostgresSelect1(url || ''),
-    pingGeminiResolved(),
-    pingGroqApi(),
-  ]);
+  const database = await probePostgresSelect1(url || '');
+  const gemini = pingGeminiResolved();
+  const groq = pingGroqApi();
   return { database, gemini, groq };
 }

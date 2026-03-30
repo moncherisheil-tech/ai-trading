@@ -241,6 +241,11 @@ export async function GET(): Promise<NextResponse> {
   } catch { /* non-fatal */ }
 
   // ── DXY macro health ──────────────────────────────────────────────────────────────────────────
+  // Hard 5-second cap: external APIs (CoinGecko, Yahoo) can return 429 with Retry-After: 60s.
+  // fetchWithBackoff with maxRetries=3 would wait up to 2×60s = 120s → 504. We race against a
+  // 5-second sentinel so the diagnostics response is always delivered promptly, regardless of
+  // third-party rate limits. The macro snapshot is purely informational on this page.
+  const MACRO_LOAD_TIMEOUT_MS = 5_000;
   let macroDxy: {
     status: 'ok' | 'fail';
     value: number | null;
@@ -249,14 +254,19 @@ export async function GET(): Promise<NextResponse> {
     updatedAt: string | null;
   } = { status: 'fail', value: null, source: null, note: 'DXY diagnostics unavailable.', updatedAt: null };
   try {
-    const macro = await fetchMacroContext();
-    macroDxy = {
-      status: macro.dxyStatus ?? (typeof macro.dxyValue === 'number' ? 'ok' : 'fail'),
-      value: typeof macro.dxyValue === 'number' ? macro.dxyValue : null,
-      source: macro.dxySource ?? null,
-      note: macro.dxyNote,
-      updatedAt: macro.updatedAt ?? null,
-    };
+    const macro = await Promise.race([
+      fetchMacroContext(MACRO_LOAD_TIMEOUT_MS),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), MACRO_LOAD_TIMEOUT_MS)),
+    ]);
+    if (macro) {
+      macroDxy = {
+        status: macro.dxyStatus ?? (typeof macro.dxyValue === 'number' ? 'ok' : 'fail'),
+        value: typeof macro.dxyValue === 'number' ? macro.dxyValue : null,
+        source: macro.dxySource ?? null,
+        note: macro.dxyNote,
+        updatedAt: macro.updatedAt ?? null,
+      };
+    }
   } catch { /* keep fail defaults */ }
 
   // ── SystemNeuroPlasticity (id=1) ──────────────────────────────────────────────────────────────
