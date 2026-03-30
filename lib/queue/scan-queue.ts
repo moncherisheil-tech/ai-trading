@@ -258,7 +258,7 @@ export interface TriggerMasterScanJobData {
 
 /**
  * Setup the auto-scanner as a BullMQ repeatable job.
- * Runs every 20 minutes (cron pattern: '*/20 * * * *').
+ * Runs every 20 minutes (cron pattern: '* / 20 * * * *').
  * Call once at worker startup.
  *
  * The Worker will detect this job by name and enqueue the scan cycle.

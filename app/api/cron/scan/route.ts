@@ -6,7 +6,7 @@
  * triggered every 20 minutes from setupAutoScanner() in lib/queue/queue-worker.ts.
  *
  * Remove from vercel.json:
- *   { "path": "/api/cron/scan", "schedule": "*/20 * * * *" }
+ *   { "path": "/api/cron/scan", "schedule": "* / 20 * * * *" }
  *
  * No external HTTP trigger is needed anymore.
  */
