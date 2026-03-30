@@ -117,9 +117,7 @@ async function testPostgres(): Promise<boolean> {
   const client = new PgClient({
     connectionString: url,
     connectionTimeoutMillis: 8_000,
-    ssl: url.includes('sslmode=require') || url.includes('neon.tech')
-      ? { rejectUnauthorized: false }
-      : undefined,
+    ssl: url.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
   });
 
   try {

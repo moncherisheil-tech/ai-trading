@@ -34,7 +34,7 @@ vercel --prod
 
 | נושא | תיקון |
 |------|--------|
-| CSP חוסם WebSocket ל-Binance | הוספת `connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com https://*.vercel.app https://*.neon.tech` ב־`next.config.ts` |
+| CSP חוסם WebSocket ל-Binance | הוספת `connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com` ב־`next.config.ts` |
 | 500 בגלל DB ב-Vercel | אתחול DB רק כש־`DATABASE_URL` קיים; `initDB()` ב־try/catch ולא מפיל route; `getDbAsync` מחזיר `[]` כשאין DB; `/api/ops/metrics` מחזיר 500 JSON במקום crash |
 
 ---

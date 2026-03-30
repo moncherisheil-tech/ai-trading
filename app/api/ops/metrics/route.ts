@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
       };
     }
   } catch {
-    // historical_predictions only when DB_DRIVER=sqlite; leave accuracy as default
+    // historical_predictions query failed; leave accuracy as default
   }
 
   return NextResponse.json({

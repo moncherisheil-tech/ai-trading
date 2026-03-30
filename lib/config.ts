@@ -69,8 +69,6 @@ export const APP_CONFIG = {
   quotaFallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_QUOTA_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
   authToken: process.env.APP_AUTH_TOKEN || '',
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
-  dbDriver: process.env.DB_DRIVER || 'file',
-  sqlitePath: process.env.SQLITE_DB_PATH || 'predictions.sqlite',
   postgresUrl: normalizeEnvValue(process.env.DATABASE_URL),
   backupKeep: Number(process.env.DB_BACKUP_KEEP || 7),
   /** Timeout for Gemini API calls (ms); prevents server hang on slow responses. */
