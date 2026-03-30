@@ -11,19 +11,19 @@ let _client: IORedis | null = null;
 export function getRedisClient(): IORedis {
   if (_client) return _client;
 
-  const url = process.env.REDIS_URL;
-  if (!url) {
-    throw new Error(
-      '[Queue] REDIS_URL is not set. ' +
-        'Provide a TCP-compatible Redis URL (e.g. rediss://default:<token>@<host>:<port>). ' +
-        'Upstash → Dashboard → "Connect" → "ioredis" to copy the URL.'
+  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+
+  if (!process.env.REDIS_URL) {
+    console.warn(
+      '[Redis] REDIS_URL is not set. Falling back to redis://127.0.0.1:6379. ' +
+      'Set REDIS_URL in your environment for production use.'
     );
   }
 
-  _client = new IORedis(url, {
+  _client = new IORedis(redisUrl, {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-    tls: url.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     retryStrategy(times) {
       const delay = Math.min(times * 200, 5_000);
       console.warn(`[Redis] Reconnect attempt #${times}, waiting ${delay}ms`);

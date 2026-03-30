@@ -65,8 +65,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // ── Generate & persist OTP ──────────────────────────────────────────────
     const otp   = generateOtp();
     const nonce = generateNonce();
-    const redis = getRedisClient();
-    await redis.setex(`${OTP_KEY_PREFIX}${nonce}`, OTP_TTL_SECONDS, otp);
+
+    try {
+      const redis = getRedisClient();
+      await redis.setex(`${OTP_KEY_PREFIX}${nonce}`, OTP_TTL_SECONDS, otp);
+    } catch (error) {
+      console.error('OTP Error:', error);
+      return NextResponse.json({ error: 'Redis Connection Error' }, { status: 500 });
+    }
 
     // ── Dispatch via Telegram ───────────────────────────────────────────────
     const botToken = process.env.TELEGRAM_BOT_TOKEN;

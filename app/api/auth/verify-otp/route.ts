@@ -33,23 +33,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const redis     = getRedisClient();
-    const redisKey  = `${OTP_KEY_PREFIX}${nonce}`;
-    const storedOtp = await redis.get(redisKey);
+    let storedOtp: string | null;
+    let redisClient: import('ioredis').default;
 
-    if (!storedOtp) {
-      return NextResponse.json(
-        { error: 'Code has expired or was never issued. Request a new one.' },
-        { status: 401 },
-      );
+    try {
+      redisClient = getRedisClient();
+      const redisKey = `${OTP_KEY_PREFIX}${nonce}`;
+      storedOtp = await redisClient.get(redisKey);
+
+      if (!storedOtp) {
+        return NextResponse.json(
+          { error: 'Code has expired or was never issued. Request a new one.' },
+          { status: 401 },
+        );
+      }
+
+      if (storedOtp !== otp) {
+        return NextResponse.json({ error: 'Invalid code.' }, { status: 401 });
+      }
+
+      // ── Invalidate OTP (single-use) ───────────────────────────────────────
+      await redisClient.del(redisKey);
+    } catch (error) {
+      console.error('OTP Error:', error);
+      return NextResponse.json({ error: 'Redis Connection Error' }, { status: 500 });
     }
-
-    if (storedOtp !== otp) {
-      return NextResponse.json({ error: 'Invalid code.' }, { status: 401 });
-    }
-
-    // ── Invalidate OTP (single-use) ─────────────────────────────────────────
-    await redis.del(redisKey);
 
     // ── Issue institutional-grade SSL session cookie ────────────────────────
     const token = createSessionToken('admin', SESSION_TTL_SECONDS);
