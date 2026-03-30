@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isSessionEnabled, verifySessionToken, hasRequiredRole } from '@/lib/session';
 import { listStrategyInsights, updateStrategyInsightStatus } from '@/lib/db/strategy-repository';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export async function GET() {
   const insights = await listStrategyInsights();
@@ -9,7 +10,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

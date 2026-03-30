@@ -6,6 +6,7 @@ import { getDbAsync } from '@/lib/db';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { isAllowedIp } from '@/lib/security';
 import { listHistoricalPredictions } from '@/lib/db/historical-predictions';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const HIT_LABELS = ['bullish_win', 'bearish_win', 'neutral_win'];
 
@@ -42,7 +43,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       if (typeof console !== 'undefined' && console.warn) {

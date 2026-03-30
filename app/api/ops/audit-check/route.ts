@@ -11,6 +11,7 @@ import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/ses
 import { runConsensusEngine } from '@/lib/consensus-engine';
 import { getDbAsync, saveDbAsync } from '@/lib/db';
 import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -55,7 +56,7 @@ export async function POST(): Promise<NextResponse> {
 async function runAudit(): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

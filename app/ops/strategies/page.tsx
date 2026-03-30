@@ -6,6 +6,7 @@ import PerformanceTrendsCharts from '@/components/PerformanceTrendsCharts';
 import TriggerRetrospectiveButton from '@/components/TriggerRetrospectiveButton';
 import { getT } from '@/lib/i18n';
 import { updateStrategyInsightRowAction } from '@/app/actions';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const t = getT('he');
 
@@ -43,7 +44,7 @@ async function fetchAccuracyMetrics() {
 
 export default async function StrategyOpsPage() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
-    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       redirect('/login');

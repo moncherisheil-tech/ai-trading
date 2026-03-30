@@ -45,6 +45,7 @@ import type { Locale } from '@/lib/i18n';
 import type { Ticker24h, SignalStrength } from '@/lib/gem-finder';
 import type { AppSettings } from '@/lib/db/app-settings';
 import { generateSafeId } from '@/lib/utils';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 interface BinanceTickerPrice {
   symbol?: string;
@@ -73,7 +74,7 @@ async function requireAuth(requiredRole: SessionRole = 'viewer'): Promise<void> 
   if (!isSessionEnabled()) return;
 
   const jar = await cookies();
-  const token = jar.get('app_auth_token')?.value || '';
+  const token = jar.get(AUTH_COOKIE_NAME)?.value || '';
   const session = verifySessionToken(token);
   if (!session || !hasRequiredRole(session.role, requiredRole)) {
     const reason = !token
@@ -492,7 +493,7 @@ export async function loginWithPassword(password: string): Promise<LoginResult> 
     const host = (await headers()).get('host') || '';
     const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
 
-    jar.set('app_auth_token', token, {
+    jar.set(AUTH_COOKIE_NAME, token, {
       domain,
       secure: secureCookies,
       httpOnly: true,
@@ -518,7 +519,7 @@ export async function logout(): Promise<{ success: true }> {
     const secureCookies = shouldUseSecureCookies();
     const host = (await headers()).get('host') || '';
     const domain = host.includes('moncherigroup.co.il') ? '.moncherigroup.co.il' : undefined;
-    jar.set('app_auth_token', '', {
+    jar.set(AUTH_COOKIE_NAME, '', {
       domain,
       secure: secureCookies,
       httpOnly: true,
@@ -979,7 +980,7 @@ export async function getTradingExecutionStatusAction(): Promise<AdminActionResu
 /** Server-only CEO terminal feed (no Bearer header in browser); requires admin session when sessions are enabled. */
 export async function getAdminTerminalFeedAction(): Promise<AdminActionResult<unknown>> {
   if (isSessionEnabled() && !isDevelopmentAuthBypass()) {
-    const token = (await cookies()).get('app_auth_token')?.value ?? '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return { success: false, error: 'UNAUTHORIZED' };

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { getBaseUrl } from '@/lib/config';
 import PerformanceShowcase from '@/components/PerformanceShowcase';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 /** All-time range for Performance Showcase: from epoch start of data to today. */
 function getAllTimeRange() {
@@ -33,7 +34,7 @@ const PERFORMANCE_TIMEOUT_MS = 8000;
 
 export default async function PerformancePage() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
-    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       redirect('/login?from=/performance');

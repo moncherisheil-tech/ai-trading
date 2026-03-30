@@ -9,6 +9,7 @@ import { cookies, headers } from 'next/headers';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { getOverseerChatReply } from '@/lib/system-overseer';
 import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,7 @@ const CHAT_WINDOW_MS = 60 * 1000;
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

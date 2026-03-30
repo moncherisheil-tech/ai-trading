@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAllowedIp } from '@/lib/security';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const SYMBOLS_TO_VERIFY = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'] as const;
 const BINANCE_KLINES = 'https://api.binance.com/api/v3/klines';
@@ -11,7 +12,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'viewer')) {
       return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

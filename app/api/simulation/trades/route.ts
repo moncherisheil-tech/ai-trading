@@ -15,6 +15,7 @@ import { recordAuditLog } from '@/lib/db/audit-logs';
 import { APP_CONFIG } from '@/lib/config';
 import { toDecimal, round4, roundToSymbolDecimals, applySlippage, D } from '@/lib/decimal';
 import { isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 /** Single source of truth: same as simulation summary and PnL (lib/decimal). */
 const INITIAL_WALLET = D.startingBalance;
@@ -54,7 +55,7 @@ export async function GET(): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session) {
       return NextResponse.json(

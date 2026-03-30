@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 // ---------------------------------------------------------------------------
 // OOB Telegram 2FA Auth Model
@@ -19,9 +20,6 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/health/',           // uptime probes — safe to expose
   '/api/telegram/webhook',  // Telegram bot webhook (auth via bot token)
 ];
-
-// Must match exactly what verify-otp/route.ts sets.
-const AUTH_COOKIE_NAME = 'quantum_auth_session';
 
 // Emergency fallback — must mirror lib/session.ts EMERGENCY_SECRET.
 const EMERGENCY_SECRET = 'mon-cheri-emergency-secret-2026';

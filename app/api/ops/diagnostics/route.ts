@@ -24,6 +24,7 @@ import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { fetchMacroContext } from '@/lib/api-utils';
 import { sql } from '@/lib/db/sql';
 import { getPrisma } from '@/lib/prisma';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,7 +59,7 @@ async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error: str
 export async function GET(): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

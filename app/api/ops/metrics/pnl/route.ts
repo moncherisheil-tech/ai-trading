@@ -4,6 +4,7 @@ import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/ses
 import Decimal from 'decimal.js';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import { sharpeFromDailyReturns } from '@/lib/math-utils';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const maxDuration = 60;
 
@@ -46,7 +47,7 @@ function riskStatusFromSentiment(score?: number): 'normal' | 'extreme_fear' | 'e
 
 export async function GET(request: NextRequest) {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

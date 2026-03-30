@@ -10,13 +10,14 @@ import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/ses
 import { getScannerSettings, setScannerActive } from '@/lib/db/system-settings';
 import { getScannerState } from '@/lib/workers/market-scanner';
 import { countScannerAlertsToday } from '@/lib/db/scanner-alert-log';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -50,7 +51,7 @@ export async function GET(): Promise<NextResponse> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

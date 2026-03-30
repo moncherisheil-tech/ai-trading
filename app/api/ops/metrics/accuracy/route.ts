@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listBacktests, type BacktestLogEntry } from '@/lib/db/backtest-repository';
 import { listStrategyInsights } from '@/lib/db/strategy-repository';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const CORRECT_OUTCOMES = new Set<string>(['bullish_win', 'bearish_win', 'neutral_win']);
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });
   }
 
-  const token = request.cookies.get('app_auth_token')?.value || '';
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
   const session = verifySessionToken(token);
   if (!session || !hasRequiredRole(session.role, 'admin')) {
     return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

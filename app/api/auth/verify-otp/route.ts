@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getRedisClient } from '@/lib/queue/redis-client';
 import { createSessionToken } from '@/lib/session';
+import { shouldUseSecureCookies } from '@/lib/config';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/verify-otp
@@ -11,9 +13,8 @@ import { createSessionToken } from '@/lib/session';
 // session cookie (quantum_auth_session) and returns { success, redirectTo }.
 // ---------------------------------------------------------------------------
 
-const OTP_KEY_PREFIX   = 'auth:otp:';           // must match request-otp
-const AUTH_COOKIE_NAME = 'quantum_auth_session'; // must match middleware
-const SESSION_MAX_AGE  = 60 * 60 * 24;          // 24 hours
+const OTP_KEY_PREFIX  = 'auth:otp:'; // must match request-otp
+const SESSION_MAX_AGE = 60 * 60 * 24; // 24 hours
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -63,8 +64,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   true,
-      sameSite: 'lax',  // 'lax' allows the cookie to be sent after redirects
+      secure:   shouldUseSecureCookies(),
+      sameSite: 'lax',
       path:     '/',
       maxAge:   SESSION_MAX_AGE,
     });

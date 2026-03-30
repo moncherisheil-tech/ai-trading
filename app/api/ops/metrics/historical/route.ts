@@ -9,6 +9,7 @@ import { listClosedVirtualTradesInRange, type VirtualPortfolioRow } from '@/lib/
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import { sharpeFromDailyReturns } from '@/lib/math-utils';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const BASE_POSITION_USD = D.basePositionUsd;
 const FEE_PCT = D.feePct; // 0.1% per trade (round-trip)
@@ -61,7 +62,7 @@ function virtualTradeDurationHours(row: VirtualPortfolioRow): number | null {
 
 export async function GET(request: NextRequest) {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

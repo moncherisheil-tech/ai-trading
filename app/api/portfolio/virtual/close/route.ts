@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { closeVirtualTradeBySymbol } from '@/lib/simulation-service';
 import { recordAuditLog } from '@/lib/db/audit-logs';
 import { isSessionEnabled, verifySessionToken, hasRequiredRole } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 /**
  * POST /api/portfolio/virtual/close
@@ -10,7 +11,7 @@ import { isSessionEnabled, verifySessionToken, hasRequiredRole } from '@/lib/ses
  */
 export async function POST(request: NextRequest) {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value ?? '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'viewer')) {
       return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

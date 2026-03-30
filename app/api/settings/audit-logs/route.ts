@@ -6,12 +6,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { listAuditLogs } from '@/lib/db/audit-logs';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value ?? '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

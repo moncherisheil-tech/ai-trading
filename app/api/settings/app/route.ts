@@ -8,6 +8,7 @@ import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 import {
   getAppSettings,
   getAppSettingsUpdatedAt,
@@ -171,12 +172,10 @@ function redactPayloadDiffForAudit(diff: Record<string, unknown>): Record<string
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session) {
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('[API settings/app GET] 401 Unauthorized: missing or invalid session token.');
-      }
+      console.warn('[API settings/app GET] 401 Unauthorized: missing or invalid session token.');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
   }
@@ -199,12 +198,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let actorRole: string | null = null;
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
-      if (typeof console !== 'undefined' && console.warn) {
-        console.warn('[API settings/app POST] 401 Unauthorized: missing session or not admin.');
-      }
+      console.warn('[API settings/app POST] 401 Unauthorized: missing session or not admin.');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     actorRole = session.role;

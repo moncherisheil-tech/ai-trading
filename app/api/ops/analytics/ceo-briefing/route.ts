@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listAgentInsightsInRange } from '@/lib/db/agent-insights';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 function buildSummaryParagraph(
   insights: { insight: string }[],
@@ -32,7 +33,7 @@ function buildSummaryParagraph(
 
 export async function GET(request: NextRequest) {
   if (isSessionEnabled()) {
-    const token = request.cookies.get('app_auth_token')?.value || '';
+    const token = request.cookies.get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ success: false, error: 'Unauthorized.' }, { status: 401 });

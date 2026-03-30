@@ -9,6 +9,7 @@ import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessi
 import { getScannerSettings, setLastScanTimestamp } from '@/lib/db/system-settings';
 import { runOneCycle } from '@/lib/workers/market-scanner';
 import { sendWorkerFailureAlert } from '@/lib/worker-alerts';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -16,7 +17,7 @@ export const maxDuration = 60;
 export async function POST() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
     const cookieStore = await cookies();
-    const token = cookieStore.get('app_auth_token')?.value ?? '';
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

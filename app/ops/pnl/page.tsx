@@ -4,6 +4,7 @@ import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessi
 import { getBaseUrl } from '@/lib/config';
 import PnlTerminal from '@/components/PnlTerminal';
 import ManualTradeForm from '@/components/ManualTradeForm';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 async function fetchPnl() {
   const baseUrl = getBaseUrl();
@@ -21,7 +22,7 @@ const PNL_TIMEOUT_MS = 6000;
 
 export default async function PnlOpsPage() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
-    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       redirect('/login');

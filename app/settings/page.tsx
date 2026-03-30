@@ -10,6 +10,7 @@ import ScannerControlPanel from '@/components/ScannerControlPanel';
 import OverseerBanner from '@/components/OverseerBanner';
 import { getT } from '@/lib/i18n';
 import { getScannerStatus, getStrategyDashboard, getMacroStatus } from '@/app/actions';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 const t = getT('he');
 
@@ -26,7 +27,7 @@ function formatDateTime(iso: string | null): string {
 
 export default async function SettingsPage() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
-    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       redirect('/login');

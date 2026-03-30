@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { hasRequiredRole, isDevelopmentAuthBypass, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
 import { listRecentTradeExecutions, listRecentLearnedInsights } from '@/lib/db/execution-learning';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,7 @@ async function toggleExecutionMode(formData: FormData) {
 
 export default async function ExecutionAdminPage() {
   if (!isDevelopmentAuthBypass() && isSessionEnabled()) {
-    const token = (await cookies()).get('app_auth_token')?.value || '';
+    const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value || '';
     const session = verifySessionToken(token);
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       redirect('/login?from=/admin/execution');
