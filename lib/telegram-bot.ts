@@ -47,10 +47,7 @@ function getToken(): string {
 }
 
 function safeAppRoot(): string {
-  const base = getBaseUrl().replace(/\/$/, '');
-  return base.startsWith('http://localhost')
-    ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com').replace(/\/$/, '')
-    : base;
+  return getBaseUrl().replace(/\/$/, '');
 }
 
 function tfCodeFromTimeframe(tf: string): 'H' | 'D' | 'W' | 'L' | null {

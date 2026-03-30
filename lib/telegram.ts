@@ -307,9 +307,7 @@ function formatPercent(value: number): string {
 }
 
 export function getDashboardReportKeyboard(baseUrl: string): TelegramReplyMarkup {
-  const root = (baseUrl || getBaseUrl()).replace(/\/$/, '');
-  // Ensure we never send localhost URLs to Telegram
-  const safeUrl = root.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : root;
+  const safeUrl = (baseUrl || getBaseUrl()).replace(/\/$/, '');
   return {
     inline_keyboard: [
       [
@@ -366,9 +364,7 @@ export async function sendGemAlert(params: {
   const callbackDeep = `${GEM_CALLBACK_DEEP}${symbol}`.slice(0, 64);
   const callbackIgnore = `${GEM_CALLBACK_IGNORE}${symbol}`.slice(0, 64);
   const tradingViewUrl = getTradingViewChartUrl(symbol);
-  const baseUrl = getBaseUrl();
-  const safeBaseUrl = baseUrl.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : baseUrl;
-  const strategyUrl = `${safeBaseUrl}/settings`;
+  const strategyUrl = `${getBaseUrl()}/settings`;
   const reply_markup = {
     inline_keyboard: [
       [
@@ -487,9 +483,7 @@ export async function sendEliteAlert(params: {
   const callbackDeep = `${GEM_CALLBACK_DEEP}${params.symbol}`.slice(0, 64);
   const callbackIgnore = `${GEM_CALLBACK_IGNORE}${params.symbol}`.slice(0, 64);
   const tradingViewUrl = getTradingViewChartUrl(params.symbol);
-  const baseUrl = getBaseUrl();
-  const safeBaseUrl = baseUrl.startsWith('http://localhost') ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com') : baseUrl;
-  const strategyUrl = `${safeBaseUrl}/settings`;
+  const strategyUrl = `${getBaseUrl()}/settings`;
   const reply_markup = {
     inline_keyboard: [
       [
@@ -573,11 +567,7 @@ export async function sendSignalOfGoldAlert(params: SignalOfGoldParams): Promise
     excerpt || '<code>—</code>',
   ].join('\n');
 
-  const baseUrl = getBaseUrl();
-  const safeRoot = baseUrl.startsWith('http://localhost')
-    ? (process.env.NEXT_PUBLIC_APP_URL || 'https://quantum-mon-cheri.com').replace(/\/$/, '')
-    : baseUrl.replace(/\/$/, '');
-  const strategyUrl = `${safeRoot}/settings`;
+  const strategyUrl = `${getBaseUrl()}/settings`;
   const tradingViewUrl = getTradingViewChartUrl(params.symbolBinance);
   const reply_markup: TelegramReplyMarkup = {
     inline_keyboard: [

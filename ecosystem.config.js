@@ -21,7 +21,9 @@ module.exports = {
       name: 'quantum-mon-cheri',
       cwd: __dirname,
       script: 'node_modules/next/dist/bin/next',
-      args: 'start',
+      // --hostname 0.0.0.0 ensures the server listens on all interfaces, not just
+      // loopback. Without this, external traffic cannot reach the process.
+      args: 'start --hostname 0.0.0.0 --port 3000',
       interpreter: 'node',
       instances: 1,
       autorestart: true,

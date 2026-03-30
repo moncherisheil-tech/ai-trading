@@ -1,8 +1,7 @@
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, normalizeGeminiModelId } from './gemini-model';
 import { CRYPTO_SYMBOLS } from './symbols';
 
-/** Production base URL for absolute links and redirects. Set APP_URL in .env. */
-export const BASE_URL = normalizeAppUrl(process.env.APP_URL);
+const PRODUCTION_FALLBACK_URL = 'https://quantum.moncherigroup.co.il';
 
 function normalizeEnvValue(raw: string | undefined): string {
   const value = (raw || '').trim();
@@ -22,23 +21,47 @@ function normalizeAppUrl(raw: string | undefined): string {
   if (/^https?:\/\//i.test(value)) {
     return value.replace(/\/$/, '');
   }
-  // Keep local/non-SSL environments functional by defaulting to http.
   return `http://${value}`.replace(/\/$/, '');
+}
+
+function isLocalhostUrl(url: string): boolean {
+  return /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(url);
 }
 
 /**
  * Absolute base URL for server-side fetch. Use in Server Components / Server Actions.
- * Order: NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → production domain
+ *
+ * Resolution order (first non-empty, non-localhost-in-production wins):
+ *   NEXT_PUBLIC_SITE_URL → NEXT_PUBLIC_APP_URL → APP_URL → PUBLIC_URL → hardcoded production domain
+ *
+ * In production (NODE_ENV=production), localhost/127.0.0.1 URLs are skipped to prevent
+ * accidental internal-only redirects from reaching external clients.
  */
 export function getBaseUrl(): string {
-  const u = normalizeAppUrl(
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.APP_URL ||
-    process.env.PUBLIC_URL ||
-    'https://quantum.moncherigroup.co.il'
-  );
-  return u || 'https://quantum.moncherigroup.co.il';
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const candidates = [
+    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.APP_URL,
+    process.env.PUBLIC_URL,
+  ];
+
+  for (const raw of candidates) {
+    const u = normalizeAppUrl(raw);
+    if (!u) continue;
+    if (isProduction && isLocalhostUrl(u)) continue;
+    return u;
+  }
+
+  return PRODUCTION_FALLBACK_URL;
 }
+
+/**
+ * Production base URL constant — resolved once at module load using the same priority chain
+ * as getBaseUrl(). Prefer calling getBaseUrl() directly; this export exists for legacy callers.
+ */
+export const BASE_URL = getBaseUrl();
 
 /** Secure cookies only when APP_URL is explicitly https. */
 export function shouldUseSecureCookies(): boolean {
