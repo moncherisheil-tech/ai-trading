@@ -20,47 +20,6 @@ const PUBLIC_API_PREFIXES: string[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Rate Limiter — Sliding Window (In-Memory)
-// Shared limit for auth endpoints and a separate limit for ops API.
-// For multi-instance deployments, back this with Upstash Redis INCR + EXPIRE.
-// ---------------------------------------------------------------------------
-
-interface RateLimitWindow {
-  count: number;
-  windowStart: number;
-}
-
-const rateLimitStore = new Map<string, RateLimitWindow>();
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_AUTH_MAX  = 10;  // 10 auth attempts/60 s per IP (covers login + OTP)
-const RATE_LIMIT_OPS_MAX   = 60;  // 60 ops API calls/60 s per IP
-
-function checkRateLimit(key: string, max: number): { allowed: boolean } {
-  const now = Date.now();
-  const existing = rateLimitStore.get(key);
-
-  if (!existing || now - existing.windowStart > RATE_LIMIT_WINDOW_MS) {
-    rateLimitStore.set(key, { count: 1, windowStart: now });
-    return { allowed: true };
-  }
-
-  existing.count++;
-  return { allowed: existing.count <= max };
-}
-
-let lastPruneAt = Date.now();
-function pruneRateLimitStore(): void {
-  const now = Date.now();
-  if (now - lastPruneAt < 120_000) return;
-  lastPruneAt = now;
-  for (const [key, window] of rateLimitStore.entries()) {
-    if (now - window.windowStart > RATE_LIMIT_WINDOW_MS * 2) {
-      rateLimitStore.delete(key);
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Cookie verification — HMAC-SHA256 signed token (unchanged core logic)
 // Supports secret rotation via APP_SESSION_SECRET_PREVIOUS.
 // ---------------------------------------------------------------------------
@@ -160,16 +119,6 @@ function deny401(): NextResponse {
   });
 }
 
-function deny429(retryAfterSecs = 60): NextResponse {
-  return new NextResponse(JSON.stringify({ error: 'Too Many Requests' }), {
-    status: 429,
-    headers: {
-      'Content-Type': 'application/json',
-      'Retry-After': String(retryAfterSecs),
-    },
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Main middleware
 // ---------------------------------------------------------------------------
@@ -183,38 +132,11 @@ export async function middleware(request: NextRequest) {
   // Static assets / Next.js internals
   if (shouldBypassAuth(pathname)) return NextResponse.next();
 
-  pruneRateLimitStore();
-
-  const clientIp =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('cf-connecting-ip')?.trim()               ||
-    request.ip                                                     ||
-    'unknown';
-
-  // ── Rate-limit all authentication endpoints ────────────────────────────────
-  // /api/auth/login, /api/auth/request-otp, /api/auth/verify-otp share one
-  // 10-req/60-s window per IP to prevent brute-force across all auth paths.
-  if (
-    pathname.startsWith('/api/auth/login')       ||
-    pathname.startsWith('/api/auth/request-otp') ||
-    pathname.startsWith('/api/auth/verify-otp')
-  ) {
-    if (!checkRateLimit(`auth:${clientIp}`, RATE_LIMIT_AUTH_MAX).allowed) {
-      console.warn(`[Middleware] Auth rate limit exceeded from ${clientIp}`);
-      return deny429(60);
-    }
-    return NextResponse.next();
-  }
+  // ── Auth endpoints — always pass through, no rate limiting ────────────────
+  if (isPublicApiRoute(pathname)) return NextResponse.next();
 
   // ── All other /api/ routes ─────────────────────────────────────────────────
   if (pathname.startsWith('/api/')) {
-    if (isPublicApiRoute(pathname)) return NextResponse.next();
-
-    if (!checkRateLimit(`ops-api:${clientIp}`, RATE_LIMIT_OPS_MAX).allowed) {
-      console.warn(`[Middleware] Ops API rate limit exceeded from ${clientIp} on ${pathname}`);
-      return deny429(60);
-    }
-
     if (!(await verifyAuthCookie(request))) return deny401();
     return NextResponse.next();
   }

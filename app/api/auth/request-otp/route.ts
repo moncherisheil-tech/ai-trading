@@ -49,7 +49,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // timing oracles that could confirm whether the env var is set.
     await new Promise((r) => setTimeout(r, 120 + Math.random() * 80));
 
-    if (masterPassword !== correctPassword) {
+    const isMatch = masterPassword === correctPassword;
+    console.log("Password match: ", isMatch);
+
+    if (!isMatch) {
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
 

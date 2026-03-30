@@ -55,16 +55,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const response = NextResponse.json({ success: true, redirectTo: '/ops' });
 
-    // COOKIE_SECURE=false must be set in .env when the site is served over plain
-    // HTTP (e.g. bare-metal IP access). Browsers silently drop Secure cookies on
-    // HTTP, which causes an infinite redirect loop back to /login.
-    const secureCookie =
-      process.env.COOKIE_SECURE === 'true' ||
-      (process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production');
-
+    // secure: false — server is on bare-metal HTTP (178.104.75.47); browsers
+    // silently drop Secure cookies over plain HTTP causing an auth loop.
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   secureCookie,
+      secure:   false,
       sameSite: 'lax',
       path:     '/',
       maxAge:   SESSION_TTL_SECONDS,
