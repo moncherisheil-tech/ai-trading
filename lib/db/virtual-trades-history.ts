@@ -49,7 +49,10 @@ export interface ClosedTradeReinforcementRow {
   history_id: number;
   event_id: string;
   symbol: string;
+  signal_side: string;
+  confidence: number;
   closed_at: string;
+  close_reason: string | null;
   pnl_net_usd: number;
   expert_breakdown_json: string | null;
 }
@@ -340,14 +343,16 @@ export async function listClosedTradeReinforcementRows(daysBack = 7): Promise<Cl
         h.id AS history_id,
         h.event_id,
         h.symbol,
+        h.signal_side,
+        h.confidence::float AS confidence,
         p.closed_at::text AS closed_at,
+        p.close_reason,
         p.pnl_net_usd::float AS pnl_net_usd,
         h.expert_breakdown_json::text AS expert_breakdown_json
       FROM virtual_trades_history h
       JOIN virtual_portfolio p
         ON p.id = h.virtual_trade_id
-      WHERE h.signal_side = 'SELL'
-        AND h.executed = TRUE
+      WHERE h.executed = TRUE
         AND h.execution_status = 'executed'
         AND p.status = 'closed'
         AND p.closed_at >= NOW() - (${safeDays} * INTERVAL '1 day')
@@ -357,7 +362,10 @@ export async function listClosedTradeReinforcementRows(daysBack = 7): Promise<Cl
       history_id: Number(row.history_id),
       event_id: String(row.event_id),
       symbol: String(row.symbol),
+      signal_side: String(row.signal_side ?? 'BUY'),
+      confidence: Number(row.confidence ?? 0),
       closed_at: String(row.closed_at ?? new Date().toISOString()),
+      close_reason: row.close_reason != null ? String(row.close_reason) : null,
       pnl_net_usd: Number(row.pnl_net_usd ?? 0),
       expert_breakdown_json: row.expert_breakdown_json != null ? String(row.expert_breakdown_json) : null,
     }));
