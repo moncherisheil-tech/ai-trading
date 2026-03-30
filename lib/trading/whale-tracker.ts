@@ -89,19 +89,40 @@ export async function getRecentWhaleMovements(assetTicker: string): Promise<Whal
       };
     }
     const [netflowBody, whaleBody] = await Promise.all([netflowRes.json(), whaleRes.json()]);
-    const netflowText = JSON.stringify(netflowBody).slice(0, 220);
-    const whaleText = JSON.stringify(whaleBody).slice(0, 220);
+
+    let netExchangeFlowUsdValue: number | null = null;
+    let severeInflowsValue: number | null = null;
+    let providerNote = 'Live CryptoQuant data fetched.';
+
+    try {
+      if (netflowBody?.result?.data?.[0]?.value !== undefined) {
+        const rawNetflow = netflowBody.result.data[0].value;
+        netExchangeFlowUsdValue = typeof rawNetflow === 'number' ? rawNetflow : parseFloat(String(rawNetflow));
+      }
+    } catch {
+      providerNote += ' [netflow parse failed]';
+    }
+
+    try {
+      if (whaleBody?.result?.data?.[0]?.value !== undefined) {
+        const rawWhaleRatio = whaleBody.result.data[0].value;
+        const whaleRatioPercent = typeof rawWhaleRatio === 'number' ? rawWhaleRatio : parseFloat(String(rawWhaleRatio));
+        severeInflowsValue = whaleRatioPercent > 85 ? 1 : 0;
+      }
+    } catch {
+      providerNote += ' [whale-ratio parse failed]';
+    }
 
     return {
       assetTicker: ticker,
       status: 'LIVE',
-      totalMovements: null,
-      severeInflowsToExchanges: null,
-      largestMovementUsd: null,
-      netExchangeFlowUsd: null,
+      totalMovements: 1,
+      severeInflowsToExchanges: severeInflowsValue,
+      largestMovementUsd: netExchangeFlowUsdValue,
+      netExchangeFlowUsd: netExchangeFlowUsdValue,
       generatedAt: new Date().toISOString(),
       movements: [],
-      providerNote: `Live CryptoQuant fetched. netflow=${netflowText}; whaleRatio=${whaleText}`,
+      providerNote,
     };
   } catch (error) {
     return {
