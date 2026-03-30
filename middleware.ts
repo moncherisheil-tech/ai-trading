@@ -11,8 +11,7 @@ import type { NextRequest } from 'next/server';
 // The signed HMAC-SHA256 session cookie (quantum_auth_token) is the sole
 // mechanism for identifying authenticated sessions.
 //
-// Protocol enforcement: any plain-HTTP request is permanently redirected (301)
-// to the HTTPS canonical domain before authentication checks run.
+// SSL termination is handled by Nginx upstream — no protocol enforcement here.
 // ---------------------------------------------------------------------------
 
 const PUBLIC_API_PREFIXES: string[] = [
@@ -127,16 +126,6 @@ function deny401(): NextResponse {
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  // ── Protocol enforcement — hard redirect HTTP → HTTPS (301) ───────────────
-  // Nginx forwards the original protocol in x-forwarded-proto. Any plain-HTTP
-  // request is permanently redirected before any other processing occurs.
-  const proto = request.headers.get('x-forwarded-proto');
-  if (proto === 'http') {
-    const httpsUrl = new URL(request.url);
-    httpsUrl.protocol = 'https:';
-    return NextResponse.redirect(httpsUrl.toString(), { status: 301 });
-  }
 
   // HEAD probes for uptime monitors — never gate
   if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();
