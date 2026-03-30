@@ -39,6 +39,8 @@ function OtpInputs({ otp, loading, refs, onChange, onKeyDown, onPaste }: OtpInpu
       {otp.map((digit, i) => (
         <input
           key={i}
+          id={`otp-digit-${i}`}
+          name={`otp-digit-${i}`}
           ref={(el) => { refs.current[i] = el; }}
           type="text"
           inputMode="numeric"
@@ -48,6 +50,7 @@ function OtpInputs({ otp, loading, refs, onChange, onKeyDown, onPaste }: OtpInpu
           onKeyDown={(e) => onKeyDown(i, e)}
           disabled={loading}
           aria-label={`Digit ${i + 1} of 6`}
+          autoComplete="one-time-code"
           className="h-14 w-full rounded-2xl border border-white/10 bg-zinc-950/80 text-center text-xl font-bold text-cyan-200 caret-transparent outline-none transition-all duration-200 focus:border-cyan-400/60 focus:bg-zinc-900/80 focus:ring-2 focus:ring-cyan-400/35 disabled:opacity-50"
         />
       ))}
@@ -65,6 +68,7 @@ function LoginForm() {
   const [step,     setStep]     = useState<Step>('password');
   const [password, setPassword] = useState('');
   const [otp,      setOtp]      = useState<string[]>(Array(6).fill(''));
+  const [nonce,    setNonce]    = useState<string>('');
   const [error,    setError]    = useState<string | null>(null);
   const [loading,  setLoading]  = useState(false);
 
@@ -81,11 +85,12 @@ function LoginForm() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ masterPassword: password }),
       });
-      const data = await res.json() as { error?: string };
+      const data = await res.json() as { error?: string; nonce?: string };
       if (!res.ok) {
         setError(data.error ?? 'Authentication failed.');
         return;
       }
+      setNonce(data.nonce ?? '');
       setStep('otp');
       // Autofocus first OTP cell after paint
       setTimeout(() => otpRefs.current[0]?.focus(), 60);
@@ -136,7 +141,7 @@ function LoginForm() {
       const res  = await fetch('/api/auth/verify-otp', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ otp: code }),
+        body:    JSON.stringify({ otp: code, nonce }),
       });
       const data = await res.json() as { error?: string; redirectTo?: string };
       if (!res.ok) {
@@ -158,6 +163,7 @@ function LoginForm() {
     setStep('password');
     setError(null);
     setOtp(Array(6).fill(''));
+    setNonce('');
   };
 
   return (

@@ -7,9 +7,14 @@ import { getRedisClient } from '@/lib/queue/redis-client';
 // Step 1 of the Telegram 2FA flow.
 // Validates the master password, generates a 6-digit OTP, stores it in Redis
 // with a 3-minute TTL, and dispatches it to the admin's Telegram chat.
+//
+// The OTP is stored under a session-scoped key (auth:otp:<nonce>) rather than
+// a single global key to prevent race conditions where a second call to this
+// endpoint overwrites the OTP before verify-otp can read it.
+// The nonce is returned to the client and must be echoed back on verify-otp.
 // ---------------------------------------------------------------------------
 
-const OTP_REDIS_KEY     = 'auth:otp';
+const OTP_KEY_PREFIX    = 'auth:otp:';
 const OTP_TTL_SECONDS   = 180; // 3 minutes
 
 function generateOtp(): string {
@@ -17,6 +22,12 @@ function generateOtp(): string {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
   return String(buf[0]! % 1_000_000).padStart(6, '0');
+}
+
+function generateNonce(): string {
+  const buf = new Uint8Array(16);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -44,8 +55,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // ── Generate & persist OTP ──────────────────────────────────────────────
     const otp   = generateOtp();
+    const nonce = generateNonce();
     const redis = getRedisClient();
-    await redis.setex(OTP_REDIS_KEY, OTP_TTL_SECONDS, otp);
+    await redis.setex(`${OTP_KEY_PREFIX}${nonce}`, OTP_TTL_SECONDS, otp);
 
     // ── Dispatch via Telegram ───────────────────────────────────────────────
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -83,7 +95,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'Failed to send verification code.' }, { status: 502 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, nonce });
 
   } catch (err) {
     console.error('[OTP] request-otp unhandled error:', err);

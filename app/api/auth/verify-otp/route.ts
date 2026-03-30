@@ -11,21 +11,30 @@ import { createSessionToken } from '@/lib/session';
 // session cookie (app_auth_token), and returns { success: true, redirectTo }.
 // ---------------------------------------------------------------------------
 
-const OTP_REDIS_KEY       = 'auth:otp';
+const OTP_KEY_PREFIX      = 'auth:otp:';
 const AUTH_COOKIE_NAME    = 'app_auth_token';
 const SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
-    const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const otp  = typeof body.otp === 'string' ? body.otp.trim() : '';
+    const body  = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const otp   = typeof body.otp   === 'string' ? body.otp.trim()   : '';
+    const nonce = typeof body.nonce === 'string' ? body.nonce.trim() : '';
 
     if (!otp || !/^\d{6}$/.test(otp)) {
       return NextResponse.json({ error: 'A valid 6-digit code is required.' }, { status: 400 });
     }
 
+    if (!nonce || !/^[0-9a-f]{32}$/.test(nonce)) {
+      return NextResponse.json(
+        { error: 'Session token missing. Please request a new code.' },
+        { status: 400 },
+      );
+    }
+
     const redis     = getRedisClient();
-    const storedOtp = await redis.get(OTP_REDIS_KEY);
+    const redisKey  = `${OTP_KEY_PREFIX}${nonce}`;
+    const storedOtp = await redis.get(redisKey);
 
     if (!storedOtp) {
       return NextResponse.json(
@@ -39,16 +48,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // ── Invalidate OTP (single-use) ─────────────────────────────────────────
-    await redis.del(OTP_REDIS_KEY);
+    await redis.del(redisKey);
 
     // ── Issue session cookie ────────────────────────────────────────────────
     const token = createSessionToken('admin', SESSION_TTL_SECONDS);
 
     const response = NextResponse.json({ success: true, redirectTo: '/ops' });
 
+    // COOKIE_SECURE=false must be set in .env when the site is served over plain
+    // HTTP (e.g. bare-metal IP access). Browsers silently drop Secure cookies on
+    // HTTP, which causes an infinite redirect loop back to /login.
+    const secureCookie =
+      process.env.COOKIE_SECURE === 'true' ||
+      (process.env.COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production');
+
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
+      secure:   secureCookie,
       sameSite: 'lax',
       path:     '/',
       maxAge:   SESSION_TTL_SECONDS,
