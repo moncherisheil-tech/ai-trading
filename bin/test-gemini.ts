@@ -10,7 +10,7 @@
 import 'dotenv/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { analysisResultSchema, type AnalysisResult } from '../lib/alpha-engine';
-import { parseJsonObjectFromAiResponse } from '../lib/gemini-json-clean';
+import { parseAiJsonObject } from '../lib/ai/parser';
 import { getGeminiApiKey } from '../lib/env';
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '../lib/gemini-model';
 
@@ -69,9 +69,8 @@ async function main(): Promise<void> {
   );
 
   const rawText = result.response.text() ?? '';
-  const jsonTry = parseJsonObjectFromAiResponse(rawText);
+  const jsonTry = parseAiJsonObject(rawText, 'bin/test-gemini');
   if (!jsonTry.ok) {
-    console.error('RAW GEMINI RESPONSE:', rawText);
     throw new Error(`JSON.parse failed: ${String(jsonTry.error)}`);
   }
 

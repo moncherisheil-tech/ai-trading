@@ -4,7 +4,7 @@
  */
 import 'dotenv/config';
 import Anthropic from '@anthropic-ai/sdk';
-import { ANTHROPIC_SONNET_MODEL } from '../lib/anthropic-model';
+import { ANTHROPIC_MODEL_CANDIDATES, ANTHROPIC_SONNET_MODEL } from '../lib/anthropic-model';
 
 function logErrorDeep(err: unknown): void {
   console.log('--- caught error (diagnostic) ---');
@@ -45,26 +45,37 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  console.log('Model from lib/anthropic-model:', ANTHROPIC_SONNET_MODEL);
+  console.log('Primary model:', ANTHROPIC_SONNET_MODEL);
+  console.log('Candidates:', ANTHROPIC_MODEL_CANDIDATES.join(', '));
   const client = new Anthropic({ apiKey });
 
-  try {
-    const msg = await client.messages.create({
-      model: ANTHROPIC_SONNET_MODEL,
-      max_tokens: 64,
-      messages: [{ role: 'user', content: 'Hello. Reply with one short word only.' }],
-    });
-    let text = '';
-    for (const b of msg.content) {
-      if (b.type === 'text') text += b.text;
+  for (const modelId of ANTHROPIC_MODEL_CANDIDATES) {
+    try {
+      const msg = await client.messages.create({
+        model: modelId,
+        max_tokens: 64,
+        messages: [{ role: 'user', content: 'Hello. Reply with one short word only.' }],
+      });
+      let text = '';
+      for (const b of msg.content) {
+        if (b.type === 'text') text += b.text;
+      }
+      console.log('SUCCESS — model used:', modelId, 'id:', msg.id);
+      console.log('Assistant text:', text.trim());
+      process.exit(0);
+    } catch (e) {
+      const status =
+        e && typeof e === 'object' && 'status' in e ? (e as { status?: number }).status : undefined;
+      if (status === 404) {
+        console.log(`Model unavailable (404), trying next: ${modelId}`);
+        continue;
+      }
+      logErrorDeep(e);
+      process.exit(1);
     }
-    console.log('SUCCESS — id:', msg.id);
-    console.log('Assistant text:', text.trim());
-    process.exit(0);
-  } catch (e) {
-    logErrorDeep(e);
-    process.exit(1);
   }
+  console.error('No Anthropic candidate model succeeded.');
+  process.exit(1);
 }
 
 main();

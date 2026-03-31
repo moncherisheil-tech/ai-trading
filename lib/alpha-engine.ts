@@ -18,10 +18,11 @@ import {
   fetchWithBackoff,
   summarizeOrderBookDepth,
 } from '@/lib/api-utils';
-import { ANTHROPIC_SONNET_MODEL } from '@/lib/anthropic-model';
+import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
+import { parseAiJsonObject } from '@/lib/ai/parser';
 import { getGeminiApiKey, getGroqApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
-import { cleanJsonFromAiResponse, parseJsonObjectFromAiResponse } from '@/lib/gemini-json-clean';
 import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { resolveGroqModel } from '@/lib/groq-model';
 import { atr } from '@/lib/indicators';
 import { getLeviathanSnapshot } from '@/lib/leviathan';
 import { getPrisma } from '@/lib/prisma';
@@ -35,7 +36,7 @@ export const ALPHA_MIN_RISK_REWARD_RATIO = 2;
 
 type KlineTuple = [number, string, string, string, string, string];
 
-const coreSignalSchema = z.object({
+export const coreSignalSchema = z.object({
   direction: z.enum(['Long', 'Short']),
   winProbability: z.number().min(0).max(100),
   rationaleHebrew: z.string().min(1),
@@ -49,6 +50,28 @@ const geminiDualSchema = z.object({
 /** Weekly + Long Gemini leg — validated JSON shape for Tri-Core Alpha. */
 export type AnalysisResult = z.infer<typeof geminiDualSchema>;
 export { geminiDualSchema as analysisResultSchema };
+
+/** True when Groq hourly leg returned parsed model JSON (not missing-key or parse fallback). */
+export function triCoreGroqOutputIsLlmParsed(r: { rationaleHebrew: string }): boolean {
+  const h = r.rationaleHebrew;
+  return !h.includes('מפתח חסר') && !h.includes('פלט Groq לא ניתן לפענוח');
+}
+
+/** True when Anthropic daily leg returned parsed model JSON (not key/HTTP/parse fallback). */
+export function triCoreAnthropicOutputIsLlmParsed(r: { rationaleHebrew: string }): boolean {
+  const h = r.rationaleHebrew;
+  return (
+    !h.includes('Anthropic לא זמין') &&
+    !h.includes('שגיאת Anthropic') &&
+    !h.includes('פלט Claude לא תקין')
+  );
+}
+
+/** True when Gemini weekly/long leg returned parsed model JSON (not parse fallback). */
+export function triCoreGeminiOutputIsLlmParsed(r: AnalysisResult): boolean {
+  const bad = 'פלט Gemini לא תקין';
+  return !r.weekly.rationaleHebrew.includes(bad) && !r.long.rationaleHebrew.includes(bad);
+}
 
 async function fetchKlines(symbol: string, interval: string, limit: number): Promise<KlineTuple[]> {
   const base = APP_CONFIG.proxyBinanceUrl || 'https://api.binance.com';
@@ -89,12 +112,12 @@ function computeStopTarget(
 }
 
 const RAW_JSON_SYSTEM_EN = [
-  'Return RAW JSON only.',
-  'DO NOT use markdown code block wrappers like ```json or ``` — output the JSON object directly with no fences.',
-  'No prose before or after the JSON.',
+  'Return ONLY a raw JSON object. No conversational filler, no preamble, no postscript.',
+  'DO NOT use markdown or code fences (no ```json, no ```).',
+  'No prose before or after the JSON — the entire reply must be parseable as a single JSON value.',
 ].join(' ');
 
-async function callGroqHourly(orderBookSummary: string, symbol: string, price: number): Promise<z.infer<typeof coreSignalSchema>> {
+export async function callGroqHourly(orderBookSummary: string, symbol: string, price: number): Promise<z.infer<typeof coreSignalSchema>> {
   const key = getGroqApiKey();
   if (!key) {
     const bidHeavy = orderBookSummary.includes('Bid-heavy');
@@ -106,7 +129,7 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
     };
   }
   const groq = new Groq({ apiKey: key });
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  const model = resolveGroqModel();
   const completion = await groq.chat.completions.create({
     model,
     temperature: 0.2,
@@ -130,11 +153,11 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
     ],
   });
   const raw = completion.choices?.[0]?.message?.content?.trim() || '{}';
-  try {
-    const parsed = coreSignalSchema.safeParse(JSON.parse(cleanJsonFromAiResponse(raw)));
+  const jsonTry = parseAiJsonObject(raw, 'Groq hourly (Tri-Core)');
+  if (jsonTry.ok) {
+    const parsed = coreSignalSchema.safeParse(jsonTry.value);
     if (parsed.success) return parsed.data;
-  } catch {
-    /* fall through */
+    console.error('[Groq hourly] schema mismatch after JSON parse:', parsed.error.flatten());
   }
   return {
     direction: 'Long',
@@ -143,7 +166,7 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
   };
 }
 
-async function callAnthropicDaily(
+export async function callAnthropicDaily(
   leviathanText: string,
   whaleJson: string,
   symbol: string,
@@ -159,54 +182,71 @@ async function callAnthropicDaily(
       rationaleHebrew: 'Anthropic לא זמין — ניתוח לווייתנים מוגבל לנתוני CryptoQuant בלבד.',
     };
   }
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: ANTHROPIC_SONNET_MODEL,
-      max_tokens: 4096,
-      system: [
-        'You are an institutional whale-flow analyst for crypto. Daily / swing horizon.',
-        RAW_JSON_SYSTEM_EN,
-        'JSON keys: direction ("Long" or "Short"), winProbability (0-100), rationaleHebrew (Hebrew).',
-      ].join(' '),
-      messages: [
-        {
-          role: 'user',
-          content: `נתח זרימות לווייתנים והחזר אובייקט JSON גולמי בלבד (ללא markdown).
-מפתחות: direction ("Long" או "Short"), winProbability (0-100), rationaleHebrew (עברית).
+  const systemBlock = [
+    'You are an institutional whale-flow analyst for crypto. Daily / swing horizon.',
+    RAW_JSON_SYSTEM_EN,
+    'JSON keys only: direction ("Long" or "Short"), winProbability (0-100), rationaleHebrew (Hebrew string).',
+  ].join(' ');
+
+  const userBlock = `נתח זרימות לווייתנים. החזר רק אובייקט JSON גולמי — ללא markdown, ללא טקסט לפני או אחרי.
+מפתחות בלבד: direction ("Long" או "Short"), winProbability (0-100), rationaleHebrew (עברית).
 סמל ${symbol}, מחיר ${price}.
 Leviathan: ${leviathanText}
 WhaleTracker: ${whaleJson}
-אופק יומי (Daily / Swing).`,
-        },
-      ],
-    }),
-    cache: 'no-store',
-  });
-  if (!res.ok) {
-    const rawErrorText = await res.text();
-    console.error('[ANTHROPIC FATAL ERROR]', res.status, rawErrorText);
-    return {
-      direction: 'Long',
-      winProbability: 51,
-      rationaleHebrew: `שגיאת Anthropic (${res.status}) — תרחיש יומי ניטרלי.`,
-    };
-  }
-  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+אופק יומי (Daily / Swing).`;
+
+  let lastStatus = 0;
+  let lastErrorText = '';
   let text = '';
-  for (const c of data.content || []) {
-    if (c.type === 'text' && c.text) text += c.text;
+
+  for (const modelId of ANTHROPIC_MODEL_CANDIDATES) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: modelId,
+        max_tokens: 4096,
+        system: systemBlock,
+        messages: [{ role: 'user', content: userBlock }],
+      }),
+      cache: 'no-store',
+    });
+
+    lastStatus = res.status;
+    if (!res.ok) {
+      lastErrorText = await res.text();
+      if (res.status === 404) {
+        console.error(`[Anthropic] model not found, trying next: ${modelId}`, lastErrorText);
+        continue;
+      }
+      console.error('[ANTHROPIC FATAL ERROR]', res.status, lastErrorText);
+      return {
+        direction: 'Long',
+        winProbability: 51,
+        rationaleHebrew: `שגיאת Anthropic (${res.status}) — תרחיש יומי ניטרלי.`,
+      };
+    }
+
+    const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+    text = '';
+    for (const c of data.content || []) {
+      if (c.type === 'text' && c.text) text += c.text;
+    }
+
+    const jsonTry = parseAiJsonObject(text || '{}', `Anthropic daily (Tri-Core) model=${modelId}`);
+    if (jsonTry.ok) {
+      const parsed = coreSignalSchema.safeParse(jsonTry.value);
+      if (parsed.success) return parsed.data;
+      console.error('[Anthropic daily] schema mismatch after JSON parse:', parsed.error.flatten());
+    }
   }
-  try {
-    const parsed = coreSignalSchema.safeParse(JSON.parse(cleanJsonFromAiResponse(text || '{}')));
-    if (parsed.success) return parsed.data;
-  } catch {
-    /* fall through */
+
+  if (lastStatus && lastStatus !== 404) {
+    console.error('[Anthropic] exhausted models; last status', lastStatus, lastErrorText);
   }
   return {
     direction: 'Long',
@@ -215,7 +255,7 @@ WhaleTracker: ${whaleJson}
   };
 }
 
-async function callGeminiWeeklyLong(
+export async function callGeminiWeeklyLong(
   macroLine: string,
   deepMemoryBlock: string,
   symbol: string,
@@ -261,10 +301,9 @@ Schema (example shape only):
       })
     );
     rawText = result.response.text() ?? '';
-    const jsonTry = parseJsonObjectFromAiResponse(rawText);
+    const jsonTry = parseAiJsonObject(rawText, 'Gemini weekly/long (Tri-Core)');
     if (!jsonTry.ok) {
-      console.error('RAW GEMINI RESPONSE:', rawText);
-      console.error('GEMINI JSON.parse failed:', jsonTry.error);
+      /* parseAiJsonObject already logged RAW + cleaned */
     } else {
       const parsed = geminiDualSchema.safeParse(jsonTry.value);
       if (parsed.success) return parsed.data;
