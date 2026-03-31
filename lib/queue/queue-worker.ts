@@ -130,6 +130,50 @@ async function processJob(
 ): Promise<CoinScanJobResult | void> {
   const start = Date.now();
 
+  // ── Handle trigger-alpha-scan: run Tri-Core Alpha Matrix across all institutional pairs ──
+  if (job.name === 'trigger-alpha-scan') {
+    console.log('[Worker] Processing trigger-alpha-scan (repeatable alpha scheduler)');
+    try {
+      const ALPHA_SYMBOLS = [
+        'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+        'ADAUSDT', 'DOGEUSDT', 'AVAXUSDT', 'LINKUSDT', 'DOTUSDT',
+        'NEARUSDT', 'LTCUSDT', 'FETUSDT', 'INJUSDT',
+        'ARBUSDT', 'OPUSDT', 'SUIUSDT', 'ATOMUSDT',
+      ];
+      const { runTriCoreAlphaMatrix } = await import('../alpha-engine');
+      let successCount = 0;
+      let failCount = 0;
+      const rotationOffset = Math.floor(Date.now() / 60_000) % ALPHA_SYMBOLS.length;
+      const batch = [
+        ...ALPHA_SYMBOLS.slice(rotationOffset),
+        ...ALPHA_SYMBOLS.slice(0, rotationOffset),
+      ].slice(0, 10); // max 10 per run to respect rate limits
+      for (const symbol of batch) {
+        try {
+          await runTriCoreAlphaMatrix(symbol);
+          successCount++;
+        } catch (err) {
+          failCount++;
+          console.warn(`[Worker] Alpha scan failed for ${symbol}:`, err instanceof Error ? err.message : err);
+        }
+        // Throttle between symbols
+        await new Promise((resolve) => setTimeout(resolve, 4_000));
+      }
+      writeAudit({
+        event: 'queue.alpha_scan_completed',
+        level: 'info',
+        meta: { successCount, failCount, batch },
+      });
+      console.log(`[Worker] trigger-alpha-scan completed — ${successCount} ok, ${failCount} failed`);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[Worker] trigger-alpha-scan failed:', msg);
+      writeAudit({ event: 'queue.alpha_scan_failed', level: 'error', meta: { error: msg } });
+      throw err;
+    }
+  }
+
   // ── Handle trigger-master-scan: enqueue all candidates ──
   if (job.name === 'trigger-master-scan') {
     console.log('[Worker] Processing trigger-master-scan (repeatable scheduler)');
@@ -374,7 +418,7 @@ async function runInitSequence(): Promise<void> {
     try {
       await setupAutoScanner();
       console.log('[Worker] Auto-scanner scheduler initialized.');
-      return;
+      break;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (attempt < MAX_SETUP_RETRIES) {
@@ -384,8 +428,6 @@ async function runInitSequence(): Promise<void> {
         );
         await new Promise((resolve) => setTimeout(resolve, SETUP_RETRY_DELAY_MS));
       } else {
-        // All retries exhausted — log clearly but DO NOT exit.
-        // The worker stays alive to process existing queued jobs.
         console.error(
           `[Worker] setupAutoScanner failed after ${MAX_SETUP_RETRIES} retries. ` +
           'The repeatable trigger-master-scan job may not be registered. ' +
@@ -394,6 +436,37 @@ async function runInitSequence(): Promise<void> {
         );
       }
     }
+  }
+
+  // Phase 4 — Alpha-scan repeatable job (every 60 minutes)
+  // Registers the Tri-Core Alpha Matrix sweep so Alpha Signals auto-populate
+  // without requiring manual "Deep Scan" clicks in the dashboard.
+  await setupAlphaScanner();
+}
+
+const ALPHA_SCAN_JOB_NAME = 'trigger-alpha-scan';
+
+async function setupAlphaScanner(): Promise<void> {
+  const queue = getCoinScanQueue();
+  try {
+    const existing = await queue.getRepeatableJobs();
+    if (existing.some((j) => j.name === ALPHA_SCAN_JOB_NAME)) {
+      console.log('[AutoAlpha] Repeatable alpha-scan job already registered; skipping.');
+      return;
+    }
+    await queue.add(
+      ALPHA_SCAN_JOB_NAME,
+      { triggeredAt: Date.now() },
+      {
+        repeat: { pattern: '0 * * * *' }, // every hour on the hour
+        removeOnComplete: true,
+        removeOnFail: false,
+      }
+    );
+    console.log('[AutoAlpha] Repeatable alpha-scan job registered (every 60 min).');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn('[AutoAlpha] Failed to register alpha-scan repeatable job (non-fatal):', msg);
   }
 }
 

@@ -10,6 +10,7 @@ import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/ses
 import { getAppSettings } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
+import { resetProviderHealthWindows, getProviderHealthSnapshot } from '@/lib/consensus-engine';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,6 +31,14 @@ export async function GET(): Promise<NextResponse> {
 
   const gemini = hasEnv('GEMINI_API_KEY') ? 'ok' : 'skip';
   const groq = hasEnv('GROQ_API_KEY') ? 'ok' : 'skip';
+
+  // When keys are confirmed present, reset the in-memory health windows so any
+  // stale "unstable" flags accumulated from transient errors are cleared.
+  // This means an ops/health call after a provider recovers will immediately
+  // reflect "healthy" in the next consensus run's watchdog output.
+  if (gemini === 'ok' || groq === 'ok') {
+    resetProviderHealthWindows();
+  }
 
   const hasPineconeKey = hasEnv('PINECONE_API_KEY');
   const hasPineconeIndex = hasEnv('PINECONE_INDEX_NAME');
@@ -60,12 +69,15 @@ export async function GET(): Promise<NextResponse> {
     virtualPortfolio = 'fail';
   }
 
+  const providerHealth = getProviderHealthSnapshot();
+
   return NextResponse.json({
     gemini,
     groq,
     pinecone,
     db,
     virtualPortfolio,
+    providerHealth,
     timestamp: new Date().toISOString(),
   });
 }

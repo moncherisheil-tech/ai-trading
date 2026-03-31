@@ -316,7 +316,14 @@ function buildAgentVerdict(
 
 /** Run post-mortem for a closed agent trade and store insight (God-Mode: why_win_lose + agent_verdict for RAG). Primary: Groq; fallback: Gemini; then deterministic. */
 export async function runPostMortemForClosedTrade(
-  trade: VirtualPortfolioRow & { tech_score?: number | null; risk_score?: number | null; psych_score?: number | null; macro_score?: number | null },
+  trade: VirtualPortfolioRow & {
+    tech_score?: number | null;
+    risk_score?: number | null;
+    psych_score?: number | null;
+    macro_score?: number | null;
+    onchain_score?: number | null;
+    deep_memory_score?: number | null;
+  },
   exitPrice: number,
   closeReason: CloseReason,
   pnlPct: number
@@ -360,6 +367,15 @@ export async function runPostMortemForClosedTrade(
     entry_conditions: entryConditions,
     outcome,
     insight,
+    // Expert scores persisted here power getExpertHitRates30d/7d in lib/db/expert-accuracy.ts,
+    // which feeds the dynamic MoE weights in consensus-engine.ts.
+    // Without these fields the Learning Center shows 0/0 and all hit rates default to 50%.
+    tech_score: trade.tech_score ?? null,
+    risk_score: trade.risk_score ?? null,
+    psych_score: trade.psych_score ?? null,
+    macro_score: trade.macro_score ?? null,
+    onchain_score: trade.onchain_score ?? null,
+    deep_memory_score: trade.deep_memory_score ?? null,
     why_win_lose: whyWinLose,
     agent_verdict: agentVerdict,
   });
@@ -385,7 +401,14 @@ const POST_MORTEM_TIMEOUT_MS = 10_000;
  * and insert a placeholder insight so trade closure is not blocked.
  */
 export function runPostMortemWithTimeout(
-  trade: VirtualPortfolioRow,
+  trade: VirtualPortfolioRow & {
+    tech_score?: number | null;
+    risk_score?: number | null;
+    psych_score?: number | null;
+    macro_score?: number | null;
+    onchain_score?: number | null;
+    deep_memory_score?: number | null;
+  },
   exitPrice: number,
   closeReason: CloseReason,
   pnlPct: number
@@ -402,6 +425,12 @@ export function runPostMortemWithTimeout(
         entry_conditions: `entry_price=${trade.entry_price}, target=${trade.target_profit_pct}%, stop=${trade.stop_loss_pct}%`,
         outcome: `exit_price=${exitPrice}, reason=${closeReason}, pnl_pct=${pnlPct.toFixed(2)}%`,
         insight: 'תובנה בהמתנה (Pending Insight) — תחקיר פוסט-מורטם לא הושלם בשל timeout או שגיאה.',
+        tech_score: trade.tech_score ?? null,
+        risk_score: trade.risk_score ?? null,
+        psych_score: trade.psych_score ?? null,
+        macro_score: trade.macro_score ?? null,
+        onchain_score: trade.onchain_score ?? null,
+        deep_memory_score: trade.deep_memory_score ?? null,
         why_win_lose: null,
         agent_verdict: null,
       }).catch((insertErr) =>

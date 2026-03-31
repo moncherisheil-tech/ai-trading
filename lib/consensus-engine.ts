@@ -124,6 +124,24 @@ function recordProviderSample(provider: ModelProvider, sample: ProviderSample): 
   if (buf.length > WATCHDOG_WINDOW) buf.shift();
 }
 
+/**
+ * Clears the in-memory provider health windows so a previously-stale "unstable"
+ * status is wiped after a confirmed successful heartbeat.
+ * Safe to call from /api/ops/health or /api/health/live when probes pass.
+ */
+export function resetProviderHealthWindows(): void {
+  providerHealthWindow.gemini = [];
+  providerHealthWindow.groq = [];
+}
+
+/** Read-only snapshot of the current provider health — for ops endpoints. */
+export function getProviderHealthSnapshot(): { gemini: ReturnType<typeof getProviderHealth>; groq: ReturnType<typeof getProviderHealth> } {
+  return {
+    gemini: getProviderHealth('gemini'),
+    groq: getProviderHealth('groq'),
+  };
+}
+
 function getProviderHealth(provider: ModelProvider): {
   status: ModelHealthStatus;
   failureRatePct: number;
@@ -1943,16 +1961,23 @@ export async function runConsensusEngine(
   };
   const providerHealthFactor = (provider: ModelProvider): number => {
     const status = provider === 'gemini' ? watchdog.gemini.status : watchdog.groq.status;
-    if (status === 'unstable') return 0;
-    if (status === 'degraded') return 0.65;
+    // Floor at 0.5 (was 0): an unstable provider is penalised heavily but never silenced.
+    // Setting weight to 0 caused a single provider outage to give all its experts 0% share,
+    // letting the one incorrectly-mapped expert (technician was using Groq's factor) monopolise
+    // 100% of the board weight. A 0.5 floor keeps every expert contributing while clearly
+    // signalling degraded quality to the CEO's confidence normalisation step.
+    if (status === 'unstable') return 0.5;
+    if (status === 'degraded') return 0.75;
     return 1;
   };
 
   const weightByExpert: Record<BoardExpertKey, number> = {
-    technician:  hitToWeight(hitRates.technician)  * regimeBase.technician  * (1 + shadowReliabilityBoost('technician'))  * providerHealthFactor('groq')   * decayFactors.technician,
+    // Technician runs on Gemini Flash — use Gemini health factor (was incorrectly using Groq).
+    technician:  hitToWeight(hitRates.technician)  * regimeBase.technician  * (1 + shadowReliabilityBoost('technician'))  * providerHealthFactor('gemini') * decayFactors.technician,
     risk:        hitToWeight(hitRates.risk)         * regimeBase.risk        * (1 + shadowReliabilityBoost('risk'))         * providerHealthFactor('gemini') * decayFactors.risk,
     psych:       hitToWeight(hitRates.psych)        * regimeBase.psych       * (1 + shadowReliabilityBoost('psych'))        * providerHealthFactor('gemini') * decayFactors.psych,
-    macro:       hitToWeight(hitRates.macro)        * regimeBase.macro       * (1 + shadowReliabilityBoost('macro'))        * providerHealthFactor('gemini') * decayFactors.macro,
+    // Macro runs on Groq (Llama-3.3-70b) — use Groq health factor (was incorrectly using Gemini).
+    macro:       hitToWeight(hitRates.macro)        * regimeBase.macro       * (1 + shadowReliabilityBoost('macro'))        * providerHealthFactor('groq')   * decayFactors.macro,
     onchain:     hitToWeight(hitRates.onchain)      * regimeBase.onchain     * (1 + shadowReliabilityBoost('onchain'))      * providerHealthFactor('gemini') * decayFactors.onchain,
     deepMemory:  hitToWeight(hitRates.deepMemory)   * regimeBase.deepMemory  * (1 + shadowReliabilityBoost('deepMemory'))   * providerHealthFactor('gemini') * decayFactors.deepMemory,
     // Expert 7 (Contrarian): Gemini-hosted; also scored via shadowReliabilityBoost.

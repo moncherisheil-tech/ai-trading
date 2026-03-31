@@ -19,6 +19,12 @@ export interface AgentInsightRow {
   risk_score?: number | null;
   /** MoE: Market Psychologist expert score (0–100). */
   psych_score?: number | null;
+  /** MoE: Macro & Order Book expert score (0–100). */
+  macro_score?: number | null;
+  /** MoE: On-Chain Sleuth expert score (0–100). */
+  onchain_score?: number | null;
+  /** MoE: Deep Memory expert score (0–100). */
+  deep_memory_score?: number | null;
   /** MoE: Judge consensus insight (Board Decision), Hebrew. */
   master_insight?: string | null;
   /** MoE: Reasoning path from Judge. */
@@ -52,6 +58,9 @@ async function ensureTable(): Promise<boolean> {
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS tech_score INTEGER`;
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS risk_score INTEGER`;
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS psych_score INTEGER`;
+    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS macro_score INTEGER`;
+    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS onchain_score INTEGER`;
+    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS deep_memory_score INTEGER`;
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS master_insight TEXT`;
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS reasoning_path TEXT`;
     await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS why_win_lose TEXT`;
@@ -72,6 +81,9 @@ export interface InsertAgentInsightInput {
   tech_score?: number | null;
   risk_score?: number | null;
   psych_score?: number | null;
+  macro_score?: number | null;
+  onchain_score?: number | null;
+  deep_memory_score?: number | null;
   master_insight?: string | null;
   reasoning_path?: string | null;
   why_win_lose?: string | null;
@@ -84,7 +96,7 @@ export async function insertAgentInsight(row: InsertAgentInsightInput): Promise<
     const ok = await ensureTable();
     if (!ok) return 0;
     const { rows } = await sql`
-      INSERT INTO agent_insights (symbol, trade_id, entry_conditions, outcome, insight, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict)
+      INSERT INTO agent_insights (symbol, trade_id, entry_conditions, outcome, insight, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict)
       VALUES (
         ${row.symbol},
         ${row.trade_id},
@@ -94,6 +106,9 @@ export async function insertAgentInsight(row: InsertAgentInsightInput): Promise<
         ${row.tech_score ?? null},
         ${row.risk_score ?? null},
         ${row.psych_score ?? null},
+        ${row.macro_score ?? null},
+        ${row.onchain_score ?? null},
+        ${row.deep_memory_score ?? null},
         ${row.master_insight ?? null},
         ${row.reasoning_path ?? null},
         ${row.why_win_lose ?? null},
@@ -115,25 +130,10 @@ export async function listAgentInsightsBySymbol(symbol: string, limit = 50): Pro
     const ok = await ensureTable();
     if (!ok) return [];
     const { rows } = await sql`
-      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict
+      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limit}
     `;
-    return (rows || []).map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      symbol: String(r.symbol),
-      trade_id: Number(r.trade_id),
-      entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
-      outcome: r.outcome != null ? String(r.outcome) : null,
-      insight: String(r.insight),
-      created_at: String(r.created_at),
-      tech_score: r.tech_score != null ? Number(r.tech_score) : null,
-      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
-      psych_score: r.psych_score != null ? Number(r.psych_score) : null,
-      master_insight: r.master_insight != null ? String(r.master_insight) : null,
-      reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
-      why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
-      agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
-    })) as AgentInsightRow[];
+    return (rows || []).map(mapAgentInsightRow) as AgentInsightRow[];
   } catch (err) {
     console.error('listAgentInsightsBySymbol failed:', err);
     return [];
@@ -146,29 +146,37 @@ export async function listAgentInsights(limit = 200): Promise<AgentInsightRow[]>
     const ok = await ensureTable();
     if (!ok) return [];
     const { rows } = await sql`
-      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict
+      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights ORDER BY created_at DESC LIMIT ${limit}
     `;
-    return (rows || []).map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      symbol: String(r.symbol),
-      trade_id: Number(r.trade_id),
-      entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
-      outcome: r.outcome != null ? String(r.outcome) : null,
-      insight: String(r.insight),
-      created_at: String(r.created_at),
-      tech_score: r.tech_score != null ? Number(r.tech_score) : null,
-      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
-      psych_score: r.psych_score != null ? Number(r.psych_score) : null,
-      master_insight: r.master_insight != null ? String(r.master_insight) : null,
-      reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
-      why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
-      agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
-    })) as AgentInsightRow[];
+    return (rows || []).map(mapAgentInsightRow) as AgentInsightRow[];
   } catch (err) {
     console.error('listAgentInsights failed:', err);
     return [];
   }
+}
+
+/** Shared row mapper — keeps column list in sync across all SELECT queries. */
+function mapAgentInsightRow(r: Record<string, unknown>): AgentInsightRow {
+  return {
+    id: Number(r.id),
+    symbol: String(r.symbol),
+    trade_id: Number(r.trade_id),
+    entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
+    outcome: r.outcome != null ? String(r.outcome) : null,
+    insight: String(r.insight),
+    created_at: String(r.created_at),
+    tech_score: r.tech_score != null ? Number(r.tech_score) : null,
+    risk_score: r.risk_score != null ? Number(r.risk_score) : null,
+    psych_score: r.psych_score != null ? Number(r.psych_score) : null,
+    macro_score: r.macro_score != null ? Number(r.macro_score) : null,
+    onchain_score: r.onchain_score != null ? Number(r.onchain_score) : null,
+    deep_memory_score: r.deep_memory_score != null ? Number(r.deep_memory_score) : null,
+    master_insight: r.master_insight != null ? String(r.master_insight) : null,
+    reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
+    why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
+    agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
+  };
 }
 
 /**
@@ -197,28 +205,13 @@ export async function listAgentInsightsSince(isoSince: string, limit = 500): Pro
     const since = new Date(isoSince);
     if (Number.isNaN(since.getTime())) return [];
     const { rows } = await sql`
-      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict
+      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights
       WHERE created_at >= ${since.toISOString()}
       ORDER BY created_at DESC
       LIMIT ${Math.min(Math.max(1, limit), 2000)}
     `;
-    return (rows || []).map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      symbol: String(r.symbol),
-      trade_id: Number(r.trade_id),
-      entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
-      outcome: r.outcome != null ? String(r.outcome) : null,
-      insight: String(r.insight),
-      created_at: String(r.created_at),
-      tech_score: r.tech_score != null ? Number(r.tech_score) : null,
-      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
-      psych_score: r.psych_score != null ? Number(r.psych_score) : null,
-      master_insight: r.master_insight != null ? String(r.master_insight) : null,
-      reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
-      why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
-      agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
-    })) as AgentInsightRow[];
+    return (rows || []).map(mapAgentInsightRow) as AgentInsightRow[];
   } catch (err) {
     console.error('listAgentInsightsSince failed:', err);
     return [];
@@ -234,27 +227,12 @@ export async function listAgentInsightsInRange(fromDate: string, toDate: string)
     const to = new Date(toDate);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
     const { rows } = await sql`
-      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, master_insight, reasoning_path, why_win_lose, agent_verdict
+      SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights
       WHERE created_at >= ${from.toISOString()} AND created_at <= ${to.toISOString()}
       ORDER BY created_at ASC
     `;
-    return (rows || []).map((r: Record<string, unknown>) => ({
-      id: Number(r.id),
-      symbol: String(r.symbol),
-      trade_id: Number(r.trade_id),
-      entry_conditions: r.entry_conditions != null ? String(r.entry_conditions) : null,
-      outcome: r.outcome != null ? String(r.outcome) : null,
-      insight: String(r.insight),
-      created_at: String(r.created_at),
-      tech_score: r.tech_score != null ? Number(r.tech_score) : null,
-      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
-      psych_score: r.psych_score != null ? Number(r.psych_score) : null,
-      master_insight: r.master_insight != null ? String(r.master_insight) : null,
-      reasoning_path: r.reasoning_path != null ? String(r.reasoning_path) : null,
-      why_win_lose: r.why_win_lose != null ? String(r.why_win_lose) : null,
-      agent_verdict: r.agent_verdict != null ? String(r.agent_verdict) : null,
-    })) as AgentInsightRow[];
+    return (rows || []).map(mapAgentInsightRow) as AgentInsightRow[];
   } catch (err) {
     console.error('listAgentInsightsInRange failed:', err);
     return [];

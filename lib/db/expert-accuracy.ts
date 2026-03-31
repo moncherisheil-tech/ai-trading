@@ -4,7 +4,7 @@
 
 import { listAgentInsightsSince, type AgentInsightRow } from '@/lib/db/agent-insights';
 
-export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory';
+export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory' | 'contrarian';
 
 const THRESHOLD = 55;
 
@@ -56,13 +56,9 @@ export async function getExpertHitRates30d(options?: {
     updateHit(tech, row.tech_score, move);
     updateHit(risk, row.risk_score, move);
     updateHit(psych, row.psych_score, move);
-    // Optional future columns — if missing, totals stay 0 → neutral 50.
-    const macroScore = (row as { macro_score?: number | null }).macro_score;
-    const onchainScore = (row as { onchain_score?: number | null }).onchain_score;
-    const deepScore = (row as { deep_memory_score?: number | null }).deep_memory_score;
-    updateHit(macro, macroScore ?? null, move);
-    updateHit(onchain, onchainScore ?? null, move);
-    updateHit(deep, deepScore ?? null, move);
+    updateHit(macro, row.macro_score ?? null, move);
+    updateHit(onchain, row.onchain_score ?? null, move);
+    updateHit(deep, row.deep_memory_score ?? null, move);
   }
 
   return {
@@ -72,6 +68,7 @@ export async function getExpertHitRates30d(options?: {
     macro: finalize(macro),
     onchain: finalize(onchain),
     deepMemory: finalize(deep),
+    contrarian: 50, // No per-trade contrarian score stored yet; defaults to neutral decay threshold
   };
 }
 
@@ -97,12 +94,9 @@ export async function getExpertHitRates7d(options?: {
     updateHit(tech, row.tech_score, move);
     updateHit(risk, row.risk_score, move);
     updateHit(psych, row.psych_score, move);
-    const macroScore = (row as { macro_score?: number | null }).macro_score;
-    const onchainScore = (row as { onchain_score?: number | null }).onchain_score;
-    const deepScore = (row as { deep_memory_score?: number | null }).deep_memory_score;
-    updateHit(macro, macroScore ?? null, move);
-    updateHit(onchain, onchainScore ?? null, move);
-    updateHit(deep, deepScore ?? null, move);
+    updateHit(macro, row.macro_score ?? null, move);
+    updateHit(onchain, row.onchain_score ?? null, move);
+    updateHit(deep, row.deep_memory_score ?? null, move);
   }
   return {
     technician: finalize(tech),
@@ -111,5 +105,6 @@ export async function getExpertHitRates7d(options?: {
     macro: finalize(macro),
     onchain: finalize(onchain),
     deepMemory: finalize(deep),
+    contrarian: 50,
   };
 }

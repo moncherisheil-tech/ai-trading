@@ -24,6 +24,8 @@ const RECONNECT_DELAY_MS = 5_000;
 const FLUSH_MS = 180;
 /** If no message arrives within this window while connected, mark connection as stale and force reconnect. */
 const STALE_THRESHOLD_MS = 10_000;
+/** Hard reconnect every N ms regardless of stale detection — guards against silent feed freezes. */
+const HARD_RECONNECT_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
 function detachWebSocketHandlers(socket: WebSocket): void {
   socket.onopen = null;
@@ -35,6 +37,7 @@ let globalWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 let staleTimer: ReturnType<typeof setTimeout> | null = null;
+let hardReconnectTimer: ReturnType<typeof setInterval> | null = null;
 let lastMessageAtMs = 0;
 let pendingRows: Array<{ s?: string; c?: string; o?: string }> | null = null;
 let snapshot: TickerSnapshot = { tickers: [], connectionState: 'connecting' };
@@ -130,9 +133,36 @@ function scheduleReconnect(): void {
   }, RECONNECT_DELAY_MS);
 }
 
+function startHardReconnectInterval(): void {
+  if (hardReconnectTimer) return;
+  hardReconnectTimer = setInterval(() => {
+    if (subscribers.size === 0) return;
+    const msSinceMsg = Date.now() - lastMessageAtMs;
+    if (msSinceMsg >= HARD_RECONNECT_INTERVAL_MS) {
+      console.warn(`[use-binance-ticker] Hard reconnect triggered — no message in ${Math.round(msSinceMsg / 1000)}s.`);
+      const sock = globalWs;
+      globalWs = null;
+      if (sock) {
+        detachWebSocketHandlers(sock);
+        if (sock.readyState === WebSocket.OPEN || sock.readyState === WebSocket.CONNECTING) sock.close();
+      }
+      setSnapshot({ connectionState: 'connecting' });
+      ensureConnected();
+    }
+  }, HARD_RECONNECT_INTERVAL_MS);
+}
+
+function stopHardReconnectInterval(): void {
+  if (hardReconnectTimer) {
+    clearInterval(hardReconnectTimer);
+    hardReconnectTimer = null;
+  }
+}
+
 function ensureConnected(): void {
   if (globalWs && (globalWs.readyState === WebSocket.OPEN || globalWs.readyState === WebSocket.CONNECTING)) return;
   setSnapshot({ connectionState: 'connecting' });
+  startHardReconnectInterval();
   const ws = new WebSocket(APP_CONFIG.tickerSocketUrl);
   globalWs = ws;
 
@@ -192,6 +222,7 @@ function subscribeTicker(subscriber: TickerSubscriber): () => void {
       clearTimeout(staleTimer);
       staleTimer = null;
     }
+    stopHardReconnectInterval();
     pendingRows = null;
     const sock = globalWs;
     globalWs = null;
