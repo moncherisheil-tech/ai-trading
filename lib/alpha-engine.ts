@@ -239,7 +239,7 @@ async function callGeminiWeeklyLong(
   price: number
 ): Promise<z.infer<typeof geminiDualSchema>> {
   const apiKey = getGeminiApiKey();
-  const primary = process.env.GEMINI_MODEL_PRIMARY || 'gemini-3-flash-preview';
+  const primary = process.env.GEMINI_MODEL_PRIMARY || 'gemini-1.5-flash-latest';
   const selected = resolveGeminiModel(primary);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel(

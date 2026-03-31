@@ -1,5 +1,5 @@
-/** Claude 4.x generation — official IDs: family before version (e.g. claude-sonnet-4-6). */
-export const ANTHROPIC_SONNET_MODEL = 'claude-sonnet-4-6';
-export const ANTHROPIC_HAIKU_MODEL = 'claude-haiku-4-5';
+/** 2026-stable Claude identifiers for Expert routing. */
+export const ANTHROPIC_SONNET_MODEL = 'claude-3-5-sonnet-latest';
+export const ANTHROPIC_HAIKU_MODEL = 'claude-3-5-haiku-latest';
 
 export const ANTHROPIC_MODEL_CANDIDATES = [ANTHROPIC_SONNET_MODEL, ANTHROPIC_HAIKU_MODEL] as const;

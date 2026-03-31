@@ -87,7 +87,7 @@ ${headlines.slice(0, 10).map((h, i) => `${i + 1}. ${h}`).join('\n')}
 החזר רק JSON תקין, בלי מרכאות או טקסט נוסף.`;
 
       const timeoutMs = APP_CONFIG.geminiTimeoutMs ?? 60_000;
-      const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+      const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
       const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
       const res = await Promise.race([
         model.generateContent({

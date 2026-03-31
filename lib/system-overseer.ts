@@ -240,7 +240,7 @@ Answer the CEO's message concisely in professional ${isHebrew ? 'Hebrew' : 'Engl
   const genAI = new GoogleGenerativeAI(apiKey);
   const timeoutMs = Math.min(15_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
-  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
   const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
   const res = await Promise.race([
     model.generateContent({
@@ -298,7 +298,7 @@ Write a single ${isHebrew ? 'Hebrew' : 'English'} sentence (max 30 words) summar
   const genAI = new GoogleGenerativeAI(apiKey);
   const timeoutMs = Math.min(10_000, APP_CONFIG.geminiTimeoutMs ?? 60_000);
 
-  const selectedCio = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+  const selectedCio = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
   const model = genAI.getGenerativeModel({ model: selectedCio.model }, selectedCio.requestOptions);
 
   const res = await Promise.race([

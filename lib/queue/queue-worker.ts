@@ -89,9 +89,37 @@ import type { ConnectionOptions } from 'bullmq';
 
 const CONCURRENCY = Number(process.env.QUEUE_CONCURRENCY ?? 3);
 const PER_JOB_TIMEOUT_MS = Number(process.env.QUEUE_JOB_TIMEOUT_MS ?? 150_000);
+const SELF_HEAL_RESTART_DELAY_MS = 15_000;
+let selfHealLoopActive = false;
 
 /** Track cycle start times in memory (worker-local). */
 const cycleStartTimes = new Map<string, number>();
+
+async function startSelfHealLoop(reason: string, error: unknown): Promise<void> {
+  if (selfHealLoopActive) {
+    return;
+  }
+  selfHealLoopActive = true;
+  const msg = error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error);
+  console.error(`[Worker] [SELF-HEAL] Triggered by ${reason}:`, msg);
+
+  while (true) {
+    try {
+      await new Promise((resolve) => setTimeout(resolve, SELF_HEAL_RESTART_DELAY_MS));
+      await waitForRedisReady(10, 3_000, 5_000);
+      await runInitSequence();
+      console.log('[Worker] [SELF-HEAL] Recovery sequence succeeded.');
+      selfHealLoopActive = false;
+      return;
+    } catch (recoveryErr) {
+      const recoveryMsg = recoveryErr instanceof Error ? recoveryErr.message : String(recoveryErr);
+      console.error(
+        `[Worker] [SELF-HEAL] Recovery attempt failed. Retrying in ${SELF_HEAL_RESTART_DELAY_MS / 1000}s:`,
+        recoveryMsg
+      );
+    }
+  }
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // Job processor
@@ -412,3 +440,9 @@ async function shutdown(signal: string): Promise<void> {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  void startSelfHealLoop('uncaughtException', err);
+});
+process.on('unhandledRejection', (reason) => {
+  void startSelfHealLoop('unhandledRejection', reason);
+});
