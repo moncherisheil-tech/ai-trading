@@ -146,8 +146,16 @@ function getConnection(): ConnectionOptions {
 
 export function getCoinScanQueue(): Queue<CoinScanJobData, CoinScanJobResult> {
   if (_queue) return _queue;
+  // isRedisAvailable() always returns true (redis-client.ts falls back to
+  // 127.0.0.1:6379). The guard is kept for forward-compatibility but must
+  // NEVER throw synchronously at module-load time — doing so was the root
+  // cause of the 120+ restart crash loop. If Redis is truly unreachable,
+  // IORedis retryStrategy handles reconnection without crashing the process.
   if (!isRedisAvailable()) {
-    throw new Error('[ScanQueue] Redis unavailable. Set REDIS_URL to enable the task queue.');
+    console.error(
+      '[ScanQueue] isRedisAvailable() returned false — check redis-client.ts. ' +
+      'Returning a best-effort queue instance; IORedis will reconnect automatically.'
+    );
   }
   _queue = new Queue<CoinScanJobData, CoinScanJobResult>(QUEUE_NAME, {
     connection: getConnection(),

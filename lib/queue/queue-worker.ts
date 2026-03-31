@@ -235,36 +235,26 @@ worker.on('error', (err) => {
   console.error('[Worker] Worker connection/internal error:', err.message, err.stack ?? '');
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// Drain → report trigger
-// ────────────────────────────────────────────────────────────────────────────
-
-attachDrainListener(async (cycleId: string) => {
-  const cycleStart = cycleStartTimes.get(cycleId) ?? Date.now();
-  try {
-    const durationMs = Date.now() - cycleStart;
-    console.log(`[Worker] Cycle ${cycleId} drained — total duration ${durationMs}ms`);
-    writeAudit({
-      event: 'queue.cycle_drained',
-      level: 'info',
-      meta: { cycleId, durationMs },
-    });
-  } finally {
-    cycleStartTimes.delete(cycleId);
-  }
-});
-
-// ── Startup sequence: Redis health-check → auto-scanner registration ────────
+// ── Startup sequence: Redis health-check → drain listener → auto-scanner ────
 //
-// Phase 1: waitForRedisReady() — confirm Redis is reachable before attempting
-//   any BullMQ operations. On failure it logs a detailed recovery message and
-//   returns false; the worker stays alive so PM2's exp_backoff_restart_delay
-//   governs the next attempt (5s → 10s → 20s …) rather than an immediate loop.
+// ALL Redis-dependent initialisation is deferred into this async IIFE.
+// Nothing that touches BullMQ Queue/QueueEvents is called at the synchronous
+// module-load level, which was the root cause of the 120+ restart crash loop:
 //
-// Phase 2: setupAutoScanner() — registers the repeatable trigger-master-scan
-//   BullMQ job. Previously this called process.exit(1) on any failure, causing
-//   a PM2 restart loop on transient Redis delays at boot time. Now it logs and
-//   retries; the worker stays alive to process any already-queued jobs.
+//   OLD flow (broken):
+//     module loads → attachDrainListener() called synchronously →
+//     getCoinScanQueue() → isRedisAvailable() returns false (old code) →
+//     throw at module root → process exits → PM2 restarts → infinite loop
+//
+//   NEW flow (fixed):
+//     module loads → Worker registered → IIFE starts async →
+//     waitForRedisReady() → attachDrainListener() → setupAutoScanner()
+//     If Redis is down, the worker stays alive and IORedis reconnects.
+//
+// Phase 1: waitForRedisReady() — up to 10 × 3 s = 30 s wait at boot.
+// Phase 2: attachDrainListener() — safe to call once Redis is confirmed.
+// Phase 3: setupAutoScanner() — registers the repeatable trigger-master-scan
+//   BullMQ job with up to 5 retries before giving up (non-fatal).
 (async () => {
   // Phase 1 — Redis connectivity gate
   const redisReady = await waitForRedisReady(
@@ -277,11 +267,35 @@ attachDrainListener(async (cycleId: string) => {
     console.warn(
       '[Worker] Redis did not respond before the health-check deadline. ' +
       'Proceeding anyway — IORedis retryStrategy will reconnect in the background. ' +
-      'Auto-scanner registration is deferred until the retry below succeeds.'
+      'Drain listener and auto-scanner registration are deferred until Redis recovers.'
     );
   }
 
-  // Phase 2 — repeatable job registration with retry
+  // Phase 2 — Attach the drain → report trigger AFTER Redis is confirmed ready.
+  // Placing this here (instead of at module-load) prevents getCoinScanQueue()
+  // from throwing synchronously and killing the process before any handler fires.
+  try {
+    attachDrainListener(async (cycleId: string) => {
+      const cycleStart = cycleStartTimes.get(cycleId) ?? Date.now();
+      try {
+        const durationMs = Date.now() - cycleStart;
+        console.log(`[Worker] Cycle ${cycleId} drained — total duration ${durationMs}ms`);
+        writeAudit({
+          event: 'queue.cycle_drained',
+          level: 'info',
+          meta: { cycleId, durationMs },
+        });
+      } finally {
+        cycleStartTimes.delete(cycleId);
+      }
+    });
+    console.log('[Worker] Drain listener attached.');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Worker] Failed to attach drain listener (non-fatal):', msg);
+  }
+
+  // Phase 3 — repeatable job registration with retry
   const MAX_SETUP_RETRIES = 5;
   const SETUP_RETRY_DELAY_MS = 8_000;
   for (let attempt = 1; attempt <= MAX_SETUP_RETRIES; attempt++) {

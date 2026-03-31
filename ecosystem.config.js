@@ -2,10 +2,21 @@
  * PM2 Ecosystem — Production
  * ===========================================================================
  *
- * dotenv is loaded here at module parse time so that any process.env reference
- * inside THIS file (e.g. dynamic port reads) picks up .env values immediately.
- * PM2's own env_file key is also set so that PM2's internal env snapshot
- * captures the same variables for restarts / cluster forks.
+ * ENV STRATEGY — why we spread envFileVars instead of relying on env_file:
+ *
+ *   PM2's `env_file` key reads the file once at `pm2 start` time and stores
+ *   a snapshot in ~/.pm2/dump.pm2. On a crash-restart, PM2 reloads from that
+ *   saved dump — it does NOT re-read env_file. This means:
+ *
+ *   • If PM2 was started WITHOUT `--env production` (e.g., a bare `pm2 restart`),
+ *     the env_production block is never merged and REDIS_URL is absent from the
+ *     worker's process.env — causing the old `isRedisAvailable()` guard to throw
+ *     at module-load time, which triggers a crash loop of 120+ restarts.
+ *
+ *   The fix: eagerly parse .env with dotenv.parse() and SPREAD all variables
+ *   directly into env_production. Every key is baked into PM2's saved snapshot
+ *   at `pm2 start` time, so all crash-restarts inherit the full environment
+ *   regardless of how PM2 was invoked.
  *
  * App  (quantum-mon-cheri):
  *   node .next/standalone/server.js
@@ -14,10 +25,8 @@
  *     before this process is started (otherwise /_next/static/* returns 404).
  *
  * Worker (queue-worker):
- *   npx tsx lib/queue/queue-worker.ts
+ *   node_modules/.bin/tsx lib/queue/queue-worker.ts
  *   → TypeScript-native execution via tsx (no compile step required at runtime).
- *   → queue-worker.ts calls `import 'dotenv/config'` itself, but the env_file
- *     key below ensures PM2's restart/fork copies also receive the env snapshot.
  *   → exp_backoff_restart_delay: 100 — PM2 doubles the restart delay on each
  *     crash up to max_restarts, preventing a thundering-herd restart loop when
  *     Redis is temporarily unavailable after a server reboot.
@@ -33,9 +42,28 @@
  * ===========================================================================
  */
 
-// Eagerly load .env so any process.env references in this file resolve correctly.
-// Path is explicit (__dirname) so this works regardless of cwd at pm2 invocation time.
-require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+const fs   = require('fs');
+const path = require('path');
+
+// Eagerly load .env into process.env so that any process.env references
+// inside THIS file resolve correctly at parse time.
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// Parse the .env file into a plain object so we can SPREAD all variables
+// into env_production. This is the crash-safe approach: every variable is
+// baked into PM2's saved dump, not looked up lazily at restart time.
+let _envFileVars = {};
+const _envFilePath = path.join(__dirname, '.env');
+if (fs.existsSync(_envFilePath)) {
+  try {
+    const { parse } = require('dotenv');
+    _envFileVars = parse(fs.readFileSync(_envFilePath, 'utf8'));
+  } catch (e) {
+    // Non-fatal — env_production overrides below still guarantee the
+    // minimum required variables are present.
+    console.warn('[ecosystem.config.js] Could not parse .env file:', e.message);
+  }
+}
 
 module.exports = {
   apps: [
@@ -55,14 +83,15 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: '10s',
+      kill_timeout: 10_000,
 
-      env_file: '.env',
       env_production: {
+        // Spread ALL .env variables first so nothing is accidentally omitted.
+        ..._envFileVars,
+        // Hard overrides — these take precedence over anything in the .env file.
         NODE_ENV: 'production',
         PORT: '3000',
         HOSTNAME: '0.0.0.0',
-        // Explicit Redis fallback: ensures the process always has REDIS_URL
-        // even when the .env file was not copied into .next/standalone/.
         REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
       },
     },
@@ -92,13 +121,15 @@ module.exports = {
       restart_delay: 5_000,
       exp_backoff_restart_delay: 100,
 
-      // PM2 reads env_file and merges it with env_production at (re)start.
-      env_file: '.env',
       env_production: {
+        // Spread ALL .env variables first — bakes every secret into PM2's
+        // saved dump so crash-restarts always have the full environment.
+        ..._envFileVars,
+        // Hard overrides — ensure these critical variables are always correct.
         NODE_ENV: 'production',
         QUEUE_ENABLED: 'true',
         QUEUE_CONCURRENCY: '3',
-        REDIS_URL: 'redis://127.0.0.1:6379',
+        REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
       },
     },
   ],

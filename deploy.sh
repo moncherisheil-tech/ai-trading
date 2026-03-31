@@ -325,14 +325,14 @@ step "9/11" "Starting PM2 processes via ecosystem.config.js (clean start)"
 pm2 start "$ROOT/ecosystem.config.js" --env production
 ok "PM2 start completed"
 
-echo "  Waiting 6 s for processes to stabilise..."
+echo "  Waiting 6 s for processes to initialise..."
 sleep 6
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 10 — HTTP health check
 # ══════════════════════════════════════════════════════════════════════════════
-step "10/11" "HTTP health check (GET /api/health/ready)"
+step "10/11" "HTTP health check + worker stability validation"
 
 _APP_PORT=$(grep -E "^PORT=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || echo "3000")
 _HEALTH_URL="http://127.0.0.1:${_APP_PORT:-3000}/api/health/ready"
@@ -364,7 +364,7 @@ else
   warn "Verify manually: curl http://127.0.0.1:${_APP_PORT:-3000}/api/health/ready"
 fi
 
-# PM2 process status snapshot
+# ── PM2 process status snapshot ───────────────────────────────────────────────
 _PM2_STATUS=$(pm2 jlist 2>/dev/null || echo "[]")
 _check_process() {
   local NAME="$1"
@@ -382,6 +382,40 @@ _check_process() {
 }
 _check_process "quantum-mon-cheri"
 _check_process "queue-worker"
+
+# ── Worker stability gate ──────────────────────────────────────────────────────
+# A stable worker should have been online for ≥ 30 s with 0 restarts since this
+# deploy. If the restart count is > 0 at this point (< 36 s after pm2 start),
+# the worker is already in a crash loop — fail the deploy loudly.
+echo ""
+echo "  Waiting 30 s to validate queue-worker stability (uptime gate)..."
+sleep 30
+
+_PM2_STATUS_LATE=$(pm2 jlist 2>/dev/null || echo "[]")
+_WORKER_RESTARTS=$(node -e "
+  const list = JSON.parse(process.argv[1]);
+  const p = list.find(p => p.name === 'queue-worker');
+  if (!p) { process.stdout.write('NOT_FOUND'); process.exit(0); }
+  // pm2_env.restart_time counts restarts SINCE the process was last registered.
+  process.stdout.write(String(p.pm2_env.restart_time ?? -1));
+" "$_PM2_STATUS_LATE" 2>/dev/null || echo "-1")
+
+_WORKER_STATUS=$(node -e "
+  const list = JSON.parse(process.argv[1]);
+  const p = list.find(p => p.name === 'queue-worker');
+  process.stdout.write(p ? p.pm2_env.status : 'NOT_FOUND');
+" "$_PM2_STATUS_LATE" 2>/dev/null || echo "unknown")
+
+if [ "$_WORKER_STATUS" = "online" ] && [ "$_WORKER_RESTARTS" = "0" ]; then
+  ok "queue-worker : STABLE — online with 0 restarts after 30 s ✓"
+elif [ "$_WORKER_STATUS" = "online" ] && [ "$_WORKER_RESTARTS" -gt "0" ] 2>/dev/null; then
+  warn "queue-worker : online but has restarted ${_WORKER_RESTARTS} time(s)."
+  warn "This may indicate a transient startup issue (Redis delay at boot is normal)."
+  warn "Monitor with:  pm2 logs queue-worker --lines 50"
+  warn "If restarts keep climbing, investigate:  pm2 logs queue-worker --err --lines 100"
+else
+  fail "queue-worker stability check FAILED — status=${_WORKER_STATUS}, restarts=${_WORKER_RESTARTS}.\n  The worker is in a crash loop. Run:\n    pm2 logs queue-worker --err --lines 100\n  Then re-run deploy.sh after fixing the root cause."
+fi
 
 
 # ══════════════════════════════════════════════════════════════════════════════
