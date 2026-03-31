@@ -344,11 +344,11 @@ async function scanGemini() {
 }
 
 async function scanAnthropic() {
-  log(`\n${B}${M}━━━ [7a/7] ANTHROPIC — claude-3-5-sonnet-latest ━━━${R}`);
+  log(`\n${B}${M}━━━ [7a/7] ANTHROPIC — claude-4.6-sonnet-20260215 ━━━${R}`);
   const apiKey = sanitize(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY);
   if (!apiKey) fatal('Anthropic', 'ANTHROPIC_API_KEY is not set');
 
-  const candidates = ['claude-3-5-sonnet-latest', 'claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'];
+  const candidates = ['claude-4.6-sonnet-20260215', 'claude-4-sonnet-20250514', 'claude-haiku-4-5-20251001'];
   let lastErr = '';
 
   for (const model of candidates) {

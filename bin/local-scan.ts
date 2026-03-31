@@ -4,7 +4,7 @@
  *   - Binance BTC price + whale detection
  *   - Groq llama-3.3-70b-versatile JSON probe
  *   - Gemini gemini-3-flash-preview JSON probe
- *   - Anthropic claude-3-5-sonnet-latest JSON probe
+ *   - Anthropic claude-4.6-sonnet-20260215 JSON probe
  *   - Pinecone index stats + dimension assertion (768)
  */
 import 'dotenv/config';
@@ -98,10 +98,10 @@ async function main() {
   else console.log(`${PASS} status = "${B}${(mParsed as { status: string }).status}${R}"`);
 
   // ── [D] ANTHROPIC ────────────────────────────────────────────────────────────
-  console.log(`\n${B}${M}━━━ [D] ANTHROPIC — claude-3-5-sonnet-latest ━━━${R}`);
+  console.log(`\n${B}${M}━━━ [D] ANTHROPIC — claude-4.6-sonnet-20260215 ━━━${R}`);
   const anthKey = sanitize(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY);
   if (!anthKey) { console.error(`${FAIL} ANTHROPIC_API_KEY not set`); process.exit(1); }
-  const models = ['claude-3-5-sonnet-latest', 'claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'];
+  const models = ['claude-4.6-sonnet-20260215', 'claude-4-sonnet-20250514', 'claude-haiku-4-5-20251001'];
   let anthDone = false;
   for (const am of models) {
     console.log(`${INFO} Trying model=${am} ...`);

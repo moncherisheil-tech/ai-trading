@@ -12,7 +12,7 @@
  *
  *   Category B — AI Cores (3 checks)
  *     6. Gemini (gemini-3-flash-preview) — probe + JSON parse
- *     7. Anthropic (claude-3-5-sonnet-latest) — probe + JSON parse
+ *     7. Anthropic (claude-4.6-sonnet-20260215) — probe + JSON parse
  *     8. Groq (llama-3.3-70b-versatile) — probe + JSON parse
  *
  *   Category C — Live Market Data (5 checks)
@@ -214,7 +214,7 @@ async function checkGeminiCore(): Promise<CheckResult> {
 }
 
 async function checkAnthropicCore(): Promise<CheckResult> {
-  const name = `Anthropic Core — claude-3-5-sonnet-latest + JSON parse`;
+  const name = `Anthropic Core — claude-4.6-sonnet-20260215 + JSON parse`;
   const apiKey = sanitizeEnv(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY);
   if (!apiKey) return { name, status: 'skip', detail: 'ANTHROPIC_API_KEY not set' };
   const t0 = Date.now();

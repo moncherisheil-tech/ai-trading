@@ -184,7 +184,7 @@ async function checkExpert5(): Promise<CheckResult> {
   const t0 = Date.now();
   try {
     const { ANTHROPIC_MODEL_CANDIDATES } = await import('../lib/anthropic-model');
-    const models = [...ANTHROPIC_MODEL_CANDIDATES, 'claude-3-haiku-20240307'];
+    const models = [...ANTHROPIC_MODEL_CANDIDATES];
     let lastErr = '';
     for (const model of models) {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
