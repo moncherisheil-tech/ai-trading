@@ -119,28 +119,21 @@ export function validateInfraEnv(): void {
     }
   }
 
-  // ── 2. Pinecone dimension guard (model output must be 768) ────────────────
-  // Accepts either PINECONE_EMBEDDING_DIM (legacy) or PINECONE_DIMENSION.
+  // ── 2. Pinecone dimension guard — warn-only, never fatal ─────────────────
+  // PINECONE_EMBEDDING_DIM is IGNORED at runtime; lib/vector-db.ts hard-locks
+  // the dimension to 768 (gemini-embedding-001 standard). Any env value that
+  // differs from 768 gets a single warning and is overridden automatically.
   const rawDim =
     stripEnvQuotes(process.env.PINECONE_EMBEDDING_DIM) ??
     stripEnvQuotes(process.env.PINECONE_DIMENSION);
   if (rawDim && rawDim.trim() !== '') {
     const parsed = Number(rawDim.trim());
-    if (!Number.isFinite(parsed)) {
-      const msg =
-        `[FATAL BOOT ERROR] PINECONE_EMBEDDING_DIM="${rawDim}" is not a valid number. ` +
-        'Set it to 768 to match the Gemini text-embedding-004 model output.';
-      console.error(msg);
-      throw new Error(msg);
-    }
-    if (parsed !== 768) {
-      const msg =
-        `[FATAL BOOT ERROR] PINECONE_EMBEDDING_DIM=${parsed} does not match ` +
-        'the required model output dimension of 768 (Gemini text-embedding-004). ' +
-        'Uploading vectors with the wrong dimension will fail with a Pinecone 400 error. ' +
-        'Fix PINECONE_EMBEDDING_DIM=768 in your .env file.';
-      console.error(msg);
-      throw new Error(msg);
+    if (!Number.isFinite(parsed) || parsed !== 768) {
+      console.warn(
+        `[env] PINECONE_EMBEDDING_DIM="${rawDim.trim()}" is not 768. ` +
+        'The value is ignored — dimension is hard-locked to 768 in lib/vector-db.ts. ' +
+        'Remove or update this variable to PINECONE_EMBEDDING_DIM=768 to silence this warning.'
+      );
     }
   }
 
