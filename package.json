@@ -9,7 +9,8 @@
     "build:prod": "bash scripts/build-prod.sh",
     "build:production": "bash scripts/build-production.sh",
     "start": "next start",
-    "start:prod": "bash start-production.sh"
+    "start:prod": "bash start-production.sh",
+    "deploy": "bash deploy.sh"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

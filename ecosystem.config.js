@@ -1,14 +1,21 @@
 /**
  * PM2 Ecosystem — Production
  *
- * Main app  : `next start` via node_modules/next/dist/bin/next
- *             → No manual static-file copying; Next.js owns all asset serving.
+ * Main app  : `node .next/standalone/server.js`
+ *             → Runs the self-contained standalone bundle produced by
+ *               `output: 'standalone'` in next.config.ts.
+ *             → deploy.sh MUST copy public/ and .next/static/ into the
+ *               standalone directory before this process is started.
+ *             → PORT and HOSTNAME are set via env_production below.
  * Worker    : `tsx lib/queue/queue-worker.ts`
  *             → tsx handles TypeScript + @/ path-alias resolution natively.
  *             → queue-worker.ts loads `dotenv/config` itself, so .env is read
  *               before any Redis/BullMQ client is instantiated.
  *
- * Launch:
+ * Launch (full deploy — preferred):
+ *   bash deploy.sh
+ *
+ * Manual launch after a completed build:
  *   pm2 start ecosystem.config.js --env production
  *
  * App-only (no Redis required):
@@ -16,14 +23,16 @@
  */
 module.exports = {
   apps: [
-    // ── 1. Next.js web server ──────────────────────────────────────────────
+    // ── 1. Next.js web server (standalone) ────────────────────────────────
     {
       name: 'quantum-mon-cheri',
+      // Keep cwd at project root so Prisma can find prisma/schema.prisma and
+      // dotenv resolves .env relative to the repo, not the standalone bundle.
       cwd: __dirname,
-      script: 'node_modules/next/dist/bin/next',
-      // --hostname 0.0.0.0 ensures the server listens on all interfaces, not just
-      // loopback. Without this, external traffic cannot reach the process.
-      args: 'start --hostname 0.0.0.0 --port 3000',
+      // Run the pre-built standalone server directly — no next CLI overhead.
+      // Static assets are served from .next/standalone/.next/static/ (copied
+      // by deploy.sh). Public assets from .next/standalone/public/ (also copied).
+      script: '.next/standalone/server.js',
       interpreter: 'node',
       instances: 1,
       autorestart: true,
