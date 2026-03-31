@@ -1869,6 +1869,7 @@ export async function runConsensusEngine(
       macro: 50,
       onchain: 50,
       deepMemory: 50,
+      contrarian: 50,
     })),
     getExpertHitRates7d({ symbol: normalizedForHits }).catch(() => ({
       technician: 50,
@@ -1877,6 +1878,7 @@ export async function runConsensusEngine(
       macro: 50,
       onchain: 50,
       deepMemory: 50,
+      contrarian: 50,
     })),
   ]);
   let hitRates = hitRates30dRaw;

@@ -59,3 +59,28 @@ export function getPrisma(): PrismaClient | null {
 
   return globalForPrisma.prisma;
 }
+
+/**
+ * Named `prisma` constant for direct imports:
+ *   import { prisma } from '@/lib/prisma';
+ *
+ * Uses a Proxy so the export is safe at build time (no DATABASE_URL required
+ * during `next build`). Every property access is forwarded to the singleton
+ * returned by getPrisma() at call-time, not at module-load time.
+ *
+ * Throws a clear diagnostic message if DATABASE_URL is absent at runtime
+ * and DB-touching code is inadvertently called.
+ */
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_, prop: string | symbol) {
+    const client = getPrisma();
+    if (!client) {
+      throw new Error(
+        `[prisma] DATABASE_URL is not set — cannot access prisma.${String(prop)}. ` +
+        'Ensure DATABASE_URL is defined in your environment before any DB calls.'
+      );
+    }
+    const value = (client as unknown as Record<string | symbol, unknown>)[prop];
+    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(client) : value;
+  },
+});

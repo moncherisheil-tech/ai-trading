@@ -305,7 +305,14 @@ export async function storePostMortem(
 ): Promise<void> {
   const apiKey = getPineconeApiKey();
   const indexName = getPineconeIndexName();
-  if (!apiKey || !indexName || !whyWinLose?.trim()) {
+  if (!apiKey) {
+    console.error(
+      '[vector-db] storePostMortem SKIPPED: PINECONE_API_KEY is missing. ' +
+      'Set this environment variable to enable Pinecone vector memory.'
+    );
+    return;
+  }
+  if (!whyWinLose?.trim()) {
     return;
   }
   try {
@@ -389,7 +396,13 @@ export async function querySimilarTrades(
   topK: number = DEFAULT_TOP_K
 ): Promise<SimilarTradeHit[]> {
   const apiKey = getPineconeApiKey();
-  if (!apiKey) return [];
+  if (!apiKey) {
+    console.error(
+      '[vector-db] querySimilarTrades SKIPPED: PINECONE_API_KEY is missing. ' +
+      'Deep Memory (Expert 6) will operate without vector recall until this is set.'
+    );
+    return [];
+  }
   const indexName = getPineconeIndexName();
   try {
     const { index } = await getPineconeIndexOrThrow();
@@ -468,7 +481,11 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
   const apiKey = getPineconeApiKey();
   const indexName = getPineconeIndexName();
   if (!apiKey || !indexName) {
-    console.warn('[vector-db] Skipping board meeting upsert: Pinecone is not fully configured.');
+    console.error(
+      '[vector-db] storeBoardMeetingMemory SKIPPED: Pinecone is not fully configured. ' +
+      `PINECONE_API_KEY=${apiKey ? 'SET' : 'MISSING'}, PINECONE_INDEX_NAME=${indexName ? `"${indexName}"` : 'MISSING'}. ` +
+      'Board meeting embeddings will NOT be stored until both env vars are set.'
+    );
     return;
   }
   const mergedSummary = [

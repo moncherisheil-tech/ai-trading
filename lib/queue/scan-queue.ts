@@ -373,15 +373,17 @@ export async function setupAutoScanner(): Promise<void> {
       return;
     }
 
-    // Add repeatable job: every 20 minutes
+    // Add repeatable job: every 20 minutes.
+    // removeOnComplete: false — keep completed jobs visible in BullMQ dashboard
+    // so we can inspect them and debug cycle timing issues.
     await queue.add(
       'trigger-master-scan',
-      { triggeredAt: Date.now() } satisfies TriggerMasterScanJobData,
+      { triggeredAt: Date.now() } as unknown as CoinScanJobData,
       {
         repeat: {
           pattern: '*/20 * * * *',
         },
-        removeOnComplete: true,
+        removeOnComplete: false,
         removeOnFail: false,
       }
     );

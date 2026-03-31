@@ -22,8 +22,7 @@ import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
 import { getAppSettings } from '@/lib/db/app-settings';
 import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { fetchMacroContext } from '@/lib/api-utils';
-import { sql } from '@/lib/db/sql';
-import { getPrisma } from '@/lib/prisma';
+import { prisma } from '@/lib/prisma';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
@@ -175,7 +174,9 @@ export async function GET(): Promise<NextResponse> {
   // ── Board meeting logs ─────────────────────────────────────────────────────────────────────────
   let latestBoardMeetingAt: string | null = null;
   try {
-    const { rows } = await sql`SELECT timestamp::text FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1`;
+    const rows = await prisma.$queryRaw<{ timestamp: string }[]>`
+      SELECT timestamp::text AS timestamp FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1
+    `;
     const row = rows?.[0] as { timestamp?: string } | undefined;
     latestBoardMeetingAt = row?.timestamp ?? null;
   } catch {
@@ -347,25 +348,22 @@ export async function GET(): Promise<NextResponse> {
 
   let neuroPlasticity: NeuroPlasticityPayload = null;
   try {
-    const prisma = getPrisma();
-    if (prisma) {
-      const row = await prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } });
-      if (row) {
-        neuroPlasticity = {
-          techWeight: row.techWeight,
-          riskWeight: row.riskWeight,
-          psychWeight: row.psychWeight,
-          macroWeight: row.macroWeight,
-          onchainWeight: row.onchainWeight,
-          deepMemoryWeight: row.deepMemoryWeight,
-          contrarianWeight: row.contrarianWeight,
-          ceoConfidenceThreshold: row.ceoConfidenceThreshold,
-          ceoRiskTolerance: row.ceoRiskTolerance,
-          robotSlBufferPct: row.robotSlBufferPct,
-          robotTpAggressiveness: row.robotTpAggressiveness,
-          updatedAt: row.updatedAt?.toISOString() ?? null,
-        };
-      }
+    const row = await prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } });
+    if (row) {
+      neuroPlasticity = {
+        techWeight: row.techWeight,
+        riskWeight: row.riskWeight,
+        psychWeight: row.psychWeight,
+        macroWeight: row.macroWeight,
+        onchainWeight: row.onchainWeight,
+        deepMemoryWeight: row.deepMemoryWeight,
+        contrarianWeight: row.contrarianWeight,
+        ceoConfidenceThreshold: row.ceoConfidenceThreshold,
+        ceoRiskTolerance: row.ceoRiskTolerance,
+        robotSlBufferPct: row.robotSlBufferPct,
+        robotTpAggressiveness: row.robotTpAggressiveness,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+      };
     }
   } catch { /* non-fatal; UI handles null */ }
 
@@ -379,21 +377,19 @@ export async function GET(): Promise<NextResponse> {
   };
   let episodicMemory: EpisodicLesson[] = [];
   try {
-    const prisma = getPrisma();
-    if (prisma) {
-      const rows = await prisma.episodicMemory.findMany({
-        orderBy: { createdAt: 'desc' },
-        take: 10,
-        select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
-      });
-      episodicMemory = rows.map((r) => ({
-        id: r.id,
-        symbol: r.symbol,
-        marketRegime: r.marketRegime,
-        abstractLesson: r.abstractLesson,
-        createdAt: r.createdAt.toISOString(),
-      }));
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (await (prisma as any).episodicMemory.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
+    })) as Array<{ id: string; symbol: string; marketRegime: string; abstractLesson: string; createdAt: Date }>;
+    episodicMemory = rows.map((r) => ({
+      id: r.id,
+      symbol: r.symbol,
+      marketRegime: r.marketRegime,
+      abstractLesson: r.abstractLesson,
+      createdAt: r.createdAt.toISOString(),
+    }));
   } catch { /* non-fatal */ }
 
   return NextResponse.json({

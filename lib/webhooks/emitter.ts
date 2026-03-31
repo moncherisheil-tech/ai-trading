@@ -107,7 +107,7 @@ async function sendTelegramReport(payload: AlphaReportPayload): Promise<void> {
 
   const message = lines.join('\n').slice(0, 4000); // Telegram 4096 char limit
   try {
-    await sendTelegramMessage(message, { parseMode: 'Markdown' });
+    await sendTelegramMessage(message, { parse_mode: 'Markdown' });
     console.log(`[Emitter] Telegram report sent (${totalQualified} coins).`);
   } catch (err) {
     console.error('[Emitter] Telegram delivery failed:', err instanceof Error ? err.message : err);

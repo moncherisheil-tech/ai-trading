@@ -169,8 +169,9 @@ async function processJob(
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[Worker] trigger-alpha-scan failed:', msg);
-      writeAudit({ event: 'queue.alpha_scan_failed', level: 'error', meta: { error: msg } });
+      const stack = err instanceof Error ? (err.stack ?? '') : '';
+      console.error('[Worker] trigger-alpha-scan FAILED — full stack below:', msg, stack);
+      writeAudit({ event: 'queue.alpha_scan_failed', level: 'error', meta: { error: msg, stack: stack.slice(0, 800) } });
       throw err;
     }
   }
@@ -455,12 +456,14 @@ async function setupAlphaScanner(): Promise<void> {
       console.log('[AutoAlpha] Repeatable alpha-scan job already registered; skipping.');
       return;
     }
+    // removeOnComplete: false — keep completed alpha-scan jobs visible in BullMQ
+    // dashboard so we can inspect execution history and diagnose stalls.
     await queue.add(
       ALPHA_SCAN_JOB_NAME,
       { triggeredAt: Date.now() } as unknown as CoinScanJobData,
       {
         repeat: { pattern: '0 * * * *' }, // every hour on the hour
-        removeOnComplete: true,
+        removeOnComplete: false,
         removeOnFail: false,
       }
     );

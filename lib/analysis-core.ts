@@ -54,6 +54,7 @@ import {
   resolveGeminiModel,
   withGeminiRateLimitRetry,
 } from '@/lib/gemini-model';
+import { tripleCleanJsonString } from '@/lib/ai/parser';
 import {
   computeEmaSeries,
   computeBollingerSeries,
@@ -251,26 +252,14 @@ function is404Or500Error(err: unknown): boolean {
   );
 }
 
-/** Extract JSON string from model text (handles markdown fences and trailing text). Returns empty string if no '{' found. */
-function extractJsonFromText(text: string): string {
-  const trimmed = (text ?? '').trim();
-  if (!trimmed) return '';
-  let str = trimmed;
-  if (str.startsWith('```')) {
-    str = str.replace(/^```(?:json)?\s*\n?/i, '').replace(/(?:\r?\n)?\s*```\s*$/, '').trim();
-  }
-  const start = str.indexOf('{');
-  if (start < 0) return '';
-  const end = str.lastIndexOf('}') + 1;
-  if (end > start) return str.slice(start, end);
-  const match = str.match(/\{[\s\S]*\}/);
-  return match ? match[0]! : '';
-}
-
-/** Parse JSON with fallback: extract blob first, then parse. Bulletproof against empty string and partial JSON. */
+/**
+ * Parse JSON with triple-clean armor: strips markdown fences, BOM, preamble,
+ * and isolates the first balanced `{ ... }` via extractFirstBalancedJsonObject.
+ * Replaces the old weak `extractJsonFromText` which failed on truncated responses.
+ */
 function parseJsonWithFallback<T = unknown>(raw: string): T {
-  const jsonStr = extractJsonFromText(raw ?? '');
-  if (!jsonStr || !jsonStr.trim()) {
+  const jsonStr = tripleCleanJsonString(raw ?? '');
+  if (!jsonStr || !jsonStr.trim() || !jsonStr.includes('{')) {
     const preview = (raw ?? '').trim().slice(0, 280);
     throw new Error(`No valid JSON object in AI response.${preview ? ` Raw: ${preview}` : ''}`);
   }
@@ -279,8 +268,14 @@ function parseJsonWithFallback<T = unknown>(raw: string): T {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const preview = (raw ?? '').trim().slice(0, 280);
-    throw new Error(`JSON parse failed after extracting blob (length ${jsonStr.length}): ${msg}.${preview ? ` Raw: ${preview}` : ''}`);
+    throw new Error(`JSON parse failed after triple-clean (length ${jsonStr.length}): ${msg}.${preview ? ` Raw: ${preview}` : ''}`);
   }
+}
+
+/** Returns true if the error message suggests a truncated / incomplete JSON response. */
+function isTruncationError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /unterminated|unexpected end|unexpected token|parse failed|no valid json/i.test(msg);
 }
 
 function getGroqApiKeyFromEnvWithLog(scope: string): string | undefined {
@@ -969,7 +964,43 @@ RULES:
 
   const responseText = apiResult.response.text();
   if (!responseText) throw new Error('No response from AI');
-  const parsed = parseJsonWithFallback<unknown>(responseText);
+
+  // ── Truncation-Armor Retry ────────────────────────────────────────────────
+  // If the first parse attempt fails (truncated / malformed JSON), retry once
+  // with maxOutputTokens dramatically increased and a strict conciseness directive.
+  let parsed: unknown;
+  try {
+    parsed = parseJsonWithFallback<unknown>(responseText);
+  } catch (parseErr) {
+    if (isTruncationError(parseErr)) {
+      console.warn(
+        `[doAnalysisCore] JSON parse failed (likely truncation) for ${cleanSymbol}; retrying with extended tokens + strict prompt.`,
+        parseErr instanceof Error ? parseErr.message : parseErr
+      );
+      const strictConcisePrefix = 'OUTPUT ONLY JSON. BE CONCISE. DO NOT TRUNCATE. No markdown fences, no explanation.\n\n';
+      const retryModel = resolveGeminiModel(activeModel);
+      const retryClient = genAI.getGenerativeModel(
+        { model: retryModel.model },
+        retryModel.requestOptions
+      );
+      const retryResult = await withGeminiRateLimitRetry(() =>
+        withGeminiTimeout(
+          retryClient.generateContent({
+            contents: [{ role: 'user', parts: [{ text: `${strictConcisePrefix}${systemInstruction}\n\n${promptText}` }] }],
+            generationConfig: { temperature: 0, maxOutputTokens: 16384 },
+          }),
+          geminiTimeoutMs
+        )
+      );
+      const retryText = retryResult.response.text();
+      if (!retryText) throw new Error('No response from AI on truncation-retry');
+      parsed = parseJsonWithFallback<unknown>(retryText);
+    } else {
+      throw parseErr;
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   let result: AiPredictionResult = parseAiPrediction(parsed);
   result = { ...result, symbol: cleanSymbol };
 
