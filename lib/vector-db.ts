@@ -19,8 +19,16 @@ const PINECONE_QUERY_TIMEOUT_MS = 40_000;
  * 30 s delay before querying after an upsert.
  * Raised from 10 s to account for US-to-Germany cross-Atlantic replication latency
  * (~80–120 ms RTT × Pinecone's multi-region eventual-consistency window).
+ * Override via PINECONE_PROBE_DELAY_MS env var (e.g. set to 10000 for faster self-tests).
  */
-const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = 30_000;
+const PINECONE_EVENTUAL_CONSISTENCY_DELAY_MS = (() => {
+  const override = process.env.PINECONE_PROBE_DELAY_MS;
+  if (override) {
+    const parsed = Number(override);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return 30_000;
+})();
 const PINECONE_TRANSIENT_RETRY_ATTEMPTS = 3;
 const PINECONE_TRANSIENT_RETRY_BASE_MS = 800;
 type PineconeRecordMetadata = Record<string, unknown>;
@@ -480,7 +488,8 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
     );
     await setLastUpsertNow();
   } catch (err) {
-    console.error('[vector-db] Board meeting memory upsert failed:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[vector-db] Board meeting memory upsert failed:', msg, err instanceof Error ? err.stack ?? '' : '');
   }
 }
 

@@ -94,11 +94,13 @@ async function processJob(
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error('[Worker] trigger-master-scan failed:', msg);
+      const stack = err instanceof Error ? (err.stack ?? '') : '';
+      // Full stack trace in PM2 logs — critical for diagnosing why the scanner stalls.
+      console.error('[Worker] trigger-master-scan failed:', msg, stack);
       writeAudit({
         event: 'queue.trigger_master_scan_failed',
         level: 'error',
-        meta: { error: msg },
+        meta: { error: msg, stack: stack.slice(0, 800) },
       });
       throw err;
     }
@@ -215,15 +217,21 @@ const worker = new Worker<CoinScanJobData | TriggerMasterScanJobData, CoinScanJo
 );
 
 worker.on('completed', (job) => {
-  console.log(`[Worker] Job ${job.id} completed.`);
+  console.log(`[Worker] Job ${job.id} (${job.name}) completed.`);
 });
 
 worker.on('failed', (job, err) => {
-  console.error(`[Worker] Job ${job?.id} failed (${job?.attemptsMade} attempts):`, err.message);
+  // Log full error stack so PM2 logs capture the root cause, not just a truncated message.
+  console.error(
+    `[Worker] Job ${job?.id} (${job?.name}) failed after ${job?.attemptsMade} attempt(s):`,
+    err.message,
+    err.stack ?? ''
+  );
 });
 
 worker.on('error', (err) => {
-  console.error('[Worker] Worker error:', err.message);
+  // Worker-level errors (e.g. Redis disconnect) — log full stack for visibility.
+  console.error('[Worker] Worker connection/internal error:', err.message, err.stack ?? '');
 });
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -245,16 +253,42 @@ attachDrainListener(async (cycleId: string) => {
   }
 });
 
-// Initialize the auto-scanner repeatable job on startup
-setupAutoScanner()
-  .then(() => {
-    console.log('[Worker] Auto-scanner scheduler initialized.');
-  })
-  .catch((err) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[Worker] Failed to initialize auto-scanner:', msg);
-    process.exit(1);
-  });
+// Initialize the auto-scanner repeatable job on startup.
+// CRITICAL FIX: Previously this block called process.exit(1) on ANY failure — including
+// transient Redis connection delays at boot time. This caused a PM2 restart loop where
+// the worker would die before ever processing a single job.
+// Now: log the error and continue. The worker can still process queued jobs even if
+// the repeatable-job registration fails (the job may already exist from a prior run).
+// A retry is scheduled so the registration eventually succeeds without killing the process.
+(async () => {
+  const MAX_SETUP_RETRIES = 5;
+  const SETUP_RETRY_DELAY_MS = 8_000;
+  for (let attempt = 1; attempt <= MAX_SETUP_RETRIES; attempt++) {
+    try {
+      await setupAutoScanner();
+      console.log('[Worker] Auto-scanner scheduler initialized.');
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < MAX_SETUP_RETRIES) {
+        console.error(
+          `[Worker] setupAutoScanner failed (attempt ${attempt}/${MAX_SETUP_RETRIES}), retrying in ${SETUP_RETRY_DELAY_MS / 1000}s:`,
+          msg
+        );
+        await new Promise((resolve) => setTimeout(resolve, SETUP_RETRY_DELAY_MS));
+      } else {
+        // All retries exhausted — log clearly but DO NOT exit.
+        // The worker stays alive to process existing queued jobs.
+        console.error(
+          `[Worker] setupAutoScanner failed after ${MAX_SETUP_RETRIES} retries. ` +
+          'The repeatable trigger-master-scan job may not be registered. ' +
+          'Use /api/cron/enqueue or PM2 restart to recover. Error:',
+          msg
+        );
+      }
+    }
+  }
+})();
 
 console.log(
   `[Worker] BullMQ worker started — queue="${QUEUE_NAME}", concurrency=${CONCURRENCY}`

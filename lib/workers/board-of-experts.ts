@@ -390,11 +390,16 @@ async function callExpert(
   domainGuardrail: string,
   dataset: Record<string, unknown>
 ): Promise<ExpertOutput> {
-  const boardTemp = resolveLlmTemperature(await getAppSettings());
-  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
-  const model = genAI.getGenerativeModel({ model: selectedExpert.model }, selectedExpert.requestOptions);
-  const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
+  // All setup (key retrieval, model instantiation, API call) is inside the try-catch.
+  // Previously, getGeminiApiKey() and getAppSettings() were called OUTSIDE try-catch,
+  // meaning a missing key or DB outage would throw from callExpert itself and propagate
+  // into the Promise.all(), crashing the entire board meeting unrecoverably.
+  try {
+    const boardTemp = resolveLlmTemperature(await getAppSettings());
+    const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+    const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+    const model = genAI.getGenerativeModel({ model: selectedExpert.model }, selectedExpert.requestOptions);
+    const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
 
 Role: ${expertName}
 Scope lock: ${domainGuardrail}
@@ -409,18 +414,27 @@ Output strictly as JSON with these keys exactly:
   "confidence": 0-100,
   "reasoning": "short rationale",
   "action": "clear action recommendation from this expert"
-}`;
-  try {
+}
+
+CRITICAL: Return ONLY the raw JSON object above. No markdown fences (\`\`\`json). No explanatory text before or after. If you cannot comply, return {"expert":"${expertName}","stance":"neutral","confidence":0,"reasoning":"API error","action":"Hold"}.`;
     const result = await withGeminiRateLimitRetry(() =>
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.2,
+          temperature: boardTemp,
           maxOutputTokens: 600,
         },
       })
     );
-    const parsed = JSON.parse(parseJsonObject(result.response.text() ?? '')) as Partial<ExpertOutput>;
+    const rawText = result.response.text() ?? '';
+    let parsed: Partial<ExpertOutput>;
+    try {
+      parsed = JSON.parse(parseJsonObject(rawText)) as Partial<ExpertOutput>;
+    } catch (parseErr) {
+      // Log the raw text so we can see exactly what the model returned
+      console.error(`[BoardExpert] ${expertName} JSON parse failed. raw=${rawText.slice(0, 300)}`, parseErr instanceof Error ? parseErr.message : parseErr);
+      parsed = {};
+    }
     const stance = parsed.stance === 'bullish' || parsed.stance === 'bearish' || parsed.stance === 'neutral'
       ? parsed.stance
       : 'neutral';
@@ -431,12 +445,16 @@ Output strictly as JSON with these keys exactly:
       reasoning: String(parsed.reasoning ?? 'No reasoning available').slice(0, 300),
       action: String(parsed.action ?? 'Hold neutral and wait for more data.').slice(0, 220),
     };
-  } catch {
+  } catch (err) {
+    // Explicit logging so we know WHICH expert failed and WHY — critical for diagnosing
+    // "Unavailable" agents in the ENGINE ROOM dashboard.
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[BoardExpert] ${expertName} failed:`, errMsg);
     return {
       expert: expertName,
       stance: 'neutral',
       confidence: 0,
-      reasoning: 'Data Unavailable: required live APIs or model response failed for this cycle.',
+      reasoning: `Data Unavailable: ${errMsg.slice(0, 200)}`,
       action: 'Data Unavailable',
     };
   }
@@ -486,7 +504,9 @@ Output JSON exactly:
       conflictResolution: String(parsed.conflictResolution ?? 'Conflicts could not be resolved.').slice(0, 320),
       actionPlan: String(parsed.actionPlan ?? 'Stay defensive until stronger confirmation.').slice(0, 320),
     };
-  } catch {
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error('[BoardOverseer] Overseer (CEO) synthesis failed:', errMsg);
     return {
       finalVerdict: 'caution',
       boardSummary: 'Data Unavailable: Overseer synthesis failed this cycle.',
@@ -634,45 +654,77 @@ export async function runBoardOfExperts(context: 'morning' | 'evening'): Promise
     })),
   };
 
+  // Use Promise.allSettled so that if one expert's API call throws an unhandled error
+  // (e.g. network error escaping callExpert's own catch), the remaining 5 experts still
+  // complete. Previously Promise.all would cancel all pending experts on the first throw.
+  const expertDefinitions = [
+    {
+      name: 'Expert 1 — Technical Analyst',
+      guardrail: 'Use only technicalSnapshot: price action, volume spikes, RSI, MACD.',
+      data: expert1Data,
+    },
+    {
+      name: 'Expert 2 — Sentiment/Fundamental Analyst',
+      guardrail: 'Use only Fear & Greed and RSS headlines. No chart or wallet analysis.',
+      data: expert2Data,
+    },
+    {
+      name: 'Expert 3 — Risk Manager',
+      guardrail: 'Use only wallet PnL, win rate, and volatility metrics.',
+      data: expert3Data,
+    },
+    {
+      name: 'Expert 4 — Volume & Liquidity Sniper',
+      guardrail: 'Use only whaleProxySignals and anomaly summaries to infer where smart money is flowing now.',
+      data: expert4Data,
+    },
+    {
+      name: 'Expert 5 — Macro Economist',
+      guardrail: 'Use only BTC vs Alt performance, dominance, macro score, and liquidity proxies.',
+      data: expert5Data,
+    },
+    {
+      name: 'Expert 6 — Momentum Scout',
+      guardrail: 'Use only breakout speed and duration of successful trades.',
+      data: expert6Data,
+    },
+  ] as const;
+
+  const expertResults = await Promise.allSettled(
+    expertDefinitions.map((def) => callExpert(def.name, def.guardrail, def.data))
+  );
+
+  function resolveExpert(
+    result: PromiseSettledResult<ExpertOutput>,
+    fallbackName: string
+  ): ExpertOutput {
+    if (result.status === 'fulfilled') return result.value;
+    const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+    console.error(`[BoardExpert] ${fallbackName} settled as rejected (outer):`, reason);
+    return {
+      expert: fallbackName,
+      stance: 'neutral',
+      confidence: 0,
+      reasoning: `Data Unavailable: ${reason.slice(0, 200)}`,
+      action: 'Data Unavailable',
+    };
+  }
+
   const [
-    technicalExpert,
-    sentimentExpert,
-    riskExpert,
-    onchainExpert,
-    macroExpert,
-    momentumExpert,
-  ] = await Promise.all([
-    callExpert(
-      'Expert 1 — Technical Analyst',
-      'Use only technicalSnapshot: price action, volume spikes, RSI, MACD.',
-      expert1Data
-    ),
-    callExpert(
-      'Expert 2 — Sentiment/Fundamental Analyst',
-      'Use only Fear & Greed and RSS headlines. No chart or wallet analysis.',
-      expert2Data
-    ),
-    callExpert(
-      'Expert 3 — Risk Manager',
-      'Use only wallet PnL, win rate, and volatility metrics.',
-      expert3Data
-    ),
-    callExpert(
-      'Expert 4 — Volume & Liquidity Sniper',
-      'Use only whaleProxySignals and anomaly summaries to infer where smart money is flowing now.',
-      expert4Data
-    ),
-    callExpert(
-      'Expert 5 — Macro Economist',
-      'Use only BTC vs Alt performance, dominance, macro score, and liquidity proxies.',
-      expert5Data
-    ),
-    callExpert(
-      'Expert 6 — Momentum Scout',
-      'Use only breakout speed and duration of successful trades.',
-      expert6Data
-    ),
-  ]);
+    technicalExpertResult,
+    sentimentExpertResult,
+    riskExpertResult,
+    onchainExpertResult,
+    macroExpertResult,
+    momentumExpertResult,
+  ] = expertResults;
+
+  const technicalExpert = resolveExpert(technicalExpertResult, expertDefinitions[0].name);
+  const sentimentExpert = resolveExpert(sentimentExpertResult, expertDefinitions[1].name);
+  const riskExpert      = resolveExpert(riskExpertResult,      expertDefinitions[2].name);
+  const onchainExpert   = resolveExpert(onchainExpertResult,   expertDefinitions[3].name);
+  const macroExpert     = resolveExpert(macroExpertResult,     expertDefinitions[4].name);
+  const momentumExpert  = resolveExpert(momentumExpertResult,  expertDefinitions[5].name);
 
   const experts = {
     expert1: technicalExpert,

@@ -272,12 +272,13 @@ export async function setupAutoScanner(): Promise<void> {
   const queue = getCoinScanQueue();
 
   try {
-    // Check if job already exists to avoid duplicates
+    // Check if job already exists to avoid duplicates.
+    // getRepeatableJobs() requires an active Redis connection; may fail briefly at boot.
     const existingJobs = await queue.getRepeatableJobs();
     const alreadyExists = existingJobs.some((j) => j.name === 'trigger-master-scan');
 
     if (alreadyExists) {
-      console.log('[AutoScanner] Repeatable job "trigger-master-scan" already exists; skipping.');
+      console.log('[AutoScanner] Repeatable job "trigger-master-scan" already exists; skipping registration.');
       return;
     }
 
@@ -297,7 +298,10 @@ export async function setupAutoScanner(): Promise<void> {
     console.log('[AutoScanner] Repeatable job "trigger-master-scan" registered (every 20 minutes).');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error('[AutoScanner] Failed to setup repeatable job:', msg);
+    const stack = err instanceof Error ? (err.stack ?? '') : '';
+    // Log full stack so PM2 logs capture the root cause.
+    console.error('[AutoScanner] Failed to setup repeatable job:', msg, stack);
+    // Re-throw so the caller (queue-worker.ts) can apply its retry loop.
     throw err;
   }
 }
