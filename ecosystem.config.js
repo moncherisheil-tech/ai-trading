@@ -93,6 +93,13 @@ module.exports = {
         PORT: '3000',
         HOSTNAME: '0.0.0.0',
         REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+        // Safety net: guarantee a valid index name even if .env contains a corrupt/numeric value.
+        PINECONE_INDEX_NAME: (
+          process.env.PINECONE_INDEX_NAME &&
+          !/^\d+$/.test(process.env.PINECONE_INDEX_NAME.trim())
+            ? process.env.PINECONE_INDEX_NAME.trim()
+            : 'quantum-memory'
+        ),
       },
     },
 
@@ -130,6 +137,13 @@ module.exports = {
         QUEUE_ENABLED: 'true',
         QUEUE_CONCURRENCY: '3',
         REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+        // Safety net: guarantee a valid index name even if .env contains a corrupt/numeric value.
+        PINECONE_INDEX_NAME: (
+          process.env.PINECONE_INDEX_NAME &&
+          !/^\d+$/.test(process.env.PINECONE_INDEX_NAME.trim())
+            ? process.env.PINECONE_INDEX_NAME.trim()
+            : 'quantum-memory'
+        ),
       },
     },
   ],

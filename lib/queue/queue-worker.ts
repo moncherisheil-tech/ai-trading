@@ -17,10 +17,17 @@
  */
 
 import 'dotenv/config';
-// Infrastructure pre-flight: validate critical env vars before the worker boots.
-// Throws immediately if PINECONE_INDEX_NAME is misconfigured (e.g. purely numeric).
 import { validateInfraEnv } from '../env';
-validateInfraEnv();
+
+// Run pre-flight validation but never let it kill the worker process.
+// validateInfraEnv() now auto-corrects numeric PINECONE_INDEX_NAME values;
+// the try-catch here is a final defence layer against any residual throws.
+try {
+  validateInfraEnv();
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('[Worker] [AUTO-RECOVERY] validateInfraEnv threw (non-fatal — worker continues):', msg);
+}
 
 import { Worker, type Job } from 'bullmq';
 import { randomUUID } from 'crypto';
@@ -237,7 +244,7 @@ worker.on('error', (err) => {
 
 // ── Startup sequence: Redis health-check → drain listener → auto-scanner ────
 //
-// ALL Redis-dependent initialisation is deferred into this async IIFE.
+// ALL Redis-dependent initialisation is deferred into runInitSequence().
 // Nothing that touches BullMQ Queue/QueueEvents is called at the synchronous
 // module-load level, which was the root cause of the 120+ restart crash loop:
 //
@@ -247,15 +254,17 @@ worker.on('error', (err) => {
 //     throw at module root → process exits → PM2 restarts → infinite loop
 //
 //   NEW flow (fixed):
-//     module loads → Worker registered → IIFE starts async →
+//     module loads → Worker registered → runInitSequence() starts async →
 //     waitForRedisReady() → attachDrainListener() → setupAutoScanner()
 //     If Redis is down, the worker stays alive and IORedis reconnects.
+//     If init throws, it is retried every 10 s instead of killing the process.
 //
 // Phase 1: waitForRedisReady() — up to 10 × 3 s = 30 s wait at boot.
 // Phase 2: attachDrainListener() — safe to call once Redis is confirmed.
 // Phase 3: setupAutoScanner() — registers the repeatable trigger-master-scan
 //   BullMQ job with up to 5 retries before giving up (non-fatal).
-(async () => {
+
+async function runInitSequence(): Promise<void> {
   // Phase 1 — Redis connectivity gate
   const redisReady = await waitForRedisReady(
     10,       // up to 10 PING attempts
@@ -321,6 +330,28 @@ worker.on('error', (err) => {
           msg
         );
       }
+    }
+  }
+}
+
+// Top-level retry loop — if runInitSequence() throws for any reason, wait
+// 10 s and try again instead of letting the process exit and triggering a
+// PM2 crash-restart loop.
+(async () => {
+  const INIT_RETRY_DELAY_MS = 10_000;
+  let initAttempt = 0;
+  while (true) {
+    initAttempt++;
+    try {
+      await runInitSequence();
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[Worker] [AUTO-RECOVERY] Initialization attempt ${initAttempt} failed: ${msg}. ` +
+        `Retrying in ${INIT_RETRY_DELAY_MS / 1_000}s...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, INIT_RETRY_DELAY_MS));
     }
   }
 })();

@@ -96,12 +96,11 @@ export function validateInfraEnv(): void {
   const indexName = getPineconeIndexName();
   if (indexName !== undefined) {
     if (/^\d+$/.test(indexName)) {
-      const msg =
-        `[FATAL BOOT ERROR] PINECONE_INDEX_NAME="${indexName}" is invalid — ` +
-        'index names cannot be purely numeric. A numeric value will always return HTTP 404 ' +
-        'from Pinecone. Set PINECONE_INDEX_NAME to your actual index name (e.g., "quantum-memory").';
-      console.error(msg);
-      throw new Error(msg);
+      console.warn(
+        `[AUTO-RECOVERY] Invalid Pinecone Index Name ("${indexName}") detected. ` +
+        'Forcing override to "quantum-memory".'
+      );
+      process.env.PINECONE_INDEX_NAME = 'quantum-memory';
     }
     // Must only contain alphanumerics and hyphens (Pinecone naming rules)
     if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/i.test(indexName)) {

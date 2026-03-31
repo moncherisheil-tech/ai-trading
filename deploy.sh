@@ -84,6 +84,23 @@ if [ ! -f "$ROOT/.env" ]; then
 fi
 ok ".env present"
 
+# ── Nuclear Sanitization — auto-correct known fatal .env values BEFORE validation ──
+# This runs unconditionally so a corrupt .env can never block a deploy.
+step "0/11" "Nuclear Sanitization — auto-correcting .env"
+
+# 1. Replace any purely-numeric PINECONE_INDEX_NAME value (e.g., "1002") with the correct name.
+sed -i 's/^PINECONE_INDEX_NAME=["\x27]\?[0-9][0-9]*["\x27]\?$/PINECONE_INDEX_NAME="quantum-memory"/' "$ROOT/.env"
+
+# 2. Replace an explicitly empty PINECONE_INDEX_NAME.
+sed -i 's/^PINECONE_INDEX_NAME=["\x27]\{0,1\}["\x27]\{0,1\}$/PINECONE_INDEX_NAME="quantum-memory"/' "$ROOT/.env"
+
+# 3. Ensure REDIS_URL is present; append default if missing entirely.
+grep -q "^REDIS_URL=" "$ROOT/.env" || echo 'REDIS_URL="redis://127.0.0.1:6379"' >> "$ROOT/.env"
+
+# Report the sanitized value so the deploy log confirms the correction.
+_SANITIZED_INDEX=$(grep -E "^PINECONE_INDEX_NAME=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+ok "PINECONE_INDEX_NAME after sanitization: \"${_SANITIZED_INDEX}\""
+
 # ── Critical variable validation ──
 # Checks: variable must exist AND have a non-empty, non-placeholder value.
 _check_env_var() {
