@@ -1,3 +1,5 @@
+console.log(">>> SYSTEM BOOTING: VERSION 2026.03.31-FORCE-HEAL <<<");
+
 const INVALID_KEY_MARKERS = ['TODO', 'your_', 'changeme', 'example', 'placeholder'];
 
 /**

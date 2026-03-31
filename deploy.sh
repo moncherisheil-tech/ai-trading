@@ -161,22 +161,21 @@ fi
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Clean-slate PM2 teardown (delete all processes, then kill daemon)
+# STEP 1 — NUCLEAR PM2 TEARDOWN (delete ALL processes, then kill daemon)
 # ══════════════════════════════════════════════════════════════════════════════
-step "1/11" "Clean-slate PM2 teardown (delete → kill daemon)"
+step "1/11" "NUCLEAR PM2 teardown — delete ALL processes → kill daemon"
 
-# Delete known processes gracefully first (sends SIGINT → worker shutdown hooks).
-pm2 delete quantum-mon-cheri 2>/dev/null \
-  && ok "quantum-mon-cheri deleted" \
-  || warn "quantum-mon-cheri was not registered — skipping delete"
+# Delete ALL registered PM2 processes (not just named ones).
+# This guarantees that no stale process from a previous broken deploy
+# can interfere with the fresh start in step 9 — regardless of what
+# names were registered in the dump.
+pm2 delete all 2>/dev/null \
+  && ok "All PM2 processes deleted" \
+  || warn "No PM2 processes were registered — nothing to delete"
 
-pm2 delete queue-worker 2>/dev/null \
-  && ok "queue-worker deleted" \
-  || warn "queue-worker was not registered — skipping delete"
-
-# Kill the PM2 daemon to guarantee a truly clean environment (clears stale env snapshots,
-# orphaned handles, and cached module state). The daemon is re-spawned automatically
-# on the next `pm2 start` in step 9.
+# Kill the PM2 daemon to purge stale env snapshots, orphaned handles,
+# and cached module state from memory. The daemon is re-spawned
+# automatically on the next `pm2 start` in step 9.
 pm2 kill 2>/dev/null \
   && ok "PM2 daemon killed — will restart fresh in step 9" \
   || warn "PM2 daemon was not running — continuing"
@@ -224,13 +223,29 @@ ok "Prisma client generated"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 5 — Build
+# STEP 5 — DELETE OLD WORLD + Build
 # ══════════════════════════════════════════════════════════════════════════════
-step "5/11" "Running next build (output: standalone)"
+step "5/11" "DELETE OLD WORLD — nuclear artifact purge + next build"
 
-# Wipe the previous build so stale chunks never bleed into the new deploy.
-echo "  Removing .next/ ..."
-rm -rf .next
+# ── NUCLEAR CLEANUP — physical deletion of stale build artifacts ──────────────
+# These are deleted EXPLICITLY and INDIVIDUALLY before the full .next/ wipe
+# so the deploy log provides clear, auditable proof that the old standalone
+# bundle and static chunks were removed from disk before the new build runs.
+# A server running 1 000+ restart cycles likely has a corrupted standalone
+# folder; the only safe recovery is physical deletion, not an overwrite.
+echo "  [NUCLEAR] rm -rf .next/standalone ..."
+rm -rf "$ROOT/.next/standalone"
+ok ".next/standalone/ deleted"
+
+echo "  [NUCLEAR] rm -rf .next/static ..."
+rm -rf "$ROOT/.next/static"
+ok ".next/static/ deleted"
+
+# Wipe the remainder of the .next/ directory (server/, cache/, etc.)
+# so zero stale chunks bleed into the fresh build.
+echo "  [NUCLEAR] rm -rf .next/ (full wipe) ..."
+rm -rf "$ROOT/.next"
+ok ".next/ fully purged — disk is clean"
 
 NODE_ENV=production npx next build
 ok "next build completed"
