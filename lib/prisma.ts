@@ -24,6 +24,19 @@ function isLocalHost(url: string): boolean {
 }
 
 /**
+ * Appends `sslmode=verify-full` to the connection URL for remote production
+ * connections, silencing pg's "no SSL" security warning.
+ * No-op when already on localhost or when sslmode is already specified.
+ */
+function applyProductionSsl(url: string): string {
+  if (isLocalHost(url)) return url;
+  if (process.env.NODE_ENV !== 'production') return url;
+  if (/sslmode=/i.test(url)) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}sslmode=verify-full`;
+}
+
+/**
  * Prisma ORM 7 requires a driver adapter.
  *
  * We pass a `pg.Pool` (instead of a raw URL string) so we can:
@@ -43,8 +56,9 @@ export function getPrisma(): PrismaClient | null {
   if (!globalForPrisma.prisma) {
     // Reuse the pool if it was already created (e.g. hot-reload edge case).
     if (!globalForPrisma.prismaPool) {
+      const poolUrl = applyProductionSsl(url);
       globalForPrisma.prismaPool = new Pool({
-        connectionString: url,
+        connectionString: poolUrl,
         // Disable SSL for localhost — Ubuntu Postgres has no TLS by default.
         ssl: isLocalHost(url) ? false : undefined,
         // Keep the Prisma pool small; raw sql.ts has its own separate pool.

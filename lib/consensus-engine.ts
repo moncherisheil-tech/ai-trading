@@ -75,6 +75,39 @@ export const CONSENSUS_THRESHOLD = 75;
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// ---------------------------------------------------------------------------
+// Global LLM Semaphore — limits concurrent external LLM calls (Groq, Anthropic,
+// Gemini) to LLM_CONCURRENCY_LIMIT across the whole process.  Prevents
+// thundering-herd 429s when the scanner fires 10+ symbols in parallel.
+// ---------------------------------------------------------------------------
+const LLM_CONCURRENCY_LIMIT = 3;
+
+class LlmSemaphore {
+  private _active = 0;
+  private readonly _queue: Array<() => void> = [];
+  constructor(private readonly _max: number) {}
+  acquire(): Promise<void> {
+    if (this._active < this._max) { this._active++; return Promise.resolve(); }
+    return new Promise<void>((resolve) => this._queue.push(resolve));
+  }
+  release(): void {
+    const next = this._queue.shift();
+    if (next) { next(); } else { this._active--; }
+  }
+}
+
+const _llmSemaphore = new LlmSemaphore(LLM_CONCURRENCY_LIMIT);
+
+async function withLlmSemaphore<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  void label; // used for debugging — attach to logs when diagnosing queue depth
+  await _llmSemaphore.acquire();
+  try {
+    return await fn();
+  } finally {
+    _llmSemaphore.release();
+  }
+}
+
 interface RetryContext {
   symbol?: string;
   expert?: string;
@@ -764,7 +797,7 @@ async function callGeminiJson<T>(
   try {
     try {
       raw = await Promise.race([
-        generateWithModel(primaryModel),
+        withLlmSemaphore(`Gemini:${primaryModel}`, () => generateWithModel(primaryModel)),
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error(`HAWKEYE_LATENCY_THRESHOLD:${HAWKEYE_HOT_SWAP_LATENCY_MS}`)), HAWKEYE_HOT_SWAP_LATENCY_MS)
         ),
@@ -784,7 +817,7 @@ async function callGeminiJson<T>(
       return buildLocalFallbackObject<T>(fieldNames, msg);
     }
     try {
-      raw = await generateWithModel(secondaryModel);
+      raw = await withLlmSemaphore(`Gemini:${secondaryModel}`, () => generateWithModel(secondaryModel));
     } catch (secondErr) {
       const secondMsg = secondErr instanceof Error ? secondErr.message : String(secondErr);
       return buildLocalFallbackObject<T>(fieldNames, secondMsg);
@@ -872,7 +905,7 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
       const groq = new Groq({ apiKey: groqKey });
       const started = Date.now();
       try {
-        const completion = await Promise.race([
+        const completion = await withLlmSemaphore('Groq:Technician', () => Promise.race([
           groq.chat.completions.create({
             model: GROQ_MODEL,
             messages: [
@@ -890,7 +923,7 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
           new Promise<never>((_, rej) =>
             setTimeout(() => rej(new Error('Groq technician timeout')), Math.min(timeoutMs, 55_000))
           ),
-        ]);
+        ]));
         recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
         const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
         if (!raw) throw new Error('Empty Groq technician response');
@@ -900,7 +933,12 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
         return { tech_score, tech_logic, is_fallback: false };
       } catch (e) {
         recordProviderSample('groq', { ok: false, latencyMs: HAWKEYE_HOT_SWAP_LATENCY_MS });
-        console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
+        const is429 = (e as { status?: number })?.status === 429 || /rate.?limit|429|too many requests/i.test(e instanceof Error ? e.message : String(e));
+        if (is429) {
+          console.warn('[Groq] Rate limit hit (Technician) — routing to Gemini fallback.');
+        } else {
+          console.warn('[ConsensusEngine] Groq Technician failed, falling back to Gemini:', e instanceof Error ? e.message : e);
+        }
         throw e;
       }
     };
@@ -1165,7 +1203,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
   try {
     const started = Date.now();
     // Single attempt only: on 429 do NOT retry — switch to Gemini immediately (see catch below).
-    const completion = await Promise.race([
+    const completion = await withLlmSemaphore('Groq:Macro', () => Promise.race([
       groq.chat.completions.create({
         model: GROQ_MODEL,
         messages: [
@@ -1183,7 +1221,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
       new Promise<never>((_, rej) =>
         setTimeout(() => rej(new Error('Groq macro timeout')), Math.min(timeoutMs, HAWKEYE_HOT_SWAP_LATENCY_MS))
       ),
-    ]);
+    ]));
     recordProviderSample('groq', { ok: true, latencyMs: Date.now() - started });
     const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
     if (!raw) throw new Error('Empty Groq response');
@@ -1198,7 +1236,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
     if (is429) {
       const fallbackModel = geminiFallbackModel ?? GEMINI_MACRO_FALLBACK_MODEL;
       console.warn(
-        '[ConsensusEngine] Groq Rate Limit hit. Falling back to Gemini for Macro Expert...',
+        '[Groq] Rate limit hit (Macro) — falling back to Gemini.',
         { groqModel: GROQ_MODEL, fallbackModel }
       );
       try {
@@ -1338,41 +1376,67 @@ Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow
   };
 
   if (anthropicKey) {
-    // Primary — throws on any failure so withCircuitBreaker can track the error
-    // and route to the Gemini fallback once the breaker opens.
+    // Primary — cascades through ANTHROPIC_MODEL_CANDIDATES on 404 (model not found)
+    // so a bad model ID never blocks the pipeline. Throws on other errors so
+    // withCircuitBreaker can track failures and route to Gemini once breaker opens.
     const runAnthropicOnChain = async (): Promise<ExpertOnChainOutput> => {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': anthropicKey!,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: ANTHROPIC_SONNET_MODEL,
-          max_tokens: 1024,
-          messages: [
-            {
-              role: 'user',
-              content:
-                prompt +
-                '\n\nOutput ONLY a raw JSON object with keys onchain_score (0-100 number) and onchain_logic (Hebrew string). No markdown.',
+      const { ANTHROPIC_MODEL_CANDIDATES } = await import('@/lib/anthropic-model');
+      let lastStatus = 0;
+      for (const candidateModel of ANTHROPIC_MODEL_CANDIDATES) {
+        const res = await withLlmSemaphore(`Anthropic:${candidateModel}`, () =>
+          fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-api-key': anthropicKey!,
+              'anthropic-version': '2023-06-01',
             },
-          ],
-        }),
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error(`Anthropic On-Chain HTTP ${res.status}`);
-      const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-      let text = '';
-      for (const c of data.content || []) {
-        if (c.type === 'text' && c.text) text += c.text;
+            body: JSON.stringify({
+              model: candidateModel,
+              max_tokens: 1024,
+              messages: [
+                {
+                  role: 'user',
+                  content:
+                    prompt +
+                    '\n\nOutput ONLY a raw JSON object with keys onchain_score (0-100 number) and onchain_logic (Hebrew string). No markdown.',
+                },
+              ],
+            }),
+            cache: 'no-store',
+          })
+        );
+        lastStatus = res.status;
+        if (res.status === 429) {
+          console.warn(`[Anthropic] Rate limit hit (On-Chain, model=${candidateModel}) — falling back to Gemini.`);
+          const err = new Error(`Anthropic On-Chain HTTP 429`) as Error & { status: number };
+          err.status = 429;
+          throw err;
+        }
+        if (res.status === 404) {
+          console.warn(`[Anthropic] Model not found: ${candidateModel} — trying next candidate.`);
+          continue;
+        }
+        if (!res.ok) {
+          const err = new Error(`Anthropic On-Chain HTTP ${res.status}`) as Error & { status: number };
+          err.status = res.status;
+          throw err;
+        }
+        const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+        let text = '';
+        for (const c of data.content || []) {
+          if (c.type === 'text' && c.text) text += c.text;
+        }
+        if (!text) throw new Error('Empty Anthropic On-Chain response');
+        const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
+        const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
+        const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
+        return { onchain_score, onchain_logic, is_fallback: false };
       }
-      if (!text) throw new Error('Empty Anthropic On-Chain response');
-      const parsed = JSON.parse(extractFirstJsonObject(text.replace(/[\u0000-\u001F]+/g, ' '))) as Record<string, unknown>;
-      const onchain_score = Math.max(0, Math.min(100, Number(parsed.onchain_score) ?? 50));
-      const onchain_logic = String(parsed.onchain_logic || 'ללא נימוק').slice(0, 500);
-      return { onchain_score, onchain_logic, is_fallback: false };
+      // All candidates exhausted (all 404) — throw so withCircuitBreaker opens
+      const err = new Error(`Anthropic On-Chain: all model candidates returned HTTP ${lastStatus}`) as Error & { status: number };
+      err.status = lastStatus;
+      throw err;
     };
 
     return withCircuitBreaker('anthropic', runAnthropicOnChain, runGeminiOnChain);

@@ -165,26 +165,10 @@ function normalizeEmbeddingModelId(modelId: string): string {
 
 /**
  * Returns the required embedding dimension (always 768 — Gemini gemini-embedding-001 standard).
- * If PINECONE_EMBEDDING_DIM is set to any value other than 768, a single warning is emitted
- * and the canonical 768 is used regardless. This prevents dimension-mismatch errors and
- * eliminates log spam on every embedding call.
+ * PINECONE_EMBEDDING_DIM env var is completely ignored; the dimension is hard-locked.
  */
 function getExpectedEmbeddingDim(): number {
-  if (!_embeddingDimWarnedOnce) {
-    const raw = process.env.PINECONE_EMBEDDING_DIM;
-    if (typeof raw !== 'undefined' && raw.trim() !== '') {
-      const stripped = raw.trim().replace(/^["']|["']$/g, '');
-      const parsed = Number(stripped);
-      if (!Number.isFinite(parsed) || parsed !== GEMINI_EMBEDDING_DIMENSION) {
-        console.warn(
-          `[vector-db] PINECONE_EMBEDDING_DIM=${raw.trim()} does not equal the Gemini standard ` +
-          `${GEMINI_EMBEDDING_DIMENSION}. Update your env to PINECONE_EMBEDDING_DIM=768 or ` +
-          `remove this variable. Overriding to ${GEMINI_EMBEDDING_DIMENSION}. (This warning fires once per process.)`
-        );
-      }
-    }
-    _embeddingDimWarnedOnce = true;
-  }
+  _embeddingDimWarnedOnce = true;
   return GEMINI_EMBEDDING_DIMENSION;
 }
 
