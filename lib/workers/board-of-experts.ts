@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import { XMLParser } from 'fast-xml-parser';
 import { APP_CONFIG } from '@/lib/config';
 import { getGeminiApiKey } from '@/lib/env';
@@ -397,7 +397,7 @@ async function callExpert(
   try {
     const boardTemp = resolveLlmTemperature(await getAppSettings());
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-    const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
+    const selectedExpert = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
     const model = genAI.getGenerativeModel({ model: selectedExpert.model }, selectedExpert.requestOptions);
     const prompt = `System instruction: Return only raw JSON. No markdown. No prose before/after JSON. Use only data given by the user.
 
@@ -463,7 +463,7 @@ CRITICAL: Return ONLY the raw JSON object above. No markdown fences (\`\`\`json)
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
   const overseerTemp = resolveLlmTemperature(await getAppSettings());
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
+  const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
   const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
   const prompt = `System instruction: You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.
 

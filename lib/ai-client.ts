@@ -4,7 +4,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { APP_CONFIG } from '@/lib/config';
 import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 import { getGeminiApiKey, getOpenAiApiKey, getRequiredGroqApiKey } from '@/lib/env';
-import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 
 type Provider = 'gemini' | 'openai' | 'groq';
 
@@ -72,7 +72,7 @@ export async function generateLiveText(params: {
   }
 
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-1.5-flash-latest');
+  const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
   const model = genAI.getGenerativeModel(
     {
       model: selected.model,

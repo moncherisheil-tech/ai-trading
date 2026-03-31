@@ -15,6 +15,7 @@
  */
 
 import 'dotenv/config';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, normalizeGeminiModelId, resolveGeminiModel } from '../lib/gemini-model';
 
 // ── ANSI colours ──────────────────────────────────────────────────────────────
 const GREEN  = '\x1b[32m';
@@ -110,16 +111,17 @@ async function checkRedis(): Promise<CheckResult> {
 async function probeGemini(expertName: string, modelEnvKey: string): Promise<CheckResult> {
   const apiKey = sanitizeEnv(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
   if (!apiKey) return { name: expertName, status: 'skip', detail: 'GEMINI_API_KEY not set' };
-  const model = sanitizeEnv(process.env[modelEnvKey]) || 'gemini-1.5-flash-latest';
+  const rawModel = sanitizeEnv(process.env[modelEnvKey]) || GEMINI_DEFAULT_FLASH_MODEL_ID;
+  const selected = resolveGeminiModel(rawModel);
   const t0 = Date.now();
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
-    const m = genAI.getGenerativeModel({ model });
+    const m = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
     const res = await m.generateContent('Reply with exactly: OK');
     const text = res.response.text().trim().toLowerCase();
     if (!text) throw new Error('Empty response from Gemini');
-    return { name: expertName, status: 'ok', latencyMs: Date.now() - t0, detail: `model=${model}` };
+    return { name: expertName, status: 'ok', latencyMs: Date.now() - t0, detail: `model=${selected.model}` };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { name: expertName, status: 'fail', latencyMs: Date.now() - t0, detail: msg.slice(0, 200) };
@@ -281,17 +283,22 @@ async function checkPinecone(): Promise<CheckResult> {
 
 async function checkModelIdentifiers(): Promise<CheckResult> {
   const name = 'Model identifiers (2026 sync)';
-  const geminiPrimary = sanitizeEnv(process.env.GEMINI_MODEL_PRIMARY) || 'gemini-1.5-flash-latest';
-  const geminiFallback = sanitizeEnv(process.env.GEMINI_MODEL_FALLBACK) || 'gemini-1.5-pro-latest';
+  const geminiPrimary = normalizeGeminiModelId(
+    sanitizeEnv(process.env.GEMINI_MODEL_PRIMARY) || GEMINI_DEFAULT_FLASH_MODEL_ID
+  );
+  const geminiFallback = normalizeGeminiModelId(
+    sanitizeEnv(process.env.GEMINI_MODEL_FALLBACK) || GEMINI_DEFAULT_FLASH_MODEL_ID
+  );
   const { ANTHROPIC_HAIKU_MODEL } = await import('../lib/anthropic-model');
   const anthropicModel = sanitizeEnv(process.env.ANTHROPIC_MODEL) || ANTHROPIC_HAIKU_MODEL;
-  const okGemini = geminiPrimary === 'gemini-1.5-flash-latest' || geminiFallback === 'gemini-1.5-pro-latest';
+  const okGemini =
+    geminiPrimary === GEMINI_DEFAULT_FLASH_MODEL_ID && geminiFallback === GEMINI_DEFAULT_FLASH_MODEL_ID;
   const okAnthropic = anthropicModel === ANTHROPIC_HAIKU_MODEL;
   if (!okGemini || !okAnthropic) {
     return {
       name,
       status: 'fail',
-      detail: `Expected gemini-1.5-flash-latest/gemini-1.5-pro-latest + ${ANTHROPIC_HAIKU_MODEL}; got primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}`,
+      detail: `Expected Gemini primary/fallback normalized to ${GEMINI_DEFAULT_FLASH_MODEL_ID} + ${ANTHROPIC_HAIKU_MODEL}; got primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}`,
     };
   }
   return { name, status: 'ok', detail: `primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}` };

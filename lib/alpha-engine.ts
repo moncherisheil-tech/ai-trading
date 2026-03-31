@@ -20,7 +20,8 @@ import {
 } from '@/lib/api-utils';
 import { ANTHROPIC_SONNET_MODEL } from '@/lib/anthropic-model';
 import { getGeminiApiKey, getGroqApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
-import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { cleanJsonFromAiResponse, parseJsonObjectFromAiResponse } from '@/lib/gemini-json-clean';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import { atr } from '@/lib/indicators';
 import { getLeviathanSnapshot } from '@/lib/leviathan';
 import { getPrisma } from '@/lib/prisma';
@@ -44,6 +45,10 @@ const geminiDualSchema = z.object({
   weekly: coreSignalSchema,
   long: coreSignalSchema,
 });
+
+/** Weekly + Long Gemini leg — validated JSON shape for Tri-Core Alpha. */
+export type AnalysisResult = z.infer<typeof geminiDualSchema>;
+export { geminiDualSchema as analysisResultSchema };
 
 async function fetchKlines(symbol: string, interval: string, limit: number): Promise<KlineTuple[]> {
   const base = APP_CONFIG.proxyBinanceUrl || 'https://api.binance.com';
@@ -81,28 +86,6 @@ function computeStopTarget(
     return { stopLoss: entry - risk, targetPrice: entry + reward };
   }
   return { stopLoss: entry + risk, targetPrice: entry - reward };
-}
-
-/**
- * Normalize LLM output before JSON.parse: strip ``` / ```json fences (including mid-string),
- * drop preamble like "Here is the JSON:", then isolate `{ ... }` from first `{` through last `}`.
- */
-function stripJsonFence(raw: string): string {
-  let t = raw.trim();
-  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) {
-    t = fenced[1].trim();
-  } else {
-    t = t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-  }
-  t = t.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
-  // Aggressive: conversational lead-in before JSON → grab outermost object span
-  const greedyObject = t.match(/\{[\s\S]*\}/);
-  if (greedyObject) return greedyObject[0];
-  const i = t.indexOf('{');
-  const j = t.lastIndexOf('}');
-  if (i >= 0 && j > i) return t.slice(i, j + 1);
-  return t;
 }
 
 const RAW_JSON_SYSTEM_EN = [
@@ -148,7 +131,7 @@ async function callGroqHourly(orderBookSummary: string, symbol: string, price: n
   });
   const raw = completion.choices?.[0]?.message?.content?.trim() || '{}';
   try {
-    const parsed = coreSignalSchema.safeParse(JSON.parse(stripJsonFence(raw)));
+    const parsed = coreSignalSchema.safeParse(JSON.parse(cleanJsonFromAiResponse(raw)));
     if (parsed.success) return parsed.data;
   } catch {
     /* fall through */
@@ -220,7 +203,7 @@ WhaleTracker: ${whaleJson}
     if (c.type === 'text' && c.text) text += c.text;
   }
   try {
-    const parsed = coreSignalSchema.safeParse(JSON.parse(stripJsonFence(text || '{}')));
+    const parsed = coreSignalSchema.safeParse(JSON.parse(cleanJsonFromAiResponse(text || '{}')));
     if (parsed.success) return parsed.data;
   } catch {
     /* fall through */
@@ -239,7 +222,7 @@ async function callGeminiWeeklyLong(
   price: number
 ): Promise<z.infer<typeof geminiDualSchema>> {
   const apiKey = getGeminiApiKey();
-  const primary = process.env.GEMINI_MODEL_PRIMARY || 'gemini-1.5-flash-latest';
+  const primary = process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID;
   const selected = resolveGeminiModel(primary);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel(
@@ -277,13 +260,20 @@ Schema (example shape only):
         generationConfig: { temperature: 0.25, maxOutputTokens: 4096 },
       })
     );
-    rawText = result.response.text();
-    const cleaned = stripJsonFence(rawText);
-    const parsed = geminiDualSchema.safeParse(JSON.parse(cleaned));
-    if (parsed.success) return parsed.data;
-    console.error('[GEMINI PARSE ERROR] Raw text:', rawText, 'Error:', parsed.error);
+    rawText = result.response.text() ?? '';
+    const jsonTry = parseJsonObjectFromAiResponse(rawText);
+    if (!jsonTry.ok) {
+      console.error('RAW GEMINI RESPONSE:', rawText);
+      console.error('GEMINI JSON.parse failed:', jsonTry.error);
+    } else {
+      const parsed = geminiDualSchema.safeParse(jsonTry.value);
+      if (parsed.success) return parsed.data;
+      console.error('RAW GEMINI RESPONSE:', rawText);
+      console.error('[GEMINI SCHEMA ERROR]', parsed.error);
+    }
   } catch (e) {
-    console.error('[GEMINI PARSE ERROR] Raw text:', rawText, 'Error:', e);
+    console.error('RAW GEMINI RESPONSE:', rawText);
+    console.error('[GEMINI REQUEST ERROR]', e);
   }
   const neutral = {
     direction: 'Long' as const,

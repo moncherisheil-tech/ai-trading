@@ -6,7 +6,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getDbAsync, saveDbAsync, PredictionRecord, SourceCitation } from '@/lib/db';
 import { getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG, shouldUseSecureCookies, getBaseUrl } from '@/lib/config';
-import { resolveGeminiModel } from '@/lib/gemini-model';
+import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 import { allowRequest } from '@/lib/rate-limit';
 import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
 import { aiPredictionSchema, aiPredictionPartialSchema, binanceKlinesSchema, fearGreedSchema, sourceCitationSchema } from '@/lib/schemas';
@@ -425,7 +425,7 @@ export async function evaluatePendingPredictions(options?: { internalWorker?: bo
           Analyze why this prediction failed. Provide a short, actionable learning note (1-2 sentences in ${isHebrew ? 'Hebrew' : 'English'}) to avoid this mistake next time.
           `;
 
-          const selected = resolveGeminiModel(APP_CONFIG.primaryModel || 'gemini-3-flash-preview');
+          const selected = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
           const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
           const learnTemp = resolveLlmTemperature(await getAppSettings());
           const geminiPromise = model.generateContent({

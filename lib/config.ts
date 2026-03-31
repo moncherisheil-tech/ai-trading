@@ -84,7 +84,7 @@ export const APP_CONFIG = {
   tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
-  /** Primary Gemini model (retired env IDs like gemini-1.5-flash are normalized). */
+  /** Primary Gemini model (legacy env IDs are normalized to GEMINI_DEFAULT_FLASH_MODEL_ID). */
   primaryModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID),
   fallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
   /** Model used when primary returns 429 (quota exhausted). */
