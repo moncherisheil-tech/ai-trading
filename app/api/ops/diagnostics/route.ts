@@ -34,8 +34,8 @@ function hasEnv(key: string): boolean {
 }
 
 async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
-  const url = process.env.REDIS_URL;
-  if (!url) return { ok: false, latencyMs: 0, error: 'REDIS_URL not set' };
+  // Use the env value or the hardcoded on-prem fallback — same strategy as redis-client.ts.
+  const url = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
   try {
     const IORedis = (await import('ioredis')).default;
     const client = new IORedis(url, {
@@ -96,12 +96,9 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // ── Redis ping ─────────────────────────────────────────────────────────────────────────────────
+  // pingRedis() always attempts a connection (falls back to 127.0.0.1:6379).
   const redisPing = await pingRedis();
-  const redisStatus: 'ok' | 'fail' | 'skip' = !process.env.REDIS_URL
-    ? 'skip'
-    : redisPing.ok
-      ? 'ok'
-      : 'fail';
+  const redisStatus: 'ok' | 'fail' | 'skip' = redisPing.ok ? 'ok' : 'fail';
 
   // ── Pinecone ping ──────────────────────────────────────────────────────────────────────────────
   if (pinecone === 'ok') {
@@ -165,72 +162,85 @@ export async function GET(): Promise<NextResponse> {
   ) => ({ name, status: (ready ? 'ok' : 'fail') as 'ok' | 'fail', reason, lastActiveAt });
 
   const latestActivityIso = latestConsensus.prediction_date ?? null;
+  const infra = postgres === 'ok';
 
-  // All 7 MoE experts + Overseer (CEO)
+  // ── Expert activation rules ────────────────────────────────────────────────
+  // Experts are "Active" (ok) when:
+  //   1. Their required API key(s) are present in the environment.
+  //   2. Core infrastructure (Postgres) is reachable.
+  // `predictionRecent` is surfaced in `reason` for observability but DOES NOT
+  // gate the status — experts are ready to run even before the first cycle fires.
+  const activityNote = (hasKey: boolean): string =>
+    !hasKey
+      ? ''
+      : predictionRecent
+        ? ' Recent prediction activity confirmed.'
+        : ' No prediction activity in the last 24 h — will activate on next scan cycle.';
+
   const agentStatuses = [
     buildAgentStatus(
       'Technician (Expert 1)',
-      (geminiKey || groqKey) && predictionRecent,
+      (geminiKey || groqKey) && infra,
       latestActivityIso,
-      (geminiKey || groqKey)
-        ? predictionRecent ? 'LLM key present and recent prediction activity detected.' : 'LLM key present but no recent prediction activity.'
-        : 'Missing GEMINI_API_KEY/GROQ_API_KEY.'
+      (geminiKey || groqKey) && infra
+        ? `LLM key present — technical analysis engine ready.${activityNote(true)}`
+        : !infra ? 'Database offline — infrastructure required.' : 'Missing GEMINI_API_KEY or GROQ_API_KEY.'
     ),
     buildAgentStatus(
       'Risk Manager (Expert 2)',
-      postgres === 'ok' && predictionRecent,
+      (geminiKey || groqKey) && infra,
       latestActivityIso,
-      postgres === 'ok'
-        ? predictionRecent ? 'Database connected with recent prediction activity.' : 'Database connected but no recent prediction activity.'
-        : 'Database connection check failed.'
+      (geminiKey || groqKey) && infra
+        ? `LLM key + database connected — risk engine ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GEMINI_API_KEY or GROQ_API_KEY.'
     ),
     buildAgentStatus(
       'Market Psychologist (Expert 3)',
-      geminiKey && predictionRecent,
+      geminiKey && infra,
       latestActivityIso,
-      geminiKey
-        ? predictionRecent ? 'GEMINI_API_KEY present with recent prediction activity.' : 'GEMINI_API_KEY present but no recent prediction activity.'
-        : 'Missing GEMINI_API_KEY.'
+      geminiKey && infra
+        ? `GEMINI_API_KEY present — sentiment engine ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
       'Macro & Order Book (Expert 4)',
-      (groqKey || geminiKey) && predictionRecent,
+      (groqKey || geminiKey) && infra,
       latestActivityIso,
-      (groqKey || geminiKey)
-        ? predictionRecent ? 'Model key present with recent prediction activity.' : 'Model key present but no recent prediction activity.'
-        : 'Missing GROQ_API_KEY/GEMINI_API_KEY.'
+      (groqKey || geminiKey) && infra
+        ? `Model key present — macro/order-book engine ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GROQ_API_KEY or GEMINI_API_KEY.'
     ),
     buildAgentStatus(
       'On-Chain Sleuth (Expert 5)',
-      geminiKey && predictionRecent,
+      geminiKey && infra,
       latestActivityIso,
-      geminiKey
-        ? predictionRecent ? 'GEMINI_API_KEY present with recent prediction activity.' : 'GEMINI_API_KEY present but no recent prediction activity.'
-        : 'Missing GEMINI_API_KEY.'
+      geminiKey && infra
+        ? `GEMINI_API_KEY present — on-chain analysis engine ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
       'Deep Memory (Expert 6)',
-      geminiKey && (pinecone === 'ok' || pinecone === 'skip') && predictionRecent,
+      geminiKey && infra,
       latestActivityIso,
-      geminiKey
-        ? predictionRecent ? 'GEMINI_API_KEY + vector store present with recent activity.' : 'Keys present but no recent prediction activity.'
-        : 'Missing GEMINI_API_KEY.'
+      geminiKey && infra
+        ? `GEMINI_API_KEY + ${pinecone === 'ok' ? 'Pinecone connected' : 'Pinecone optional'} — deep memory ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
-      'Contrarian Devil\'s Advocate (Expert 7)',
-      geminiKey && predictionRecent,
+      "Contrarian Devil's Advocate (Expert 7)",
+      geminiKey && infra,
       latestActivityIso,
-      geminiKey
-        ? predictionRecent ? 'GEMINI_API_KEY present — adversarial expert contributing to final_confidence.' : 'GEMINI_API_KEY present but no recent prediction activity.'
-        : 'Missing GEMINI_API_KEY — Expert 7 (Contrarian) unavailable.'
+      geminiKey && infra
+        ? `GEMINI_API_KEY present — adversarial expert ready.${activityNote(true)}`
+        : !infra ? 'Database offline.' : 'Missing GEMINI_API_KEY.'
     ),
     buildAgentStatus(
       'CEO Overseer (Judge)',
-      (geminiKey || groqKey || anthropicKey) && (boardRecent || predictionRecent),
+      (geminiKey || groqKey || anthropicKey) && infra,
       latestBoardMeetingAt ?? latestActivityIso,
-      geminiKey || groqKey || anthropicKey
-        ? boardRecent || predictionRecent ? 'Model key present with recent overseer/prediction activity.' : 'Model key present but no recent overseer activity.'
-        : 'Missing model API keys.'
+      (geminiKey || groqKey || anthropicKey) && infra
+        ? `Model key present — overseer ready.${boardRecent || predictionRecent ? ' Recent board activity confirmed.' : ' Awaiting first board meeting.'}`
+        : !infra ? 'Database offline.' : 'Missing model API keys (GEMINI / GROQ / ANTHROPIC).'
     ),
   ];
 

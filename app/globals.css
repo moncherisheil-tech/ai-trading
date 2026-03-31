@@ -211,7 +211,8 @@ select {
 .market-marquee-loop {
   display: flex;
   width: max-content;
-  animation: ticker-scroll 36s linear infinite;
+  /* Duration is set via --ticker-duration CSS variable by the component (scales with item count). */
+  animation: ticker-scroll var(--ticker-duration, 80s) linear infinite;
   will-change: transform;
   transform: translate3d(0, 0, 0);
   backface-visibility: hidden;

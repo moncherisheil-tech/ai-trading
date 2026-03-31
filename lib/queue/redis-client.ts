@@ -11,13 +11,15 @@ let _client: IORedis | null = null;
 export function getRedisClient(): IORedis {
   if (_client) return _client;
 
-  const redisUrl = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+  const redisUrl = getRedisUrl();
 
   if (!process.env.REDIS_URL) {
     console.warn(
-      '[Redis] REDIS_URL is not set. Falling back to redis://127.0.0.1:6379. ' +
-      'Set REDIS_URL in your environment for production use.'
+      '[Redis] REDIS_URL is not set — using hardcoded fallback redis://127.0.0.1:6379. ' +
+      'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file to silence this warning.'
     );
+  } else {
+    console.log(`[Redis] Using REDIS_URL from environment: ${redisUrl.replace(/:\/\/[^@]+@/, '://***@')}`);
   }
 
   _client = new IORedis(redisUrl, {
@@ -30,7 +32,6 @@ export function getRedisClient(): IORedis {
     // Hard deadline for the TCP handshake itself. Without this, a completely
     // unreachable Redis host causes the client to hang forever at deploy time.
     connectTimeout: 10_000,
-    // TLS for Upstash (rediss://) — skip self-signed cert validation.
     tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     // Exponential back-off capped at 5 s; returning null (after 30 attempts ≈
     // 2.5 min of cumulative wait) stops retrying and lets the process surface
@@ -65,7 +66,20 @@ export async function closeRedisClient(): Promise<void> {
   }
 }
 
-/** True when REDIS_URL is set and the client can be instantiated. */
+/**
+ * True when the Redis client can be instantiated.
+ *
+ * Always returns `true` because `getRedisClient()` falls back to
+ * `redis://127.0.0.1:6379` when REDIS_URL is absent — the connection
+ * will succeed on any server where Redis is running locally.
+ * Queue features are gated on a real PING (see `waitForRedisReady()`),
+ * not on the presence of an env variable.
+ */
 export function isRedisAvailable(): boolean {
-  return Boolean(process.env.REDIS_URL);
+  return true;
+}
+
+/** Effective Redis URL — env value or the hardcoded on-prem fallback. */
+export function getRedisUrl(): string {
+  return process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
 }

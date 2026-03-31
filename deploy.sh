@@ -129,21 +129,40 @@ fi
 
 ok "All critical .env variables validated"
 
+# ── Redis connectivity pre-check ──
+if command -v redis-cli >/dev/null 2>&1; then
+  _REDIS_PONG=$(redis-cli -u "${_REDIS:-redis://127.0.0.1:6379}" PING 2>/dev/null || echo "")
+  if [ "$_REDIS_PONG" = "PONG" ]; then
+    ok "Redis reachable — PING/PONG confirmed"
+  else
+    warn "Redis did not respond to PING. BullMQ queue features will be unavailable until Redis starts."
+    warn "Start Redis manually: sudo systemctl start redis  OR  redis-server --daemonize yes"
+  fi
+else
+  warn "redis-cli not found — skipping Redis pre-flight check"
+fi
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 — Stop current PM2 processes gracefully
+# STEP 1 — Clean-slate PM2 teardown (delete all processes, then kill daemon)
 # ══════════════════════════════════════════════════════════════════════════════
-step "1/11" "Stopping PM2 processes gracefully (SIGINT → graceful shutdown)"
+step "1/11" "Clean-slate PM2 teardown (delete → kill daemon)"
 
-# pm2 stop sends SIGINT, which triggers the worker's shutdown() handler
-# (closes BullMQ Worker, QueueEvents, and IORedis before process.exit(0)).
-pm2 stop quantum-mon-cheri 2>/dev/null \
-  && ok "quantum-mon-cheri stopped" \
-  || warn "quantum-mon-cheri was not running — skipping"
+# Delete known processes gracefully first (sends SIGINT → worker shutdown hooks).
+pm2 delete quantum-mon-cheri 2>/dev/null \
+  && ok "quantum-mon-cheri deleted" \
+  || warn "quantum-mon-cheri was not registered — skipping delete"
 
-pm2 stop queue-worker 2>/dev/null \
-  && ok "queue-worker stopped" \
-  || warn "queue-worker was not running — skipping"
+pm2 delete queue-worker 2>/dev/null \
+  && ok "queue-worker deleted" \
+  || warn "queue-worker was not registered — skipping delete"
+
+# Kill the PM2 daemon to guarantee a truly clean environment (clears stale env snapshots,
+# orphaned handles, and cached module state). The daemon is re-spawned automatically
+# on the next `pm2 start` in step 9.
+pm2 kill 2>/dev/null \
+  && ok "PM2 daemon killed — will restart fresh in step 9" \
+  || warn "PM2 daemon was not running — continuing"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -298,13 +317,13 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 9 — Start PM2 processes
 # ══════════════════════════════════════════════════════════════════════════════
-step "9/11" "Starting PM2 processes via ecosystem.config.js"
+step "9/11" "Starting PM2 processes via ecosystem.config.js (clean start)"
 
-# startOrReload: starts if not running, hot-reloads if already up.
-# --update-env: forces PM2 to re-read env_file and env_production on reload
-#               (without this flag PM2 reuses its cached env snapshot).
-pm2 startOrReload "$ROOT/ecosystem.config.js" --env production --update-env
-ok "PM2 startOrReload completed"
+# Because we killed the daemon in step 1, we use `pm2 start` (not startOrReload)
+# so all processes are registered fresh with the current env snapshot.
+# --env production: merges env_production block from ecosystem.config.js.
+pm2 start "$ROOT/ecosystem.config.js" --env production
+ok "PM2 start completed"
 
 echo "  Waiting 6 s for processes to stabilise..."
 sleep 6

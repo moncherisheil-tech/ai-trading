@@ -144,20 +144,20 @@ export function validateInfraEnv(): void {
   }
 
   // ── 3. Redis URL enforcement ───────────────────────────────────────────────
-  // This is an on-prem deployment: Redis MUST be reachable at 127.0.0.1:6379.
-  const redisUrl = stripEnvQuotes(process.env.REDIS_URL)?.trim();
-  if (isProduction) {
-    if (!redisUrl) {
-      const msg =
-        '[FATAL BOOT ERROR] REDIS_URL is not set in production. ' +
-        'BullMQ and all queue features will be unavailable. ' +
-        'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file.';
-      console.error(msg);
-      throw new Error(msg);
-    }
-    const expected = 'redis://127.0.0.1:6379';
+  // On-prem deployment: Redis should be reachable at 127.0.0.1:6379.
+  // The Redis client (`lib/queue/redis-client.ts`) always falls back to
+  // redis://127.0.0.1:6379, so a missing REDIS_URL env var is non-fatal —
+  // we only warn so the operator knows to set it explicitly.
+  const REDIS_FALLBACK = 'redis://127.0.0.1:6379';
+  const redisUrl = stripEnvQuotes(process.env.REDIS_URL)?.trim() || REDIS_FALLBACK;
+  if (!stripEnvQuotes(process.env.REDIS_URL)?.trim()) {
+    console.warn(
+      `[env] REDIS_URL is not set — using hardcoded fallback "${REDIS_FALLBACK}". ` +
+      'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file to eliminate this warning.'
+    );
+  } else {
+    const expected = REDIS_FALLBACK;
     if (redisUrl !== expected) {
-      // Warn but do NOT throw — allows flexibility for Upstash/TLS variants in future.
       console.warn(
         `[env] REDIS_URL="${redisUrl}" differs from the expected on-prem value "${expected}". ` +
         'If intentional (e.g., Upstash TLS), disregard this warning. ' +

@@ -56,12 +56,14 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
 
-      // PM2 reads env_file and merges it with env_production at (re)start.
       env_file: '.env',
       env_production: {
         NODE_ENV: 'production',
         PORT: '3000',
         HOSTNAME: '0.0.0.0',
+        // Explicit Redis fallback: ensures the process always has REDIS_URL
+        // even when the .env file was not copied into .next/standalone/.
+        REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
       },
     },
 

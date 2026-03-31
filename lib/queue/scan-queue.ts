@@ -39,12 +39,12 @@ export async function waitForRedisReady(
   delayMs = 3_000,
   timeoutMs = 5_000
 ): Promise<boolean> {
+  // isRedisAvailable() always returns true (client falls back to 127.0.0.1:6379).
+  // Log the effective URL for visibility without blocking startup.
+  const effectiveUrl = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
+  console.log(`[ScanQueue] Starting Redis health check → ${effectiveUrl} (up to ${maxAttempts} attempts × ${timeoutMs}ms)`);
   if (!isRedisAvailable()) {
-    console.error(
-      '[ScanQueue] REDIS_URL is not set — cannot start Redis health check. ' +
-      'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file. ' +
-      'Queue processing is DISABLED until Redis is configured.'
-    );
+    console.error('[ScanQueue] isRedisAvailable() unexpectedly returned false — check redis-client.ts');
     return false;
   }
 
