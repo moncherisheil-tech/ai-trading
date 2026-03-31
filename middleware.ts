@@ -19,6 +19,7 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/auth/',             // login / logout / otp endpoints
   '/api/health/',           // uptime probes — safe to expose
   '/api/telegram/webhook',  // Telegram bot webhook (auth via bot token)
+  '/api/ops/absolute-scan', // zero-trust scanner probe (Bearer token auth inside route)
 ];
 
 // Emergency fallback — must mirror lib/session.ts EMERGENCY_SECRET.
