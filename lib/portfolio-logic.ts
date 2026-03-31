@@ -1,10 +1,10 @@
 /**
- * Portfolio Allocation & Exposure Management — server-only orchestration.
+ * Portfolio Allocation & Exposure Management.
  *
- * This file imports Telegram + DB-backed subscriber lookup, so it must never be imported by Client Components.
+ * This file imports Telegram + DB-backed subscriber logic and must not be used in browser bundles.
+ * It is intentionally environment-agnostic (no 'server-only' import) so that standalone Node.js
+ * workers (queue processors, cron jobs, etc.) can import it without crashing.
  */
-
-import 'server-only';
 
 import { sendTelegramMessage } from '@/lib/telegram';
 import {
