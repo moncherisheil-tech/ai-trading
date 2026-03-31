@@ -33,6 +33,7 @@ import {
   closeCoinScanQueueEvents,
   setupAutoScanner,
   enqueueScanCycle,
+  waitForRedisReady,
   type CoinScanJobData,
   type CoinScanJobResult,
   type TriggerMasterScanJobData,
@@ -253,14 +254,34 @@ attachDrainListener(async (cycleId: string) => {
   }
 });
 
-// Initialize the auto-scanner repeatable job on startup.
-// CRITICAL FIX: Previously this block called process.exit(1) on ANY failure — including
-// transient Redis connection delays at boot time. This caused a PM2 restart loop where
-// the worker would die before ever processing a single job.
-// Now: log the error and continue. The worker can still process queued jobs even if
-// the repeatable-job registration fails (the job may already exist from a prior run).
-// A retry is scheduled so the registration eventually succeeds without killing the process.
+// ── Startup sequence: Redis health-check → auto-scanner registration ────────
+//
+// Phase 1: waitForRedisReady() — confirm Redis is reachable before attempting
+//   any BullMQ operations. On failure it logs a detailed recovery message and
+//   returns false; the worker stays alive so PM2's exp_backoff_restart_delay
+//   governs the next attempt (5s → 10s → 20s …) rather than an immediate loop.
+//
+// Phase 2: setupAutoScanner() — registers the repeatable trigger-master-scan
+//   BullMQ job. Previously this called process.exit(1) on any failure, causing
+//   a PM2 restart loop on transient Redis delays at boot time. Now it logs and
+//   retries; the worker stays alive to process any already-queued jobs.
 (async () => {
+  // Phase 1 — Redis connectivity gate
+  const redisReady = await waitForRedisReady(
+    10,       // up to 10 PING attempts
+    3_000,    // 3 s between attempts  → up to 30 s of total wait at boot
+    5_000     // 5 s per-attempt timeout
+  );
+
+  if (!redisReady) {
+    console.warn(
+      '[Worker] Redis did not respond before the health-check deadline. ' +
+      'Proceeding anyway — IORedis retryStrategy will reconnect in the background. ' +
+      'Auto-scanner registration is deferred until the retry below succeeds.'
+    );
+  }
+
+  // Phase 2 — repeatable job registration with retry
   const MAX_SETUP_RETRIES = 5;
   const SETUP_RETRY_DELAY_MS = 8_000;
   for (let attempt = 1; attempt <= MAX_SETUP_RETRIES; attempt++) {
@@ -272,8 +293,8 @@ attachDrainListener(async (cycleId: string) => {
       const msg = err instanceof Error ? err.message : String(err);
       if (attempt < MAX_SETUP_RETRIES) {
         console.error(
-          `[Worker] setupAutoScanner failed (attempt ${attempt}/${MAX_SETUP_RETRIES}), retrying in ${SETUP_RETRY_DELAY_MS / 1000}s:`,
-          msg
+          `[Worker] setupAutoScanner failed (attempt ${attempt}/${MAX_SETUP_RETRIES}), ` +
+          `retrying in ${SETUP_RETRY_DELAY_MS / 1_000}s: ${msg}`
         );
         await new Promise((resolve) => setTimeout(resolve, SETUP_RETRY_DELAY_MS));
       } else {

@@ -9,7 +9,14 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  // Standalone mode: produces .next/standalone/server.js + self-contained node_modules.
+  // After build, deploy.sh MUST copy:
+  //   public/          → .next/standalone/public/
+  //   .next/static/    → .next/standalone/.next/static/
+  // Without those copies, /_next/static/* and /public/* return 404 with
+  // Content-Type: text/plain (browser MIME-type rejection).
   output: 'standalone',
+  // Trace from repo root so native addons (pg, prisma engines) are always included.
   outputFileTracingRoot: path.join(process.cwd()),
   // Externalize heavy native/server-only packages so they are loaded from
   // node_modules at runtime rather than bundled into server chunks.

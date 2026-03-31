@@ -14,6 +14,89 @@ import { Queue, QueueEvents, type ConnectionOptions } from 'bullmq';
 import { getRedisClient, isRedisAvailable } from './redis-client';
 import type { ExpertMacroOutput } from '@/lib/consensus-engine';
 
+// ────────────────────────────────────────────────────────────────────────────
+// Redis startup health-check with graceful retry
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Attempt a Redis PING before the worker processes any jobs.
+ *
+ * Strategy:
+ *   - Up to `maxAttempts` PING calls, each with an independent `timeoutMs` guard.
+ *   - On failure, logs a detailed error with attempt counter and waits `delayMs`
+ *     before retrying — giving Redis time to start after a server reboot.
+ *   - Returns `true` as soon as Redis responds; `false` after all retries are
+ *     exhausted (worker continues — existing queued jobs may still be processed
+ *     once Redis recovers, thanks to IORedis's own retryStrategy).
+ *   - Never throws: the worker MUST NOT crash on a transient Redis outage.
+ *
+ * @param maxAttempts - Maximum number of PING attempts (default 10).
+ * @param delayMs     - Wait time between attempts in milliseconds (default 3000).
+ * @param timeoutMs   - Per-attempt deadline in milliseconds (default 5000).
+ */
+export async function waitForRedisReady(
+  maxAttempts = 10,
+  delayMs = 3_000,
+  timeoutMs = 5_000
+): Promise<boolean> {
+  if (!isRedisAvailable()) {
+    console.error(
+      '[ScanQueue] REDIS_URL is not set — cannot start Redis health check. ' +
+      'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file. ' +
+      'Queue processing is DISABLED until Redis is configured.'
+    );
+    return false;
+  }
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const client = getRedisClient();
+      // Race the PING against a hard timeout so a completely unreachable host
+      // doesn't stall the worker indefinitely on each attempt.
+      const result = await Promise.race([
+        client.ping(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Redis PING timed out after ${timeoutMs}ms`)),
+            timeoutMs
+          )
+        ),
+      ]);
+
+      if (result === 'PONG') {
+        console.log(`[ScanQueue] Redis ready — PING/PONG confirmed (attempt ${attempt}/${maxAttempts}).`);
+        return true;
+      }
+      // Unexpected response (shouldn't happen with a healthy Redis)
+      console.warn(
+        `[ScanQueue] Unexpected PING response "${result}" on attempt ${attempt}/${maxAttempts}. ` +
+        'Expected PONG. Retrying...'
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < maxAttempts) {
+        console.error(
+          `[ScanQueue] Redis not available (attempt ${attempt}/${maxAttempts}): ${msg}. ` +
+          `REDIS_URL=${process.env.REDIS_URL ?? '(unset)'}. ` +
+          `Retrying in ${delayMs / 1_000}s — verify Redis is running: redis-cli ping`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      } else {
+        console.error(
+          `[ScanQueue] Redis health check FAILED after ${maxAttempts} attempts. ` +
+          `Last error: ${msg}. ` +
+          `REDIS_URL=${process.env.REDIS_URL ?? '(unset)'}. ` +
+          'The worker will continue running — IORedis will reconnect automatically ' +
+          'once Redis becomes available. No jobs will be processed until then. ' +
+          'Manual recovery: sudo systemctl start redis  OR  redis-server --daemonize yes'
+        );
+      }
+    }
+  }
+
+  return false;
+}
+
 export const QUEUE_NAME = 'coin-scan';
 
 export interface CoinScanJobData {

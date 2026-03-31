@@ -75,29 +75,41 @@ export function getPineconeIndexName(): string | undefined {
 }
 
 /**
- * Infrastructure pre-flight validation. Call once at process start (e.g., in instrumentation.ts
- * or the top-level layout/server entrypoint).
+ * Infrastructure pre-flight validation. Call once at process start (instrumentation.ts
+ * and queue-worker.ts). Throws on fatal misconfiguration; warns on recoverable issues.
  *
- * Rules:
- *   - PINECONE_INDEX_NAME must NOT be purely numeric (e.g., "1002") — that is always wrong
- *     and will produce HTTP 404 from Pinecone. Throws a fatal Error to prevent silent failure.
- *   - REDIS_URL, if set, must not be a bare localhost URL in production (warning only).
+ * Validation rules enforced here:
+ *   1. PINECONE_INDEX_NAME — must NOT be purely numeric; must be a valid alphanumeric slug.
+ *   2. PINECONE_DIMENSION  — must equal "768" when set (model output dimension).
+ *      Accepts both PINECONE_EMBEDDING_DIM and PINECONE_DIMENSION variable names.
+ *   3. REDIS_URL           — must be set in production and must equal
+ *      redis://127.0.0.1:6379 for this on-prem deployment.
+ *   4. Core secrets        — DATABASE_URL, APP_SESSION_SECRET, TELEGRAM_BOT_TOKEN
+ *      must all be present and non-empty.
  *
  * This function is safe to call multiple times (idempotent warn/throw logic).
  */
 export function validateInfraEnv(): void {
-  // ── Pinecone index name guard ─────────────────────────────────────────────
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  // ── 1. Pinecone index name guard ──────────────────────────────────────────
   const indexName = getPineconeIndexName();
   if (indexName !== undefined) {
     if (/^\d+$/.test(indexName)) {
       const msg =
         `[FATAL BOOT ERROR] PINECONE_INDEX_NAME="${indexName}" is invalid — ` +
-        'index names cannot be purely numeric. A numeric value will always return HTTP 404 from Pinecone. ' +
-        'Set PINECONE_INDEX_NAME to your actual index name (e.g., "quantum-memory").';
+        'index names cannot be purely numeric. A numeric value will always return HTTP 404 ' +
+        'from Pinecone. Set PINECONE_INDEX_NAME to your actual index name (e.g., "quantum-memory").';
       console.error(msg);
       throw new Error(msg);
     }
-    // Warn but don't throw for other suspicious patterns
+    // Must only contain alphanumerics and hyphens (Pinecone naming rules)
+    if (!/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/i.test(indexName)) {
+      console.warn(
+        `[env] PINECONE_INDEX_NAME="${indexName}" contains characters that may be rejected by Pinecone. ` +
+        'Expected format: lowercase alphanumeric with optional hyphens (e.g., "quantum-memory").'
+      );
+    }
     if (indexName.length < 3 || indexName.length > 64) {
       console.warn(
         `[env] PINECONE_INDEX_NAME="${indexName}" has an unusual length. ` +
@@ -106,15 +118,68 @@ export function validateInfraEnv(): void {
     }
   }
 
-  // ── Redis URL sanity check ────────────────────────────────────────────────
-  const redisUrl = process.env.REDIS_URL?.trim();
-  if (redisUrl && /^redis:\/\/(127\.0\.0\.1|localhost)/i.test(redisUrl)) {
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
+  // ── 2. Pinecone dimension guard (model output must be 768) ────────────────
+  // Accepts either PINECONE_EMBEDDING_DIM (legacy) or PINECONE_DIMENSION.
+  const rawDim =
+    stripEnvQuotes(process.env.PINECONE_EMBEDDING_DIM) ??
+    stripEnvQuotes(process.env.PINECONE_DIMENSION);
+  if (rawDim && rawDim.trim() !== '') {
+    const parsed = Number(rawDim.trim());
+    if (!Number.isFinite(parsed)) {
+      const msg =
+        `[FATAL BOOT ERROR] PINECONE_EMBEDDING_DIM="${rawDim}" is not a valid number. ` +
+        'Set it to 768 to match the Gemini text-embedding-004 model output.';
+      console.error(msg);
+      throw new Error(msg);
+    }
+    if (parsed !== 768) {
+      const msg =
+        `[FATAL BOOT ERROR] PINECONE_EMBEDDING_DIM=${parsed} does not match ` +
+        'the required model output dimension of 768 (Gemini text-embedding-004). ' +
+        'Uploading vectors with the wrong dimension will fail with a Pinecone 400 error. ' +
+        'Fix PINECONE_EMBEDDING_DIM=768 in your .env file.';
+      console.error(msg);
+      throw new Error(msg);
+    }
+  }
+
+  // ── 3. Redis URL enforcement ───────────────────────────────────────────────
+  // This is an on-prem deployment: Redis MUST be reachable at 127.0.0.1:6379.
+  const redisUrl = stripEnvQuotes(process.env.REDIS_URL)?.trim();
+  if (isProduction) {
+    if (!redisUrl) {
+      const msg =
+        '[FATAL BOOT ERROR] REDIS_URL is not set in production. ' +
+        'BullMQ and all queue features will be unavailable. ' +
+        'Set REDIS_URL=redis://127.0.0.1:6379 in your .env file.';
+      console.error(msg);
+      throw new Error(msg);
+    }
+    const expected = 'redis://127.0.0.1:6379';
+    if (redisUrl !== expected) {
+      // Warn but do NOT throw — allows flexibility for Upstash/TLS variants in future.
       console.warn(
-        '[env] REDIS_URL appears to point to localhost in a production environment. ' +
-        'Ensure this is intentional. For Upstash, use rediss:// TLS URL.'
+        `[env] REDIS_URL="${redisUrl}" differs from the expected on-prem value "${expected}". ` +
+        'If intentional (e.g., Upstash TLS), disregard this warning. ' +
+        'Otherwise update REDIS_URL in .env to match the local Redis instance.'
       );
+    }
+  }
+
+  // ── 4. Core secrets presence check ────────────────────────────────────────
+  const requiredSecrets: Array<{ key: string; hint: string }> = [
+    { key: 'DATABASE_URL',       hint: 'Neon / local PostgreSQL connection string' },
+    { key: 'APP_SESSION_SECRET', hint: 'session signing key — generate with: openssl rand -hex 32' },
+    { key: 'TELEGRAM_BOT_TOKEN', hint: 'BotFather token — required for alerts and trade notifications' },
+  ];
+  for (const { key, hint } of requiredSecrets) {
+    const val = stripEnvQuotes(process.env[key]);
+    if (!val || val.trim() === '' || isInvalidKey(val)) {
+      const msg =
+        `[FATAL BOOT ERROR] Required secret ${key} is missing or contains a placeholder value. ` +
+        `(${hint}) — set it in your .env file before starting the server.`;
+      console.error(msg);
+      throw new Error(msg);
     }
   }
 }

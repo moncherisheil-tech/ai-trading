@@ -1,32 +1,36 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# deploy.sh — Quantum Mon Cheri — Bulletproof Production Deploy
+# deploy.sh — Quantum Mon Cheri — Gold-Standard Production Deploy
 # ==============================================================================
 #
 # Usage:
 #   bash deploy.sh            # full deploy (recommended)
 #   npm run deploy            # same thing via npm alias
 #
-# What this script does (in order):
-#   0.  Pre-flight: verify node / npm / pm2 are available and .env exists.
-#   1.  Gracefully stop the running PM2 processes (sends SIGINT, not SIGKILL).
-#   2.  Install all dependencies (npm ci) and regenerate the Prisma client.
-#   3.  Run `next build` in production mode.
-#   4.  Validate that the standalone bundle was created correctly.
-#   5.  Assemble the standalone bundle:
-#         a. Copy public/          → .next/standalone/public/
-#         b. Copy .next/static/   → .next/standalone/.next/static/
-#         c. Copy .env            → .next/standalone/.env
-#         d. Copy prisma/         → .next/standalone/prisma/
-#   6.  Verify the Server Actions manifest (catches broken 'use server' files).
-#   7.  Start both PM2 processes via ecosystem.config.js --env production.
-#   8.  Health-check: confirm both processes reach 'online' status.
-#   9.  Save PM2 process list so it survives server reboots.
+# Deploy sequence:
+#   0.  Pre-flight: verify toolchain (node / npm / pm2 / git) and .env integrity.
+#   1.  Gracefully stop running PM2 processes (SIGINT → graceful shutdown).
+#   2.  git pull  — sync to latest HEAD on current branch.
+#   3.  npm ci    — clean install from package-lock.json.
+#   4.  npx prisma generate — sync Neon/Postgres types from prisma/schema.prisma.
+#   5.  npm run build (NODE_ENV=production) — next build with output: standalone.
+#   6.  Build validation — verify .next/standalone/server.js exists.
+#   7.  Asset assembly:
+#         a. public/          → .next/standalone/public/
+#         b. .next/static/    → .next/standalone/.next/static/
+#         c. .env             → .next/standalone/.env
+#         d. prisma/          → .next/standalone/prisma/
+#   8.  Server Actions manifest check (catches broken 'use server' files).
+#   9.  Start PM2 processes via ecosystem.config.js --env production.
+#   10. Health check — poll /api/health/ready until 200 or timeout.
+#   11. Save PM2 process list (survives server reboots).
 #
-# Requirements (must be pre-installed on the server):
-#   - Node.js 20+
-#   - npm 9+
-#   - pm2 (npm install -g pm2)
+# Requirements (pre-installed on the server):
+#   - Node.js 20+    (node --version)
+#   - npm 9+         (npm --version)
+#   - pm2            (npm install -g pm2)
+#   - git            (git --version)
+#   - curl           (health check in step 10)
 #
 # ==============================================================================
 set -euo pipefail
@@ -49,9 +53,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 echo -e "${BOLD}"
-echo "╔══════════════════════════════════════════════════╗"
-echo "║   QUANTUM MON CHERI — PRODUCTION DEPLOY          ║"
-echo "╚══════════════════════════════════════════════════╝"
+echo "╔══════════════════════════════════════════════════════╗"
+echo "║   QUANTUM MON CHERI — PRODUCTION DEPLOY              ║"
+echo "╚══════════════════════════════════════════════════════╝"
 echo -e "${RESET}"
 echo "  Project root : $ROOT"
 echo "  Date / time  : $(date '+%Y-%m-%d %H:%M:%S %Z')"
@@ -60,40 +64,79 @@ echo "  Date / time  : $(date '+%Y-%m-%d %H:%M:%S %Z')"
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 0 — Pre-flight checks
 # ══════════════════════════════════════════════════════════════════════════════
-step "0/9" "Pre-flight checks"
+step "0/11" "Pre-flight: toolchain + .env integrity"
 
+# ── Toolchain ──
 command -v node >/dev/null 2>&1 || fail "node not found in PATH. Install Node.js 20+."
 command -v npm  >/dev/null 2>&1 || fail "npm not found in PATH."
 command -v pm2  >/dev/null 2>&1 || fail "pm2 not found. Run: npm install -g pm2"
+command -v git  >/dev/null 2>&1 || fail "git not found in PATH."
+command -v curl >/dev/null 2>&1 || warn "curl not found — HTTP health check in step 10 will be skipped."
 
 ok "node $(node --version)"
 ok "npm  $(npm --version)"
 ok "pm2  $(pm2 --version)"
+ok "git  $(git --version | head -1)"
 
-# Abort immediately if .env is missing — server.js and the worker both need it.
+# ── .env presence ──
 if [ ! -f "$ROOT/.env" ]; then
   fail ".env file not found at $ROOT/.env\n  Create it from .env.example and populate all secrets before deploying."
 fi
 ok ".env present"
 
-# Sanity-check for a few critical variables (non-exhaustive — catches blank files).
-_REQUIRED_VARS=("DATABASE_URL" "APP_SESSION_SECRET")
-for _VAR in "${_REQUIRED_VARS[@]}"; do
-  if ! grep -qE "^${_VAR}=.+" "$ROOT/.env" 2>/dev/null; then
-    fail ".env is missing a value for ${_VAR}. Populate it before deploying."
+# ── Critical variable validation ──
+# Checks: variable must exist AND have a non-empty, non-placeholder value.
+_check_env_var() {
+  local KEY="$1"
+  local HINT="$2"
+  local VALUE
+  VALUE=$(grep -E "^${KEY}=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+  if [ -z "$VALUE" ]; then
+    fail ".env is missing a value for ${KEY}.\n  ${HINT}"
   fi
-done
-ok "Critical .env variables present"
+  # Reject obvious placeholder patterns
+  if echo "$VALUE" | grep -qiE '(your_|changeme|placeholder|example|TODO)'; then
+    fail ".env contains a placeholder value for ${KEY}=\"${VALUE}\".\n  ${HINT}"
+  fi
+}
+
+_check_env_var "DATABASE_URL"        "Neon / local PostgreSQL connection string"
+_check_env_var "APP_SESSION_SECRET"  "Session signing key — generate: openssl rand -hex 32"
+_check_env_var "TELEGRAM_BOT_TOKEN"  "BotFather token — required for alerts and trade notifications"
+_check_env_var "PINECONE_API_KEY"    "Pinecone API key from console.pinecone.io"
+_check_env_var "PINECONE_INDEX_NAME" "Pinecone index name (e.g., quantum-memory) — must NOT be purely numeric"
+_check_env_var "REDIS_URL"           "Redis connection URL — must be redis://127.0.0.1:6379 for on-prem"
+_check_env_var "GEMINI_API_KEY"      "Gemini API key for LLM inference"
+
+# ── PINECONE_INDEX_NAME must not be purely numeric ──
+_INDEX_NAME=$(grep -E "^PINECONE_INDEX_NAME=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+if [[ "$_INDEX_NAME" =~ ^[0-9]+$ ]]; then
+  fail "PINECONE_INDEX_NAME=\"${_INDEX_NAME}\" is purely numeric.\n  Pinecone rejects numeric index names with HTTP 404.\n  Set a valid alphanumeric index name (e.g., quantum-memory)."
+fi
+
+# ── PINECONE_EMBEDDING_DIM must be 768 if set ──
+_DIM=$(grep -E "^PINECONE_EMBEDDING_DIM=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+if [ -n "$_DIM" ] && [ "$_DIM" != "768" ]; then
+  fail "PINECONE_EMBEDDING_DIM=\"${_DIM}\" must equal 768 (Gemini text-embedding-004 output dimension).\n  Mismatched dimensions cause Pinecone upsert failures."
+fi
+
+# ── REDIS_URL must point to local Redis ──
+_REDIS=$(grep -E "^REDIS_URL=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || true)
+if [ "$_REDIS" != "redis://127.0.0.1:6379" ]; then
+  warn "REDIS_URL=\"${_REDIS}\" differs from the expected on-prem value \"redis://127.0.0.1:6379\"."
+  warn "If using a remote Redis (e.g., Upstash TLS), this is intentional — otherwise update .env."
+fi
+
+ok "All critical .env variables validated"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 1 — Stop current PM2 processes gracefully
 # ══════════════════════════════════════════════════════════════════════════════
-step "1/9" "Stopping PM2 processes gracefully (SIGINT → graceful shutdown)"
+step "1/11" "Stopping PM2 processes gracefully (SIGINT → graceful shutdown)"
 
-# `pm2 stop` sends SIGINT, which triggers the worker's shutdown() handler
-# (closes BullMQ worker, QueueEvents, and IORedis before exiting).
-# We ignore errors here in case a process isn't running yet.
+# pm2 stop sends SIGINT, which triggers the worker's shutdown() handler
+# (closes BullMQ Worker, QueueEvents, and IORedis before process.exit(0)).
 pm2 stop quantum-mon-cheri 2>/dev/null \
   && ok "quantum-mon-cheri stopped" \
   || warn "quantum-mon-cheri was not running — skipping"
@@ -104,9 +147,25 @@ pm2 stop queue-worker 2>/dev/null \
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 2 — Install dependencies and regenerate Prisma client
+# STEP 2 — Pull latest code from remote
 # ══════════════════════════════════════════════════════════════════════════════
-step "2/9" "Installing dependencies (npm ci)"
+step "2/11" "Pulling latest code (git pull)"
+
+# Abort if the working tree is dirty — protect against accidental overwrites.
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  warn "Working tree has uncommitted changes. Stashing before pull..."
+  git stash push -m "deploy.sh auto-stash $(date '+%Y%m%d-%H%M%S')"
+  ok "Changes stashed"
+fi
+
+git pull --ff-only
+ok "git pull completed (branch: $(git rev-parse --abbrev-ref HEAD), commit: $(git rev-parse --short HEAD))"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 3 — Install dependencies
+# ══════════════════════════════════════════════════════════════════════════════
+step "3/11" "Installing dependencies (npm ci)"
 
 # npm ci is faster than npm install and guarantees a clean install from
 # package-lock.json. devDependencies are included because:
@@ -114,56 +173,69 @@ step "2/9" "Installing dependencies (npm ci)"
 #   - prisma CLI (devDep) is needed for prisma generate
 #   - typescript (devDep) is needed for next build
 npm ci
+ok "npm ci completed"
 
-# Regenerate the Prisma client to ensure the binary matches this platform.
-# This is idempotent and fast (no network call if already generated).
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STEP 4 — Regenerate Prisma client
+# ══════════════════════════════════════════════════════════════════════════════
+step "4/11" "Regenerating Prisma client (npx prisma generate)"
+
+# Syncs the generated TypeScript types with the current prisma/schema.prisma.
+# Idempotent — fast if schema hasn't changed.
 npx prisma generate
 ok "Prisma client generated"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 3 — Build
+# STEP 5 — Build
 # ══════════════════════════════════════════════════════════════════════════════
-step "3/9" "Running next build (output: standalone)"
+step "5/11" "Running next build (output: standalone)"
 
 # Wipe the previous build so stale chunks never bleed into the new deploy.
 echo "  Removing .next/ ..."
 rm -rf .next
 
 NODE_ENV=production npx next build
-
 ok "next build completed"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 4 — Validate standalone output
+# STEP 6 — Validate standalone output
 # ══════════════════════════════════════════════════════════════════════════════
-step "4/9" "Validating standalone bundle"
+step "6/11" "Validating standalone bundle"
 
 if [ ! -d "$ROOT/.next/standalone" ]; then
-  fail ".next/standalone/ was not created.\n  Check that next.config.ts contains  output: 'standalone'."
+  fail ".next/standalone/ was not created.\n  Verify that next.config.ts contains  output: 'standalone'."
 fi
 
 if [ ! -f "$ROOT/.next/standalone/server.js" ]; then
-  fail ".next/standalone/server.js not found.\n  The standalone build may have failed silently. Check build output above."
+  fail ".next/standalone/server.js not found.\n  The standalone build may have failed silently. Review build output above."
 fi
 ok ".next/standalone/server.js present"
 
-# Verify node_modules exist inside standalone (Next.js traces them automatically)
+# Verify node_modules exist inside standalone (Next.js traces them automatically).
 if [ ! -d "$ROOT/.next/standalone/node_modules" ]; then
   warn ".next/standalone/node_modules/ not found — the server may fail to resolve packages."
 else
   ok ".next/standalone/node_modules/ present"
 fi
 
+# Verify compiled JS chunks exist (essential for browser to load the app).
+if [ ! -d "$ROOT/.next/static/chunks" ]; then
+  fail ".next/static/chunks/ not found — the build output is incomplete.\n  Check for TypeScript/webpack errors in the build log above."
+fi
+ok ".next/static/chunks/ present"
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 5 — Assemble the standalone bundle
+# STEP 7 — Assemble the standalone bundle (static assets + env + prisma)
 # ══════════════════════════════════════════════════════════════════════════════
-step "5/9" "Assembling standalone bundle (static assets + env + prisma)"
+step "7/11" "Assembling standalone bundle"
 
-# 5a. public/ — images, icons, fonts, robots.txt, manifest.json, etc.
-#     Next.js standalone does NOT include this directory; it must be copied.
+# 7a. public/ — images, icons, fonts, robots.txt, manifest.json, etc.
+#     Next.js standalone does NOT include this directory automatically;
+#     it must be copied or browsers get 404 on every /public/* path.
 if [ -d "$ROOT/public" ]; then
   rm -rf "$ROOT/.next/standalone/public"
   cp -r "$ROOT/public" "$ROOT/.next/standalone/public"
@@ -172,24 +244,27 @@ else
   warn "public/ not found — skipping (no static public assets)"
 fi
 
-# 5b. .next/static/ — compiled JS/CSS chunks, source maps, webpack runtime.
+# 7b. .next/static/ — compiled JS/CSS chunks, source maps, webpack runtime.
 #     Without this copy the browser gets 404s on every /_next/static/* request,
-#     which triggers MIME-type errors (text/plain for .js/.css is rejected by
-#     the browser's strict MIME checking).
+#     which triggers MIME-type errors ('text/plain' for .js/.css is rejected by
+#     the browser's strict MIME checking and CSP).
 mkdir -p "$ROOT/.next/standalone/.next"
 rm -rf "$ROOT/.next/standalone/.next/static"
 cp -r "$ROOT/.next/static" "$ROOT/.next/standalone/.next/static"
 ok ".next/static/ → .next/standalone/.next/static/"
 
-# 5c. .env — the standalone server.js does not call dotenv automatically.
-#     PM2 also reads it via env_file in ecosystem.config.js, but an explicit
-#     copy ensures the standalone bundle is self-sufficient if started manually.
+# Confirm the chunks are in the right place as a final sanity check.
+if [ ! -d "$ROOT/.next/standalone/.next/static/chunks" ]; then
+  fail ".next/standalone/.next/static/chunks/ is missing after the copy.\n  This means /_next/static/* will 404 at runtime (MIME type text/plain errors)."
+fi
+ok ".next/standalone/.next/static/chunks/ verified"
+
+# 7c. .env — copied into the standalone dir so `node .next/standalone/server.js`
+#     can be started manually without PM2 env injection (useful for debugging).
 cp "$ROOT/.env" "$ROOT/.next/standalone/.env"
 ok ".env → .next/standalone/.env"
 
-# 5d. prisma/ — @prisma/client resolves the schema file relative to cwd at
-#     runtime for some operations (e.g. introspection, migrations). Copying
-#     the schema makes the standalone directory fully self-contained.
+# 7d. prisma/ — @prisma/client resolves the schema at runtime for some operations.
 if [ -d "$ROOT/prisma" ]; then
   rm -rf "$ROOT/.next/standalone/prisma"
   cp -r "$ROOT/prisma" "$ROOT/.next/standalone/prisma"
@@ -198,9 +273,9 @@ fi
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 6 — Verify Server Actions manifest
+# STEP 8 — Verify Server Actions manifest
 # ══════════════════════════════════════════════════════════════════════════════
-step "6/9" "Verifying Server Actions manifest"
+step "8/11" "Verifying Server Actions manifest"
 
 MANIFEST="$ROOT/.next/server/server-reference-manifest.json"
 if [ ! -f "$MANIFEST" ]; then
@@ -208,7 +283,6 @@ if [ ! -f "$MANIFEST" ]; then
   warn "Server Actions may fail with 'Failed to find Server Action'."
   warn "Ensure all 'use server' files export their actions at the top level."
 else
-  # Count registered actions without requiring python3
   ACTION_COUNT=$(node -e "
     try {
       const d = JSON.parse(require('fs').readFileSync('$MANIFEST', 'utf8'));
@@ -222,30 +296,57 @@ fi
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 7 — Start PM2 processes
+# STEP 9 — Start PM2 processes
 # ══════════════════════════════════════════════════════════════════════════════
-step "7/9" "Starting PM2 processes via ecosystem.config.js"
+step "9/11" "Starting PM2 processes via ecosystem.config.js"
 
 # startOrReload: starts if not running, hot-reloads if already up.
 # --update-env: forces PM2 to re-read env_file and env_production on reload
-#               (without this flag, PM2 reuses cached env on a hot-reload).
+#               (without this flag PM2 reuses its cached env snapshot).
 pm2 startOrReload "$ROOT/ecosystem.config.js" --env production --update-env
-
 ok "PM2 startOrReload completed"
 
-# Brief grace period so both processes can reach 'online' status before we poll.
-echo "  Waiting 5 s for processes to stabilise..."
-sleep 5
+echo "  Waiting 6 s for processes to stabilise..."
+sleep 6
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 8 — Health check
+# STEP 10 — HTTP health check
 # ══════════════════════════════════════════════════════════════════════════════
-step "8/9" "Health check"
+step "10/11" "HTTP health check (GET /api/health/ready)"
 
-# Read PM2 process status using jlist (machine-readable JSON).
+_APP_PORT=$(grep -E "^PORT=" "$ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"'\'' ' || echo "3000")
+_HEALTH_URL="http://127.0.0.1:${_APP_PORT:-3000}/api/health/ready"
+_MAX_HEALTH_ATTEMPTS=12
+_HEALTH_ATTEMPT=0
+_HEALTH_OK=false
+
+if command -v curl >/dev/null 2>&1; then
+  echo "  Polling ${_HEALTH_URL} (up to ${_MAX_HEALTH_ATTEMPTS} attempts × 5 s)..."
+  while [ "$_HEALTH_ATTEMPT" -lt "$_MAX_HEALTH_ATTEMPTS" ]; do
+    _HEALTH_ATTEMPT=$((_HEALTH_ATTEMPT + 1))
+    _HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "$_HEALTH_URL" 2>/dev/null || echo "000")
+    if [ "$_HTTP_CODE" = "200" ]; then
+      ok "Health check passed (HTTP 200) after ${_HEALTH_ATTEMPT} attempt(s)"
+      _HEALTH_OK=true
+      break
+    fi
+    echo "  Attempt ${_HEALTH_ATTEMPT}/${_MAX_HEALTH_ATTEMPTS}: HTTP ${_HTTP_CODE} — waiting 5 s..."
+    sleep 5
+  done
+
+  if [ "$_HEALTH_OK" = false ]; then
+    warn "Health endpoint did not return HTTP 200 after $((_MAX_HEALTH_ATTEMPTS * 5)) s."
+    warn "The app may still be starting. Check:  pm2 logs quantum-mon-cheri --lines 50"
+    warn "Manual verify:  curl -v ${_HEALTH_URL}"
+  fi
+else
+  warn "curl not installed — skipping HTTP health check."
+  warn "Verify manually: curl http://127.0.0.1:${_APP_PORT:-3000}/api/health/ready"
+fi
+
+# PM2 process status snapshot
 _PM2_STATUS=$(pm2 jlist 2>/dev/null || echo "[]")
-
 _check_process() {
   local NAME="$1"
   local STATUS
@@ -254,27 +355,24 @@ _check_process() {
     const p = list.find(p => p.name === '${NAME}');
     process.stdout.write(p ? p.pm2_env.status : 'NOT_FOUND');
   " "$_PM2_STATUS" 2>/dev/null || echo "unknown")
-
   if [ "$STATUS" = "online" ]; then
     ok "${NAME} : online"
   else
     warn "${NAME} : ${STATUS}  (check: pm2 logs ${NAME} --lines 50)"
   fi
 }
-
 _check_process "quantum-mon-cheri"
 _check_process "queue-worker"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 9 — Save PM2 state
+# STEP 11 — Save PM2 process list
 # ══════════════════════════════════════════════════════════════════════════════
-step "9/9" "Saving PM2 process list (survives server reboots)"
+step "11/11" "Saving PM2 process list (survives server reboots)"
 
 pm2 save
 ok "PM2 state saved"
 
-# Print a compact process table for a quick visual confirmation.
 echo ""
 pm2 list
 
@@ -283,10 +381,11 @@ pm2 list
 # Done
 # ══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo -e "${GREEN}${BOLD}══════════════════════════════════════════════════${RESET}"
+echo -e "${GREEN}${BOLD}══════════════════════════════════════════════════════${RESET}"
 echo -e "${GREEN}${BOLD}  DEPLOY COMPLETE  ✓${RESET}"
 echo -e "${GREEN}  App logs   :  pm2 logs quantum-mon-cheri --lines 100${RESET}"
 echo -e "${GREEN}  Worker logs:  pm2 logs queue-worker --lines 100${RESET}"
 echo -e "${GREEN}  Live status:  pm2 monit${RESET}"
-echo -e "${GREEN}${BOLD}══════════════════════════════════════════════════${RESET}"
+echo -e "${GREEN}  Health URL :  http://127.0.0.1:${_APP_PORT:-3000}/api/health/ready${RESET}"
+echo -e "${GREEN}${BOLD}══════════════════════════════════════════════════════${RESET}"
 echo ""
