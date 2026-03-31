@@ -55,6 +55,12 @@ interface EpisodicLesson {
   createdAt: string;
 }
 
+interface WorkerHeartbeat {
+  alive: boolean;
+  lastBeatAt: string | null;
+  staleSinceMs: number | null;
+}
+
 interface DiagnosticsData {
   connections: {
     gemini: Status;
@@ -65,6 +71,7 @@ interface DiagnosticsData {
     redis: Status;
   };
   redisPing: { latencyMs: number; error: string | null };
+  workerHeartbeat?: WorkerHeartbeat;
   agents: Array<{
     name: string;
     status: 'ok' | 'fail';
@@ -257,6 +264,7 @@ export default function EngineRoomPage() {
   const np = data!.neuroPlasticity;
   const episodes = data!.episodicMemory ?? [];
   const redisPing = data!.redisPing;
+  const workerHb = data!.workerHeartbeat;
 
   const infraConnections: Array<{ key: string; label: string; icon: typeof Server; extra?: string }> = [
     { key: 'postgres', label: 'Quantum Core DB (Postgres)', icon: Database },
@@ -322,6 +330,42 @@ export default function EngineRoomPage() {
           {redisPing?.error && (
             <p className="px-4 pb-3 text-xs text-red-400">Redis error: {redisPing.error}</p>
           )}
+        </section>
+
+        {/* ── BullMQ Worker Status ───────────────────────────────────────────────────────────── */}
+        <section className="rounded-xl border border-zinc-700/80 bg-zinc-900/60 overflow-hidden">
+          <h2 className="px-4 py-3 border-b border-zinc-700 flex items-center gap-2 text-base font-semibold text-zinc-200">
+            <Activity className="w-5 h-5 text-amber-400" />
+            Alpha Scanner Worker — BullMQ
+          </h2>
+          <div className="px-4 py-4 flex items-center justify-between gap-4">
+            {workerHb?.alive ? (
+              <div className="flex flex-col gap-1">
+                <span className="flex items-center gap-2 text-emerald-400 font-semibold">
+                  <CheckCircle2 className="w-5 h-5" />
+                  Worker ALIVE
+                </span>
+                <span className="text-xs text-zinc-500">
+                  Last heartbeat: {formatTimeAgo(workerHb.lastBeatAt)}
+                  {workerHb.staleSinceMs != null && workerHb.staleSinceMs > 90_000 && (
+                    <span className="ml-2 text-amber-400"> — beat is {Math.round(workerHb.staleSinceMs / 1000)}s old</span>
+                  )}
+                </span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <span className="flex items-center gap-2 text-red-400 font-semibold">
+                  <XCircle className="w-5 h-5" />
+                  Worker DEAD — Alpha Scanner offline
+                </span>
+                <span className="text-xs text-zinc-500">
+                  {conn.redis === 'fail'
+                    ? 'Redis unavailable — cannot read heartbeat'
+                    : 'Heartbeat key expired (TTL 5 min). Run: pm2 restart queue-worker'}
+                </span>
+              </div>
+            )}
+          </div>
         </section>
 
         {/* ── NeuroPlasticity Matrix ──────────────────────────────────────────────────────────── */}
@@ -552,7 +596,7 @@ export default function EngineRoomPage() {
           </h2>
           <div className="px-4 py-4 space-y-4">
             <p className="text-zinc-400 text-sm">
-              מריץ בדיקת אינטגרציה אמיתית: Analysis → DB → Pinecone upsert + verification. לוקח עד ~90 שניות.
+              בדיקת Pipeline (ללא LLM) + DB round-trip + Pinecone upsert. שלב 1 הוא דטרמיניסטי — לא ניתן להיכשל מ-Gemini/Groq. לוקח עד ~60 שניות.
             </p>
             <button type="button" onClick={runAuditCheck} disabled={auditLoading}
               className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-medium transition-colors flex items-center gap-2">

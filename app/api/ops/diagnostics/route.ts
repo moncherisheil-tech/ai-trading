@@ -95,10 +95,46 @@ export async function GET(): Promise<NextResponse> {
     dbHealth = { status: 'offline', error: message };
   }
 
-  // ── Redis ping ─────────────────────────────────────────────────────────────────────────────────
+  // ── Redis ping + worker heartbeat ─────────────────────────────────────────────────────────────
   // pingRedis() always attempts a connection (falls back to 127.0.0.1:6379).
   const redisPing = await pingRedis();
   const redisStatus: 'ok' | 'fail' | 'skip' = redisPing.ok ? 'ok' : 'fail';
+
+  // Read the BullMQ queue-worker heartbeat key (written every 60 s, TTL 300 s).
+  // If the key is absent the worker has been dead for >5 minutes.
+  let workerHeartbeat: { alive: boolean; lastBeatAt: string | null; staleSinceMs: number | null } = {
+    alive: false,
+    lastBeatAt: null,
+    staleSinceMs: null,
+  };
+  if (redisPing.ok) {
+    try {
+      const IORedis = (await import('ioredis')).default;
+      const redisUrl = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
+      const hbClient = new IORedis(redisUrl, {
+        maxRetriesPerRequest: 1,
+        enableReadyCheck: false,
+        connectTimeout: 3_000,
+        lazyConnect: true,
+        tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+      });
+      await hbClient.connect();
+      const hbValue = await hbClient.get('queue-worker:heartbeat');
+      await hbClient.quit().catch(() => hbClient.disconnect());
+      if (hbValue) {
+        const lastBeatMs = new Date(hbValue).getTime();
+        workerHeartbeat = {
+          alive: true,
+          lastBeatAt: hbValue,
+          staleSinceMs: Date.now() - lastBeatMs,
+        };
+      } else {
+        workerHeartbeat = { alive: false, lastBeatAt: null, staleSinceMs: null };
+      }
+    } catch {
+      // Non-fatal — leave defaults
+    }
+  }
 
   // ── Pinecone ping ──────────────────────────────────────────────────────────────────────────────
   if (pinecone === 'ok') {
@@ -279,6 +315,20 @@ export async function GET(): Promise<NextResponse> {
     }
   } catch { /* keep fail defaults */ }
 
+  // ── Auto-seed NeuroPlasticity + EpisodicMemory if never initialized ──────────────────────────
+  // Safe to run on every diagnostics request — ensureNeuroPlasticityInitialized() is idempotent.
+  // It only writes when the singleton (id=1) is absent or when the episodicMemory table is empty.
+  // Failure here is non-fatal: the UI will show null/empty and the user can trigger init manually.
+  if (postgres === 'ok') {
+    try {
+      const { ensureNeuroPlasticityInitialized } = await import('@/lib/learning/recursive-optimizer');
+      await ensureNeuroPlasticityInitialized();
+    } catch (seedErr) {
+      const msg = seedErr instanceof Error ? seedErr.message : String(seedErr);
+      console.warn('[ops/diagnostics] ensureNeuroPlasticityInitialized skipped (non-fatal):', msg);
+    }
+  }
+
   // ── SystemNeuroPlasticity (id=1) ──────────────────────────────────────────────────────────────
   type NeuroPlasticityPayload = {
     techWeight: number;
@@ -352,6 +402,7 @@ export async function GET(): Promise<NextResponse> {
       latencyMs: redisPing.latencyMs,
       error: redisPing.error,
     },
+    workerHeartbeat,
     healthChecks: {
       db: dbHealth,
       vectorStorage: vectorStorageHealth,

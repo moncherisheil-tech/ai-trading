@@ -73,6 +73,7 @@ import {
   persistJobResult,
   customBackoffStrategy,
   closeCoinScanQueueEvents,
+  getCoinScanQueue,
   setupAutoScanner,
   enqueueScanCycle,
   waitForRedisReady,
@@ -450,13 +451,13 @@ async function setupAlphaScanner(): Promise<void> {
   const queue = getCoinScanQueue();
   try {
     const existing = await queue.getRepeatableJobs();
-    if (existing.some((j) => j.name === ALPHA_SCAN_JOB_NAME)) {
+    if (existing.some((j: { name: string }) => j.name === ALPHA_SCAN_JOB_NAME)) {
       console.log('[AutoAlpha] Repeatable alpha-scan job already registered; skipping.');
       return;
     }
     await queue.add(
       ALPHA_SCAN_JOB_NAME,
-      { triggeredAt: Date.now() },
+      { triggeredAt: Date.now() } as unknown as CoinScanJobData,
       {
         repeat: { pattern: '0 * * * *' }, // every hour on the hour
         removeOnComplete: true,
@@ -470,6 +471,42 @@ async function setupAlphaScanner(): Promise<void> {
   }
 }
 
+// ── Worker heartbeat ─────────────────────────────────────────────────────────
+// Writes a timestamp to Redis every 60 s so the diagnostics dashboard can
+// detect worker death without polling BullMQ queue internals.
+//   Key:  queue-worker:heartbeat
+//   Value: ISO timestamp
+//   TTL:  300 s (5 min) — if the worker dies, the key expires automatically.
+
+const HEARTBEAT_KEY = 'queue-worker:heartbeat';
+const HEARTBEAT_INTERVAL_MS = 60_000;
+
+async function writeWorkerHeartbeat(): Promise<void> {
+  try {
+    const redis = getRedisClient();
+    await redis.set(HEARTBEAT_KEY, new Date().toISOString(), 'EX', 300);
+  } catch {
+    // Non-fatal: Redis may be temporarily unavailable
+  }
+}
+
+let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+function startHeartbeat(): void {
+  if (heartbeatInterval) return;
+  void writeWorkerHeartbeat(); // write immediately on start
+  heartbeatInterval = setInterval(() => {
+    void writeWorkerHeartbeat();
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat(): void {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = null;
+  }
+}
+
 // Top-level retry loop — if runInitSequence() throws for any reason, wait
 // 10 s and try again instead of letting the process exit and triggering a
 // PM2 crash-restart loop.
@@ -480,6 +517,7 @@ async function setupAlphaScanner(): Promise<void> {
     initAttempt++;
     try {
       await runInitSequence();
+      startHeartbeat();
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -502,6 +540,7 @@ console.log(
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[Worker] ${signal} received — shutting down gracefully.`);
+  stopHeartbeat();
   await worker.close();
   // Close QueueEvents BEFORE the shared IORedis client so the event loop
   // drains cleanly. Without this, the open QueueEvents connection keeps the

@@ -333,7 +333,7 @@ export async function getQueueCounts() {
  */
 export function customBackoffStrategy(
   attemptsMade: number,
-  _type: string,
+  _type: string | undefined,
   err?: Error
 ): number {
   return computeBackoffMs(attemptsMade, err);
