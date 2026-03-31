@@ -181,7 +181,8 @@ async function checkExpert5(): Promise<CheckResult> {
   if (!apiKey) return { name, status: 'skip', detail: 'ANTHROPIC_API_KEY not set' };
   const t0 = Date.now();
   try {
-    const models = ['claude-3-5-haiku-latest', 'claude-haiku-4-5', 'claude-3-haiku-20240307'];
+    const { ANTHROPIC_MODEL_CANDIDATES } = await import('../lib/anthropic-model');
+    const models = [...ANTHROPIC_MODEL_CANDIDATES, 'claude-3-haiku-20240307'];
     let lastErr = '';
     for (const model of models) {
       const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -282,14 +283,15 @@ async function checkModelIdentifiers(): Promise<CheckResult> {
   const name = 'Model identifiers (2026 sync)';
   const geminiPrimary = sanitizeEnv(process.env.GEMINI_MODEL_PRIMARY) || 'gemini-1.5-flash-latest';
   const geminiFallback = sanitizeEnv(process.env.GEMINI_MODEL_FALLBACK) || 'gemini-1.5-pro-latest';
-  const anthropicModel = sanitizeEnv(process.env.ANTHROPIC_MODEL) || 'claude-3-5-haiku-latest';
+  const { ANTHROPIC_HAIKU_MODEL } = await import('../lib/anthropic-model');
+  const anthropicModel = sanitizeEnv(process.env.ANTHROPIC_MODEL) || ANTHROPIC_HAIKU_MODEL;
   const okGemini = geminiPrimary === 'gemini-1.5-flash-latest' || geminiFallback === 'gemini-1.5-pro-latest';
-  const okAnthropic = anthropicModel === 'claude-3-5-haiku-latest';
+  const okAnthropic = anthropicModel === ANTHROPIC_HAIKU_MODEL;
   if (!okGemini || !okAnthropic) {
     return {
       name,
       status: 'fail',
-      detail: `Expected gemini-1.5-flash-latest/gemini-1.5-pro-latest + claude-3-5-haiku-latest; got primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}`,
+      detail: `Expected gemini-1.5-flash-latest/gemini-1.5-pro-latest + ${ANTHROPIC_HAIKU_MODEL}; got primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}`,
     };
   }
   return { name, status: 'ok', detail: `primary=${geminiPrimary}, fallback=${geminiFallback}, anthropic=${anthropicModel}` };
