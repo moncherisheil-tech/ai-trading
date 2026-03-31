@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { APP_CONFIG, TARGET_SYMBOLS } from '@/lib/config';
 
-type ConnectionState = 'connecting' | 'connected' | 'error';
+type ConnectionState = 'connecting' | 'connected' | 'error' | 'stale';
 
 export interface TickerData {
   symbol: string;
@@ -22,6 +22,8 @@ type TickerSnapshot = {
 type TickerSubscriber = (snapshot: TickerSnapshot) => void;
 const RECONNECT_DELAY_MS = 5_000;
 const FLUSH_MS = 180;
+/** If no message arrives within this window while connected, mark connection as stale and force reconnect. */
+const STALE_THRESHOLD_MS = 10_000;
 
 function detachWebSocketHandlers(socket: WebSocket): void {
   socket.onopen = null;
@@ -32,6 +34,8 @@ function detachWebSocketHandlers(socket: WebSocket): void {
 let globalWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
+let staleTimer: ReturnType<typeof setTimeout> | null = null;
+let lastMessageAtMs = 0;
 let pendingRows: Array<{ s?: string; c?: string; o?: string }> | null = null;
 let snapshot: TickerSnapshot = { tickers: [], connectionState: 'connecting' };
 const subscribers = new Set<TickerSubscriber>();
@@ -45,19 +49,51 @@ function setSnapshot(partial: Partial<TickerSnapshot>): void {
   emitSnapshot();
 }
 
+function resetStaleTimer(): void {
+  if (staleTimer) {
+    clearTimeout(staleTimer);
+    staleTimer = null;
+  }
+  if (subscribers.size === 0) return;
+  staleTimer = setTimeout(() => {
+    staleTimer = null;
+    const msSinceMsg = Date.now() - lastMessageAtMs;
+    if (msSinceMsg >= STALE_THRESHOLD_MS && snapshot.connectionState === 'connected') {
+      console.warn(`[use-binance-ticker] No message in ${msSinceMsg}ms — marking connection as stale and forcing reconnect.`);
+      setSnapshot({ connectionState: 'stale' });
+      const sock = globalWs;
+      globalWs = null;
+      if (sock) {
+        detachWebSocketHandlers(sock);
+        if (sock.readyState === WebSocket.OPEN || sock.readyState === WebSocket.CONNECTING) sock.close();
+      }
+      scheduleReconnect();
+    }
+  }, STALE_THRESHOLD_MS);
+}
+
 function flushPendingRows(): void {
   const rows = pendingRows;
   pendingRows = null;
   if (!rows || rows.length === 0) return;
   const map = new Map(snapshot.tickers.map((ticker) => [ticker.symbol, ticker]));
+  let validPriceCount = 0;
   rows.forEach((row) => {
     const price = parseFloat(String(row.c ?? ''));
     const open = parseFloat(String(row.o ?? ''));
-    if (!Number.isFinite(price) || !Number.isFinite(open) || open <= 0) return;
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(open) || open <= 0) {
+      const sym = String(row.s ?? '');
+      if (sym) console.warn(`[use-binance-ticker] Zero/invalid price for ${sym} — skipping row.`);
+      return;
+    }
+    validPriceCount++;
     const baseSymbol = String(row.s ?? '').replace('USDT', '');
     const change = ((price - open) / open) * 100;
     map.set(baseSymbol, { symbol: baseSymbol, price, change });
   });
+  if (validPriceCount === 0 && rows.length > 0) {
+    console.warn('[use-binance-ticker] Flush batch contained no valid prices — possible feed issue.');
+  }
   const ordered = TARGET_SYMBOLS
     .map((symbol) => symbol.replace('USDT', ''))
     .map((base) => map.get(base))
@@ -101,10 +137,14 @@ function ensureConnected(): void {
   globalWs = ws;
 
   ws.onopen = () => {
+    lastMessageAtMs = Date.now();
     setSnapshot({ connectionState: 'connected' });
+    resetStaleTimer();
   };
 
   ws.onmessage = (event) => {
+    lastMessageAtMs = Date.now();
+    resetStaleTimer();
     let data: unknown;
     try {
       data = JSON.parse(event.data);
@@ -127,6 +167,7 @@ function ensureConnected(): void {
     const closed = globalWs;
     globalWs = null;
     if (closed) detachWebSocketHandlers(closed);
+    if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
     setSnapshot({ connectionState: 'error' });
     if (subscribers.size > 0) scheduleReconnect();
   };
@@ -146,6 +187,10 @@ function subscribeTicker(subscriber: TickerSubscriber): () => void {
     if (flushTimer) {
       clearTimeout(flushTimer);
       flushTimer = null;
+    }
+    if (staleTimer) {
+      clearTimeout(staleTimer);
+      staleTimer = null;
     }
     pendingRows = null;
     const sock = globalWs;

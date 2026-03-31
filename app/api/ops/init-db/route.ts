@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { initDB } from '@/lib/db';
 import { getAuthorizedToken } from '@/lib/cron-auth';
+import { ensureNeuroPlasticityInitialized } from '@/lib/learning/recursive-optimizer';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -27,6 +28,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   }
 
   await initDB();
-  return NextResponse.json({ ok: true, message: 'DB init completed (idempotent).' });
+  const neuro = await ensureNeuroPlasticityInitialized();
+  return NextResponse.json({
+    ok: true,
+    message: 'DB init completed (idempotent).',
+    neuroplasticity: {
+      singletonCreated: neuro.created,
+      syntheticMemoriesAdded: neuro.syntheticMemoriesAdded,
+    },
+  });
 }
 

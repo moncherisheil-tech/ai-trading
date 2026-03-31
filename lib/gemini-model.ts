@@ -3,8 +3,8 @@ type GeminiRequestOptions = {
   apiVersion: 'v1beta';
 };
 
-/** Default production Flash model for `@google/generative-ai` v1beta (2026). */
-export const GEMINI_DEFAULT_FLASH_MODEL_ID = 'gemini-3-flash-preview';
+/** Default production Flash model for `@google/generative-ai` v1beta (2026). Locked — do not change without updating Pinecone embeddings. */
+export const GEMINI_DEFAULT_FLASH_MODEL_ID = 'gemini-3-flash-preview' as const;
 
 /**
  * Legacy / retired model IDs from env or old configs → canonical production Flash.

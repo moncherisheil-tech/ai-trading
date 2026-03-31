@@ -137,8 +137,16 @@ async function setLastUpsertNow(): Promise<void> {
 /** Primary id for docs / env override. */
 export const GEMINI_EMBEDDING_MODEL_ID = 'gemini-embedding-001';
 
-/** Default vector size when Pinecone env dim unset (Matryoshka / reduced dim for gemini-embedding-001). */
-export const GEMINI_EMBEDDING_DIMENSION = 768;
+/**
+ * Canonical Pinecone / Gemini embedding dimension — HARD-LOCKED to 768.
+ * gemini-embedding-001 produces 768-dim Matryoshka vectors; any other value will
+ * cause a Pinecone dimension-mismatch error.  PINECONE_EMBEDDING_DIM env overrides
+ * are ignored (a single warning is logged).
+ */
+export const PINECONE_EMBEDDING_DIM = 768 as const;
+
+/** Alias kept for internal use — always equal to PINECONE_EMBEDDING_DIM. */
+export const GEMINI_EMBEDDING_DIMENSION = PINECONE_EMBEDDING_DIM;
 const EMBEDDING_FAILFAST_TIMEOUT_MS = 25_000;
 
 /** Warn at most once per process about a misconfigured PINECONE_EMBEDDING_DIM. */

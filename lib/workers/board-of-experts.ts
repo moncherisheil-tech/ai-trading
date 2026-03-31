@@ -3,6 +3,7 @@ import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitR
 import { XMLParser } from 'fast-xml-parser';
 import { APP_CONFIG } from '@/lib/config';
 import { getGeminiApiKey } from '@/lib/env';
+import { tripleCleanJsonString } from '@/lib/ai/parser';
 import { getMacroPulse } from '@/lib/macro-service';
 import { getMarketRiskSentiment } from '@/lib/market-sentinel';
 import { listClosedVirtualTrades } from '@/lib/db/virtual-portfolio';
@@ -42,9 +43,18 @@ export interface ExpertOutput {
 
 export interface OverseerOutput {
   finalVerdict: 'go' | 'caution' | 'no-go';
+  /** 0–100 aggregate confidence score derived from expert consensus strength. */
+  confidenceScore: number;
+  /** 2-3 sentence professional English board summary. */
   boardSummary: string;
+  /** 2-3 sentence professional Hebrew summary (for Hebrew-speaking traders). */
+  summaryHebrew: string;
   conflictResolution: string;
   actionPlan: string;
+  /** Primary risk factor the trader must monitor. */
+  keyRisk: string;
+  /** Top 2-3 bullish catalysts identified by the board. */
+  catalysts: string[];
 }
 
 export interface BoardMeetingResult {
@@ -89,15 +99,7 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v));
 }
 
-function parseJsonObject(text: string): string {
-  const trimmed = text.trim();
-  const clean = trimmed.startsWith('```')
-    ? trimmed.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?\s*```\s*$/, '').trim()
-    : trimmed;
-  const first = clean.indexOf('{');
-  const last = clean.lastIndexOf('}') + 1;
-  return first >= 0 && last > first ? clean.slice(first, last) : clean;
-}
+// parseJsonObject replaced by imported tripleCleanJsonString (lib/ai/parser.ts) for unified AI output cleaning.
 
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -429,7 +431,7 @@ CRITICAL: Return ONLY the raw JSON object above. No markdown fences (\`\`\`json)
     const rawText = result.response.text() ?? '';
     let parsed: Partial<ExpertOutput>;
     try {
-      parsed = JSON.parse(parseJsonObject(rawText)) as Partial<ExpertOutput>;
+      parsed = JSON.parse(tripleCleanJsonString(rawText)) as Partial<ExpertOutput>;
     } catch (parseErr) {
       // Log the raw text so we can see exactly what the model returned
       console.error(`[BoardExpert] ${expertName} JSON parse failed. raw=${rawText.slice(0, 300)}`, parseErr instanceof Error ? parseErr.message : parseErr);
@@ -465,24 +467,28 @@ async function runOverseer(experts: Record<string, ExpertOutput>): Promise<Overs
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
   const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID);
   const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
-  const prompt = `System instruction: You are a CEO-level overseer. Do not do raw analysis. Only synthesize experts JSON. Output only valid JSON.
-
-You are the Overseer (CEO). You must only consume the 6 expert JSON outputs below.
+  const prompt = `System instruction: You are a CEO-level trading overseer (מנכ"ל). Do not do raw analysis. Only synthesize the 6 expert JSON outputs below. Output ONLY valid JSON — no markdown, no text before or after.
 
 Experts JSON:
 ${JSON.stringify(experts, null, 2)}
 
 Instructions:
-1) Resolve conflicts explicitly (for example: technical bullish but sentiment+risk bearish).
-2) Return a decisive executive verdict.
-3) Do not invent new data.
+1) Resolve conflicts explicitly (e.g. technical bullish but sentiment+risk bearish).
+2) Return a decisive, professional executive verdict suitable for a live trading room.
+3) Compute confidenceScore (0-100) as the weighted average of expert confidence scores, penalised if experts strongly conflict.
+4) Write summaryHebrew in professional financial Hebrew (2-3 sentences) that a trader can act on immediately.
+5) Do NOT invent price levels or data not present in the expert outputs.
 
-Output JSON exactly:
+Output JSON exactly (no extra keys, no omitted keys):
 {
   "finalVerdict": "go|caution|no-go",
-  "boardSummary": "short board meeting summary",
-  "conflictResolution": "how conflicts were resolved",
-  "actionPlan": "decisive next actions"
+  "confidenceScore": 0,
+  "boardSummary": "2-3 sentence professional English summary for traders",
+  "summaryHebrew": "2-3 משפטי סיכום מקצועיים בעברית לסוחרים",
+  "conflictResolution": "how board conflicts were resolved",
+  "actionPlan": "decisive next actions with specific risk management steps",
+  "keyRisk": "primary risk the trader must monitor right now",
+  "catalysts": ["catalyst 1", "catalyst 2"]
 }`;
   try {
     const result = await withGeminiRateLimitRetry(() =>
@@ -490,28 +496,42 @@ Output JSON exactly:
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: overseerTemp,
-          maxOutputTokens: 700,
+          maxOutputTokens: 900,
         },
       })
     );
-    const parsed = JSON.parse(parseJsonObject(result.response.text() ?? '')) as Partial<OverseerOutput>;
+    const rawText = result.response.text() ?? '';
+    const parsed = JSON.parse(tripleCleanJsonString(rawText)) as Partial<OverseerOutput>;
     const finalVerdict = parsed.finalVerdict === 'go' || parsed.finalVerdict === 'caution' || parsed.finalVerdict === 'no-go'
       ? parsed.finalVerdict
       : 'caution';
+    const rawConfidence = Number(parsed.confidenceScore);
+    const confidenceScore = Number.isFinite(rawConfidence) ? Math.max(0, Math.min(100, Math.round(rawConfidence))) : 50;
+    const catalysts = Array.isArray(parsed.catalysts)
+      ? parsed.catalysts.map((c) => String(c).slice(0, 150)).slice(0, 4)
+      : [];
     return {
       finalVerdict,
-      boardSummary: String(parsed.boardSummary ?? 'Board summary unavailable.').slice(0, 320),
+      confidenceScore,
+      boardSummary: String(parsed.boardSummary ?? 'Board summary unavailable.').slice(0, 400),
+      summaryHebrew: String(parsed.summaryHebrew ?? 'סיכום לא זמין עקב תקלה טכנית.').slice(0, 400),
       conflictResolution: String(parsed.conflictResolution ?? 'Conflicts could not be resolved.').slice(0, 320),
-      actionPlan: String(parsed.actionPlan ?? 'Stay defensive until stronger confirmation.').slice(0, 320),
+      actionPlan: String(parsed.actionPlan ?? 'Stay defensive until stronger confirmation.').slice(0, 400),
+      keyRisk: String(parsed.keyRisk ?? 'Unspecified market risk.').slice(0, 220),
+      catalysts,
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('[BoardOverseer] Overseer (CEO) synthesis failed:', errMsg);
     return {
       finalVerdict: 'caution',
+      confidenceScore: 0,
       boardSummary: 'Data Unavailable: Overseer synthesis failed this cycle.',
+      summaryHebrew: 'נתונים לא זמינים: כישלון בסינתזת CEO.',
       conflictResolution: 'Data Unavailable',
       actionPlan: 'Pause autonomous decisions and retry when live data is restored.',
+      keyRisk: 'System synthesis failure — manual review required.',
+      catalysts: [],
     };
   }
 }
@@ -805,13 +825,22 @@ export function formatBoardMeetingForTelegram(
     );
   }
 
+  const confidenceLabel = board.overseer.confidenceScore >= 75
+    ? '🟢 High'
+    : board.overseer.confidenceScore >= 50
+    ? '🟡 Medium'
+    : '🔴 Low';
   lines.push(
     '',
-    '<b>Overseer Final Verdict:</b>',
-    `• Verdict: <b>${escapeHtml(board.overseer.finalVerdict.toUpperCase())}</b>`,
-    `• Board Summary: ${escapeHtml(board.overseer.boardSummary)}`,
-    `• Conflict Resolution: ${escapeHtml(board.overseer.conflictResolution)}`,
-    `• Action Plan: ${escapeHtml(board.overseer.actionPlan)}`
+    '<b>Overseer Final Verdict (CEO):</b>',
+    `• Verdict: <b>${escapeHtml(board.overseer.finalVerdict.toUpperCase())}</b> — Confidence: ${board.overseer.confidenceScore}/100 (${confidenceLabel})`,
+    `• ${escapeHtml(board.overseer.summaryHebrew)}`,
+    `• ${escapeHtml(board.overseer.boardSummary)}`,
+    `• Key Risk: ${escapeHtml(board.overseer.keyRisk)}`,
+    `• Action Plan: ${escapeHtml(board.overseer.actionPlan)}`,
+    ...(board.overseer.catalysts.length > 0
+      ? [`• Catalysts: ${board.overseer.catalysts.map((c) => escapeHtml(c)).join(' | ')}`]
+      : [])
   );
 
   return lines;

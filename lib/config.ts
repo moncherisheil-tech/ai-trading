@@ -63,6 +63,19 @@ export function getBaseUrl(): string {
  */
 export const BASE_URL = getBaseUrl();
 
+/**
+ * Internal loopback base URL for server-to-server API calls within the same process / host.
+ * Always resolves to http://127.0.0.1:{PORT} regardless of NODE_ENV, bypassing the
+ * external domain lookup that causes UND_ERR_CONNECT_TIMEOUT on production servers.
+ *
+ * Use this instead of getBaseUrl() whenever one API route calls another API route on the
+ * same Next.js server (e.g. cron → agent → trading routes).
+ */
+export function getInternalBaseUrl(): string {
+  const port = (process.env.PORT || '3000').replace(/[^0-9]/g, '') || '3000';
+  return `http://127.0.0.1:${port}`;
+}
+
 /** Secure cookies only when APP_URL is explicitly https. */
 export function shouldUseSecureCookies(): boolean {
   const baseUrl = getBaseUrl();
