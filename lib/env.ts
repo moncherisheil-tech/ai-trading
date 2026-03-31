@@ -169,7 +169,7 @@ export function validateInfraEnv(): void {
 
   // ── 4. Core secrets presence check ────────────────────────────────────────
   const requiredSecrets: Array<{ key: string; hint: string }> = [
-    { key: 'DATABASE_URL',       hint: 'Neon / local PostgreSQL connection string' },
+    { key: 'DATABASE_URL',       hint: 'Local PostgreSQL connection string (postgresql://user:pass@127.0.0.1:5432/dbname)' },
     { key: 'APP_SESSION_SECRET', hint: 'session signing key — generate with: openssl rand -hex 32' },
     { key: 'TELEGRAM_BOT_TOKEN', hint: 'BotFather token — required for alerts and trade notifications' },
   ];

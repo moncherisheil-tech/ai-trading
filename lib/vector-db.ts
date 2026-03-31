@@ -84,29 +84,42 @@ function getPineconeApiKey(): string | undefined {
   return key.trim();
 }
 
-function getPineconeIndexName(): string | undefined {
-  const index = process.env.PINECONE_INDEX_NAME;
-  if (!index || typeof index !== 'string' || index.trim() === '') return undefined;
-  return index.trim();
+/**
+ * Canonical Pinecone index name — hardcoded as the authoritative fallback so
+ * the system never sends a numeric ID or empty string to Pinecone (which
+ * returns HTTP 1002 / 404 INDEX_NOT_FOUND and crashes the embedding pipeline).
+ *
+ * Resolution order:
+ *   1. PINECONE_INDEX_NAME env var (quotes stripped, numeric values rejected).
+ *   2. Hardcoded fallback "quantum-memory".
+ */
+const PINECONE_INDEX_NAME_HARDCODED = 'quantum-memory';
+
+function getPineconeIndexName(): string {
+  const raw = process.env.PINECONE_INDEX_NAME;
+  if (!raw || typeof raw !== 'string') return PINECONE_INDEX_NAME_HARDCODED;
+  // Strip wrapping quotes left by dotenv / PM2 in some configs.
+  let v = raw.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  if (!v) return PINECONE_INDEX_NAME_HARDCODED;
+  // Reject purely numeric values — Pinecone index names cannot be numbers.
+  // A numeric ID (e.g. "1002") will always return HTTP 404 / error 1002.
+  if (/^\d+$/.test(v)) {
+    console.warn(
+      `[vector-db] PINECONE_INDEX_NAME="${v}" is numeric — overriding to "${PINECONE_INDEX_NAME_HARDCODED}".`
+    );
+    return PINECONE_INDEX_NAME_HARDCODED;
+  }
+  return v;
 }
 
 async function getPineconeIndexOrThrow() {
   const apiKey = getPineconeApiKey();
   if (!apiKey) throw new Error('Missing PINECONE_API_KEY — set this env var to enable vector memory.');
+  // getPineconeIndexName() now always returns a safe string (never numeric, never empty).
   const indexName = getPineconeIndexName();
-  if (!indexName) {
-    throw new Error(
-      'Missing PINECONE_INDEX_NAME — this env var is required when PINECONE_API_KEY is set. ' +
-      'Set it to your actual Pinecone index name (e.g., "quantum-memory"), NOT a numeric ID.'
-    );
-  }
-  if (/^\d+$/.test(indexName)) {
-    throw new Error(
-      `[FATAL] PINECONE_INDEX_NAME="${indexName}" is invalid — index names cannot be purely numeric. ` +
-      'This is a misconfiguration. Set PINECONE_INDEX_NAME to your actual Pinecone index name ' +
-      '(e.g., "quantum-memory"). A numeric value will always return HTTP 404.'
-    );
-  }
   const { Pinecone } = await import('@pinecone-database/pinecone');
   const pc = new Pinecone({ apiKey });
   return { index: pc.index(indexName), indexName };
@@ -370,10 +383,6 @@ export async function querySimilarTrades(
   const apiKey = getPineconeApiKey();
   if (!apiKey) return [];
   const indexName = getPineconeIndexName();
-  if (!indexName) {
-    console.warn('[vector-db] PINECONE_INDEX_NAME is missing — skipping similar-trades query.');
-    return [];
-  }
   try {
     const { index } = await getPineconeIndexOrThrow();
     /** Pinecone client has no hard deadline; hung queries blocked the full MoE round. */
@@ -494,7 +503,7 @@ export async function storeBoardMeetingMemory(input: BoardMeetingMemoryInput): P
 }
 
 export async function verifyPineconeConnectionStrict(): Promise<{ ok: boolean; index: string | null; error?: string }> {
-  const indexName = getPineconeIndexName() ?? null;
+  const indexName = getPineconeIndexName();
   try {
     const { index, indexName: resolvedIndexName } = await getPineconeIndexOrThrow();
     await index.describeIndexStats();
@@ -543,7 +552,7 @@ export interface VectorIntegrityResult {
  * meeting worker. It is NOT called on every query (too expensive).
  */
 export async function verifyVectorDbIntegrity(): Promise<VectorIntegrityResult> {
-  const indexName = getPineconeIndexName() ?? null;
+  const indexName = getPineconeIndexName();
 
   // Step 1: Get Pinecone namespace vector count
   let pineconeVectorCount: number | null = null;
@@ -684,7 +693,7 @@ export async function runPineconeUpsertProbe(symbol: string): Promise<{
   index: string | null;
   error?: string;
 }> {
-  const indexName = getPineconeIndexName() ?? null;
+  const indexName = getPineconeIndexName();
   try {
     const { index, indexName: resolvedIndexName } = await getPineconeIndexOrThrow();
     const probeId = `probe-${symbol}-${Date.now()}`;

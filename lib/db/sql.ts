@@ -27,12 +27,21 @@ function connectionString(): string {
   return ensureDatabaseAuthorizedForQuery();
 }
 
+function isLocalHost(url: string): boolean {
+  return /127\.0\.0\.1|localhost|::1/.test(url);
+}
+
 function getPool(): Pool {
   if (!pool) {
+    const cs = connectionString();
     pool = new Pool({
-      connectionString: connectionString(),
-      max: Number(process.env.PG_POOL_MAX || 10),
+      connectionString: cs,
+      // Disable SSL for on-prem local Postgres — no TLS cert installed by default.
+      ssl: isLocalHost(cs) ? false : undefined,
+      // Default 5 for the worker (low concurrency); override via PG_POOL_MAX.
+      max: Number(process.env.PG_POOL_MAX ?? 5),
       idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 5_000,
     });
   }
   return pool;

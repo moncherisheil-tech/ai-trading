@@ -116,6 +116,11 @@ module.exports = {
       args: 'lib/queue/queue-worker.ts',
       interpreter: 'node',
 
+      // Cap heap to 512 MB — prevents OOM kills on servers with ≤2 GB RAM.
+      // tsx + BullMQ + IORedis baseline is ~80–120 MB; analysis jobs spike
+      // another ~150–200 MB, so 512 MB gives comfortable headroom.
+      node_args: '--max-old-space-size=512',
+
       instances: 1,
       autorestart: true,
       max_restarts: 20,
@@ -138,11 +143,15 @@ module.exports = {
         QUEUE_ENABLED: 'true',
         QUEUE_CONCURRENCY: '3',
         REDIS_URL: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
+        // Worker only needs 3 raw-SQL connections (scan jobs are sequential).
+        // Keeps total Postgres connections low when App + Worker both run.
+        PG_POOL_MAX: '3',
+        PRISMA_POOL_MAX: '3',
         // Safety net: guarantee a valid index name even if .env contains a corrupt/numeric value.
         PINECONE_INDEX_NAME: (
           process.env.PINECONE_INDEX_NAME &&
           !/^\d+$/.test(process.env.PINECONE_INDEX_NAME.trim())
-            ? process.env.PINECONE_INDEX_NAME.trim()
+            ? process.env.PINECONE_INDEX_NAME.trim().replace(/^["']|["']$/g, '')
             : 'quantum-memory'
         ),
       },

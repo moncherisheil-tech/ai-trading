@@ -29,6 +29,41 @@ try {
   console.error('[Worker] [AUTO-RECOVERY] validateInfraEnv threw (non-fatal — worker continues):', msg);
 }
 
+// ── DB Graceful Boot ─────────────────────────────────────────────────────────
+// If Postgres is not reachable at startup (e.g. service ordering race on boot),
+// retry up to 5 times before proceeding. A failed DB check is logged but does
+// NOT kill the process — BullMQ can still process jobs that don't touch the DB,
+// and the retry loop inside each job handler will surface DB errors per-job.
+
+async function waitForPostgres(
+  maxAttempts = 5,
+  delayMs = 5_000
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const { queryRaw } = await import('../db/sql');
+      await queryRaw('SELECT 1');
+      console.log(`[DB-RECOVERY] Postgres reachable (attempt ${attempt}/${maxAttempts}). ✓`);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[DB-RECOVERY] Waiting for Postgres... (attempt ${attempt}/${maxAttempts}): ${msg}`
+      );
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  console.error(
+    `[DB-RECOVERY] Postgres did not respond after ${maxAttempts} attempts. ` +
+    'Worker will continue — DB-dependent jobs will fail gracefully per-job.'
+  );
+  return false;
+}
+
+waitForPostgres().catch(() => {/* non-fatal — logged inside waitForPostgres */});
+
 import { Worker, type Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { getRedisClient, closeRedisClient } from './redis-client';
