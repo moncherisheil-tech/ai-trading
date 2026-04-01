@@ -122,6 +122,8 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
     const abstractLesson =
       `[CATEGORY: MARKET_INTELLIGENCE]\n\n${assessment}\n\n[METADATA: ${metadata}]`;
 
+    console.log('[WhaleAnalysis] DEBUG: Starting DB save...');
+
     const record = await prisma.episodicMemory.create({
       data: {
         symbol,
@@ -130,11 +132,9 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
       },
     });
 
-    console.log(`[WhaleAnalysis] Persisted to EpisodicMemory — Record ID: ${record.id}`);
+    console.log(`[WhaleAnalysis] SUCCESS: Persisted to EpisodicMemory — Record ID: ${record.id}`);
   } catch (dbErr) {
-    console.error(
-      '[WhaleAnalysis] DB write failed (non-fatal):',
-      dbErr instanceof Error ? dbErr.message : dbErr
-    );
+    console.error('[WhaleAnalysis] DB write FAILED (non-fatal):');
+    console.error(dbErr);
   }
 }
