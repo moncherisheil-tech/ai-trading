@@ -9,6 +9,7 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
+import { usePathname } from 'next/navigation';
 import type { AppSettings } from '@/lib/db/app-settings';
 
 export type AppTheme = 'dark' | 'light' | 'deep-sea';
@@ -48,6 +49,8 @@ interface ThemeApplicatorProps {
  */
 export function ThemeApplicator({ children }: ThemeApplicatorProps) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const pathname = usePathname();
+  const isLoginPage = pathname === '/login';
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -62,11 +65,14 @@ export function ThemeApplicator({ children }: ThemeApplicatorProps) {
   }, []);
 
   useEffect(() => {
+    // Skip settings fetch on the login page — user has no auth cookie yet.
+    // ThemeApplicator defaults to 'dark', which is the correct login-page theme.
+    if (isLoginPage) return;
     const timer = setTimeout(() => {
       void refreshSettings();
     }, 0);
     return () => clearTimeout(timer);
-  }, [refreshSettings]);
+  }, [refreshSettings, isLoginPage]);
 
   const value = useMemo(() => {
     const mins = settings?.system?.dataRefreshIntervalMinutes ?? 5;

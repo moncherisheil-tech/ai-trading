@@ -156,13 +156,6 @@ function deny401(): NextResponse {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  console.log(
-    'Middleware check - Path:',
-    pathname,
-    'Token exists:',
-    !!request.cookies.get(AUTH_COOKIE_NAME),
-  );
-
   // HEAD probes for uptime monitors — never gate
   if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();
 

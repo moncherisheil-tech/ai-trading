@@ -32,9 +32,16 @@ function hasEnv(key: string): boolean {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
-async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error: string | null }> {
-  // Use the env value or the hardcoded on-prem fallback — same strategy as redis-client.ts.
+type RedisPingResult = {
+  ok: boolean;
+  latencyMs: number;
+  error: string | null;
+  workerHeartbeat: { alive: boolean; lastBeatAt: string | null; staleSinceMs: number | null };
+};
+
+async function pingRedis(): Promise<RedisPingResult> {
   const url = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
+  const defaultHb = { alive: false, lastBeatAt: null, staleSinceMs: null };
   try {
     const IORedis = (await import('ioredis')).default;
     const client = new IORedis(url, {
@@ -46,12 +53,26 @@ async function pingRedis(): Promise<{ ok: boolean; latencyMs: number; error: str
     });
     const start = Date.now();
     await client.connect();
-    const pong = await client.ping();
+    // Single connection — PING + heartbeat GET in one round-trip batch.
+    const [pong, hbValue] = await Promise.all([
+      client.ping(),
+      client.get('queue-worker:heartbeat'),
+    ]);
     const latencyMs = Date.now() - start;
     await client.quit().catch(() => client.disconnect());
-    return { ok: pong === 'PONG', latencyMs, error: null };
+
+    let workerHeartbeat = defaultHb;
+    if (hbValue) {
+      const lastBeatMs = new Date(hbValue).getTime();
+      workerHeartbeat = {
+        alive: true,
+        lastBeatAt: hbValue,
+        staleSinceMs: Date.now() - lastBeatMs,
+      };
+    }
+    return { ok: pong === 'PONG', latencyMs, error: null, workerHeartbeat };
   } catch (err) {
-    return { ok: false, latencyMs: 0, error: err instanceof Error ? err.message : String(err) };
+    return { ok: false, latencyMs: 0, error: err instanceof Error ? err.message : String(err), workerHeartbeat: defaultHb };
   }
 }
 
@@ -95,45 +116,10 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // ── Redis ping + worker heartbeat ─────────────────────────────────────────────────────────────
-  // pingRedis() always attempts a connection (falls back to 127.0.0.1:6379).
+  // Single TCP connection handles both the PING and the heartbeat GET key read.
   const redisPing = await pingRedis();
   const redisStatus: 'ok' | 'fail' | 'skip' = redisPing.ok ? 'ok' : 'fail';
-
-  // Read the BullMQ queue-worker heartbeat key (written every 60 s, TTL 300 s).
-  // If the key is absent the worker has been dead for >5 minutes.
-  let workerHeartbeat: { alive: boolean; lastBeatAt: string | null; staleSinceMs: number | null } = {
-    alive: false,
-    lastBeatAt: null,
-    staleSinceMs: null,
-  };
-  if (redisPing.ok) {
-    try {
-      const IORedis = (await import('ioredis')).default;
-      const redisUrl = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
-      const hbClient = new IORedis(redisUrl, {
-        maxRetriesPerRequest: 1,
-        enableReadyCheck: false,
-        connectTimeout: 3_000,
-        lazyConnect: true,
-        tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-      });
-      await hbClient.connect();
-      const hbValue = await hbClient.get('queue-worker:heartbeat');
-      await hbClient.quit().catch(() => hbClient.disconnect());
-      if (hbValue) {
-        const lastBeatMs = new Date(hbValue).getTime();
-        workerHeartbeat = {
-          alive: true,
-          lastBeatAt: hbValue,
-          staleSinceMs: Date.now() - lastBeatMs,
-        };
-      } else {
-        workerHeartbeat = { alive: false, lastBeatAt: null, staleSinceMs: null };
-      }
-    } catch {
-      // Non-fatal — leave defaults
-    }
-  }
+  const workerHeartbeat = redisPing.workerHeartbeat;
 
   // ── Pinecone ping ──────────────────────────────────────────────────────────────────────────────
   if (pinecone === 'ok') {

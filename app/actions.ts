@@ -1,5 +1,4 @@
 'use server';
-import 'dotenv/config';
 
 /** Long-running analyzeCrypto relies on page route maxDuration (e.g. app/page.tsx export const maxDuration = 60). */
 import { GoogleGenerativeAI } from '@google/generative-ai';
