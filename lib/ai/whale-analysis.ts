@@ -132,7 +132,7 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
       },
     });
 
-    console.log(`[WhaleAnalysis] SUCCESS: Persisted to EpisodicMemory — Record ID: ${record.id}`);
+    console.log(`[WhaleAnalysis] SUCCESS: Analysis saved — EpisodicMemory Record ID: ${record.id}`);
   } catch (dbErr) {
     console.error('[WhaleAnalysis] DB write FAILED (non-fatal):');
     console.error(dbErr);

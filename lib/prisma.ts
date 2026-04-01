@@ -107,12 +107,12 @@ export function getPrisma(): PrismaClient | null {
         const category = classifyDbError(err);
         const e = err as Record<string, unknown>;
         console.error(
-          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n  ${err.message}`
+          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=178.104.75.47:5432\n  ${err.message}`
         );
       });
 
       pool.on('connect', () => {
-        console.log('[prisma:pool] new physical connection established to 88.99.208.99:5432');
+        console.log('[prisma:pool] new physical connection established to 178.104.75.47:5432');
       });
 
       globalForPrisma.prismaPool = pool;
@@ -137,7 +137,7 @@ export async function withDbDiagnostics<T>(fn: () => Promise<T>): Promise<T> {
     const category = classifyDbError(err);
     const e = (err ?? {}) as Record<string, unknown>;
     console.error(
-      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n`,
+      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=178.104.75.47:5432\n`,
       err
     );
     throw err;
