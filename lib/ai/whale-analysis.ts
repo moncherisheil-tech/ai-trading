@@ -159,7 +159,7 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
       'DB_UNREACHABLE_WS1'
     );
 
-    console.log(`[WhaleAnalysis] SUCCESS: Persisted to EpisodicMemory — Record ID: ${record.id}`);
+    console.log(`[WhaleAnalysis] SUCCESS: Analysis saved — EpisodicMemory Record ID: ${record.id}`);
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
     const isTimeout = msg.startsWith('DB_UNREACHABLE_WS1');

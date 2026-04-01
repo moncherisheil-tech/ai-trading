@@ -122,12 +122,20 @@ export function getPrisma(): PrismaClient | null {
         const category = classifyDbError(err);
         const e = err as Record<string, unknown>;
         console.error(
+<<<<<<< HEAD
           `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=${dbHost}\n  ${err.message}`
+=======
+          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=178.104.75.47:5432\n  ${err.message}`
+>>>>>>> 2e05d733ad28d5af0b2da7c5569a6084ba5ae593
         );
       });
 
       pool.on('connect', () => {
+<<<<<<< HEAD
         console.log(`[prisma:pool] new physical connection established to ${dbHost}`);
+=======
+        console.log('[prisma:pool] new physical connection established to 178.104.75.47:5432');
+>>>>>>> 2e05d733ad28d5af0b2da7c5569a6084ba5ae593
       });
 
       globalForPrisma.prismaPool = pool;
@@ -153,7 +161,11 @@ export async function withDbDiagnostics<T>(fn: () => Promise<T>): Promise<T> {
     const e = (err ?? {}) as Record<string, unknown>;
     const dbHost = extractDbHost(normalizeDatabaseUrlEnv(process.env.DATABASE_URL));
     console.error(
+<<<<<<< HEAD
       `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=${dbHost}\n`,
+=======
+      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=178.104.75.47:5432\n`,
+>>>>>>> 2e05d733ad28d5af0b2da7c5569a6084ba5ae593
       err
     );
     throw err;
