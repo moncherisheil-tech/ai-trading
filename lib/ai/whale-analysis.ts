@@ -18,6 +18,26 @@ import { prisma } from '@/lib/prisma';
 
 const SEPARATOR = '━'.repeat(60);
 
+/** Maximum ms we will wait for a cross-provider DB write (Israel → 178.104.75.47). */
+const DB_WRITE_TIMEOUT_MS = 8_000;
+
+/**
+ * Races `promise` against a hard deadline.
+ * Rejects with an error whose message begins with `errorCode` so downstream
+ * log scrapers can identify the failure class without parsing free-form text.
+ */
+function withDbTimeout<T>(promise: Promise<T>, ms: number, errorCode: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`${errorCode}: DB write to 178.104.75.47 timed out after ${ms}ms`)),
+        ms
+      )
+    ),
+  ]);
+}
+
 function buildPrompt(alert: WhaleAlert): { system: string; user: string } {
   const { symbol, anomaly_type, delta_pct, timestamp } = alert;
   const direction = delta_pct > 0 ? 'spike' : 'collapse';
@@ -111,6 +131,9 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
   //   marketRegime  → type identifier  ("WHALE_ANALYSIS")
   //   symbol        → alert.symbol
   //   abstractLesson→ full AI content  (category header + assessment + metadata)
+  //
+  // The write is raced against DB_WRITE_TIMEOUT_MS so a stalled TCP connection
+  // to 178.104.75.47 never blocks the subscriber pipeline indefinitely.
   try {
     const metadata = JSON.stringify({
       delta_pct,
@@ -122,19 +145,26 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
     const abstractLesson =
       `[CATEGORY: MARKET_INTELLIGENCE]\n\n${assessment}\n\n[METADATA: ${metadata}]`;
 
-    console.log('[WhaleAnalysis] DEBUG: Starting DB save...');
+    console.log('[WhaleAnalysis] DEBUG: Starting DB save to 178.104.75.47...');
 
-    const record = await prisma.episodicMemory.create({
-      data: {
-        symbol,
-        marketRegime: 'WHALE_ANALYSIS',
-        abstractLesson,
-      },
-    });
+    const record = await withDbTimeout(
+      prisma.episodicMemory.create({
+        data: {
+          symbol,
+          marketRegime: 'WHALE_ANALYSIS',
+          abstractLesson,
+        },
+      }),
+      DB_WRITE_TIMEOUT_MS,
+      'DB_UNREACHABLE_WS1'
+    );
 
     console.log(`[WhaleAnalysis] SUCCESS: Persisted to EpisodicMemory — Record ID: ${record.id}`);
   } catch (dbErr) {
-    console.error('[WhaleAnalysis] DB write FAILED (non-fatal):');
-    console.error(dbErr);
+    const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+    const isTimeout = msg.startsWith('DB_UNREACHABLE_WS1');
+    console.error(
+      `[WhaleAnalysis] DB write FAILED (non-fatal) — ${isTimeout ? 'TIMEOUT/ROUTE_ERROR' : 'QUERY_ERROR'}: ${msg}`
+    );
   }
 }

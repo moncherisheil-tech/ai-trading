@@ -14,14 +14,24 @@ export async function register() {
     validateInfraEnv();
 
     // ── Database connectivity probe ───────────────────────────────────────────
-    // Validates that the remote Postgres at 88.99.208.99 is reachable before
-    // any request handler tries to use the pool.
+    // Validates that the configured remote Postgres is reachable before any
+    // request handler tries to use the pool. Host is read live from DATABASE_URL
+    // so the log always reflects the active server (visible on the Dashboard).
     try {
       const { getPrisma } = await import('@/lib/prisma');
+      const { normalizeDatabaseUrlEnv } = await import('@/lib/db/sovereign-db-url');
       const db = getPrisma();
       if (db) {
+        const rawUrl = normalizeDatabaseUrlEnv(process.env.DATABASE_URL ?? '');
+        let dbLabel = 'unknown-host';
+        let dbName  = 'unknown-db';
+        try {
+          const parsed = new URL(rawUrl);
+          dbLabel = `${parsed.hostname}:${parsed.port || '5432'}`;
+          dbName  = parsed.pathname.replace(/^\//, '') || 'postgres';
+        } catch { /* keep defaults */ }
         await db.$connect();
-        console.log('[Instrumentation] DB BRIDGE ACTIVE — connected to 88.99.208.99:5432/postgres');
+        console.log(`[Instrumentation] DB BRIDGE ACTIVE — connected to ${dbLabel}/${dbName}`);
       }
     } catch (dbErr) {
       console.error(

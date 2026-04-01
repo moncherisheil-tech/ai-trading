@@ -6,6 +6,16 @@ import {
   normalizeDatabaseUrlEnv,
 } from '@/lib/db/sovereign-db-url';
 
+/** Extracts `host:port` from a postgres connection string for log labels. */
+function extractDbHost(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.hostname}:${parsed.port || '5432'}`;
+  } catch {
+    return 'unknown-host';
+  }
+}
+
 // ─── GLOBAL SINGLETON ────────────────────────────────────────────────────────
 // One PrismaClient per process (Next.js + Worker). In development, the module
 // cache is evicted on every hot-reload, so we pin the instance to `globalThis`
@@ -89,6 +99,7 @@ export function getPrisma(): PrismaClient | null {
     // Reuse the pool if it was already created (e.g. hot-reload edge case).
     if (!globalForPrisma.prismaPool) {
       const poolUrl = applyProductionSsl(url);
+      const dbHost = extractDbHost(url);
       const pool = new Pool({
         connectionString: poolUrl,
         // Disable SSL for localhost or when sslmode=disable is explicit in the URL
@@ -99,6 +110,10 @@ export function getPrisma(): PrismaClient | null {
         idleTimeoutMillis: 30_000,
         // 30 s — accounts for Israel → Germany cross-border latency.
         connectionTimeoutMillis: 30_000,
+        // TCP keepalives prevent silent bridge drops during quiet market hours.
+        // First probe fires after 60 s idle; retried every 10 s up to 5 times.
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 60_000,
       });
 
       // Surface detailed diagnostics so we can tell AUTH failures from NETWORK
@@ -107,12 +122,12 @@ export function getPrisma(): PrismaClient | null {
         const category = classifyDbError(err);
         const e = err as Record<string, unknown>;
         console.error(
-          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n  ${err.message}`
+          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=${dbHost}\n  ${err.message}`
         );
       });
 
       pool.on('connect', () => {
-        console.log('[prisma:pool] new physical connection established to 88.99.208.99:5432');
+        console.log(`[prisma:pool] new physical connection established to ${dbHost}`);
       });
 
       globalForPrisma.prismaPool = pool;
@@ -136,8 +151,9 @@ export async function withDbDiagnostics<T>(fn: () => Promise<T>): Promise<T> {
   } catch (err) {
     const category = classifyDbError(err);
     const e = (err ?? {}) as Record<string, unknown>;
+    const dbHost = extractDbHost(normalizeDatabaseUrlEnv(process.env.DATABASE_URL));
     console.error(
-      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n`,
+      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=${dbHost}\n`,
       err
     );
     throw err;
