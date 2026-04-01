@@ -46,6 +46,29 @@ function applyProductionSsl(url: string): string {
 }
 
 /**
+ * Classifies a pg/Prisma connection error into a human-readable category
+ * so we can distinguish network timeouts from authentication failures at a glance.
+ */
+function classifyDbError(err: unknown): string {
+  if (!err || typeof err !== 'object') return 'UNKNOWN';
+  const e = err as Record<string, unknown>;
+  const code = String(e['code'] ?? '');
+  const msg  = String(e['message'] ?? '').toLowerCase();
+
+  if (code === '28P01' || code === '28000' || msg.includes('password') || msg.includes('authentication'))
+    return 'AUTH_FAILURE';
+  if (code === 'ECONNREFUSED')
+    return 'NETWORK_REFUSED — port 5432 not reachable (check UFW / listen_addresses)';
+  if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || msg.includes('timeout') || msg.includes('terminated'))
+    return 'NETWORK_TIMEOUT — cross-border latency or server dropped idle connection';
+  if (code === '3D000')
+    return 'BAD_DATABASE — database name does not exist on the server';
+  if (code === '53300')
+    return 'TOO_MANY_CONNECTIONS — pg max_connections exhausted';
+  return `PG_ERROR(${code})`;
+}
+
+/**
  * Prisma ORM 7 requires a driver adapter.
  *
  * We pass a `pg.Pool` (instead of a raw URL string) so we can:
@@ -66,7 +89,7 @@ export function getPrisma(): PrismaClient | null {
     // Reuse the pool if it was already created (e.g. hot-reload edge case).
     if (!globalForPrisma.prismaPool) {
       const poolUrl = applyProductionSsl(url);
-      globalForPrisma.prismaPool = new Pool({
+      const pool = new Pool({
         connectionString: poolUrl,
         // Disable SSL for localhost or when sslmode=disable is explicit in the URL
         // (covers bare-metal remote servers without a TLS certificate).
@@ -74,14 +97,51 @@ export function getPrisma(): PrismaClient | null {
         // Keep the Prisma pool small; raw sql.ts has its own separate pool.
         max: Number(process.env.PRISMA_POOL_MAX ?? 5),
         idleTimeoutMillis: 30_000,
-        connectionTimeoutMillis: 5_000,
+        // 30 s — accounts for Israel → Germany cross-border latency.
+        connectionTimeoutMillis: 30_000,
       });
+
+      // Surface detailed diagnostics so we can tell AUTH failures from NETWORK
+      // timeouts without digging through raw pg error objects.
+      pool.on('error', (err) => {
+        const category = classifyDbError(err);
+        const e = err as Record<string, unknown>;
+        console.error(
+          `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n  ${err.message}`
+        );
+      });
+
+      pool.on('connect', () => {
+        console.log('[prisma:pool] new physical connection established to 88.99.208.99:5432');
+      });
+
+      globalForPrisma.prismaPool = pool;
     }
     const adapter = new PrismaPg(globalForPrisma.prismaPool);
     globalForPrisma.prisma = new PrismaClient({ adapter });
   }
 
   return globalForPrisma.prisma;
+}
+
+/**
+ * Wraps any Prisma call and re-throws with a categorised diagnostic message.
+ * Use in API routes where you want a clean server log entry:
+ *
+ *   const result = await withDbDiagnostics(() => prisma.signal.create({ data }));
+ */
+export async function withDbDiagnostics<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    const category = classifyDbError(err);
+    const e = (err ?? {}) as Record<string, unknown>;
+    console.error(
+      `[prisma] query failed  category=${category}  code=${e['code'] ?? 'n/a'}  host=88.99.208.99:5432\n`,
+      err
+    );
+    throw err;
+  }
 }
 
 /**
