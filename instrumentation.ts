@@ -13,6 +13,23 @@ export async function register() {
     const { validateInfraEnv } = await import('@/lib/env');
     validateInfraEnv();
 
+    // ── Database connectivity probe ───────────────────────────────────────────
+    // Validates that the remote Postgres at 88.99.208.99 is reachable before
+    // any request handler tries to use the pool.
+    try {
+      const { getPrisma } = await import('@/lib/prisma');
+      const db = getPrisma();
+      if (db) {
+        await db.$connect();
+        console.log('[Instrumentation] DB BRIDGE ACTIVE — connected to 88.99.208.99:5432/postgres');
+      }
+    } catch (dbErr) {
+      console.error(
+        '[Instrumentation] DB connection FAILED:',
+        dbErr instanceof Error ? dbErr.message : dbErr
+      );
+    }
+
     // ── Whale Alert Subscriber (Phase 3: AI Brain Integration) ────────────────
     // Connects to the bare-metal Rust engine's Redis at WHALE_REDIS_URL,
     // subscribes to `quant:alerts`, and pipes every anomaly through the AI

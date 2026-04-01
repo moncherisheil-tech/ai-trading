@@ -24,6 +24,15 @@ function isLocalHost(url: string): boolean {
 }
 
 /**
+ * Returns true when the URL explicitly disables SSL via `sslmode=disable`.
+ * Used to avoid TLS negotiation against bare-metal Postgres servers (e.g.
+ * plain Ubuntu installs) that have no certificate configured.
+ */
+function isSslDisabled(url: string): boolean {
+  return /sslmode=disable/i.test(url);
+}
+
+/**
  * Appends `sslmode=verify-full` to the connection URL for remote production
  * connections, silencing pg's "no SSL" security warning.
  * No-op when already on localhost or when sslmode is already specified.
@@ -59,8 +68,9 @@ export function getPrisma(): PrismaClient | null {
       const poolUrl = applyProductionSsl(url);
       globalForPrisma.prismaPool = new Pool({
         connectionString: poolUrl,
-        // Disable SSL for localhost — Ubuntu Postgres has no TLS by default.
-        ssl: isLocalHost(url) ? false : undefined,
+        // Disable SSL for localhost or when sslmode=disable is explicit in the URL
+        // (covers bare-metal remote servers without a TLS certificate).
+        ssl: isLocalHost(url) || isSslDisabled(url) ? false : undefined,
         // Keep the Prisma pool small; raw sql.ts has its own separate pool.
         max: Number(process.env.PRISMA_POOL_MAX ?? 5),
         idleTimeoutMillis: 30_000,
