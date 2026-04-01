@@ -22,7 +22,10 @@ type AlertHandler = (alert: WhaleAlert) => Promise<void>;
 const CHANNEL = 'quant:alerts';
 
 function getWhaleRedisUrl(): string {
-  return (process.env.WHALE_REDIS_URL || 'redis://88.99.208.99:6379').trim();
+  // קורא מהסביבה או משתמש בכתובת המאובטחת כברירת מחדל
+  const rawUrl = process.env.WHALE_REDIS_URL || 'redis://default:QuantumMonCheri2026!@88.99.208.99:6379';
+  // מנקה אוטומטית מרכאות כפולות או יחידות שאולי עברו מקובץ ה-.env כדי למנוע שגיאות NOAUTH
+  return rawUrl.replace(/^["']|["']$/g, '').trim();
 }
 
 // ── Singleton guards ──────────────────────────────────────────────────────────
@@ -64,7 +67,8 @@ export class WhaleSubscriber {
     });
 
     this.client.on('connect', () =>
-      console.log(`[WhaleSubscriber] TCP connected → ${url}`)
+      // מסתיר את הסיסמה בלוגים כדי לשמור על אבטחה
+      console.log(`[WhaleSubscriber] TCP connected → redis://***@88.99.208.99:6379`)
     );
 
     this.client.on('ready', () => {

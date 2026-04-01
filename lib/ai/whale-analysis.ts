@@ -6,13 +6,15 @@
  * Intentionally bypasses the `IS_LIVE_MODE` gate — this is a dedicated
  * background analysis pipeline, not a user-facing request.
  *
- * Analysis is logged to stdout; no DB writes occur here.
+ * Every successful analysis is persisted to the `EpisodicMemory` table as
+ * a WHALE_ANALYSIS / MARKET_INTELLIGENCE record.
  */
 import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { WhaleAlert } from '@/lib/redis/whale-subscriber';
 import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import { prisma } from '@/lib/prisma';
 
 const SEPARATOR = '━'.repeat(60);
 
@@ -103,4 +105,36 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
   console.log(`[WhaleAnalysis] RESULT :`);
   console.log(`  ${assessment}`);
   console.log(`[WhaleAnalysis] ${SEPARATOR}\n`);
+
+  // ── Persist to Episodic Memory ────────────────────────────────────────────
+  // Schema fields used:
+  //   marketRegime  → type identifier  ("WHALE_ANALYSIS")
+  //   symbol        → alert.symbol
+  //   abstractLesson→ full AI content  (category header + assessment + metadata)
+  try {
+    const metadata = JSON.stringify({
+      delta_pct,
+      anomaly_type,
+      timestamp,
+      source: 'Binance_L2_Rust',
+    });
+
+    const abstractLesson =
+      `[CATEGORY: MARKET_INTELLIGENCE]\n\n${assessment}\n\n[METADATA: ${metadata}]`;
+
+    const record = await prisma.episodicMemory.create({
+      data: {
+        symbol,
+        marketRegime: 'WHALE_ANALYSIS',
+        abstractLesson,
+      },
+    });
+
+    console.log(`[WhaleAnalysis] Persisted to EpisodicMemory — Record ID: ${record.id}`);
+  } catch (dbErr) {
+    console.error(
+      '[WhaleAnalysis] DB write failed (non-fatal):',
+      dbErr instanceof Error ? dbErr.message : dbErr
+    );
+  }
 }
