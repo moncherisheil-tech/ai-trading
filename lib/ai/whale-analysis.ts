@@ -1,0 +1,106 @@
+/**
+ * Whale Alert AI Orchestrator
+ *
+ * Receives a parsed WhaleAlert from the Redis subscriber and fires an LLM
+ * evaluation via Groq (low-latency Llama 3) with Gemini as the fallback.
+ * Intentionally bypasses the `IS_LIVE_MODE` gate — this is a dedicated
+ * background analysis pipeline, not a user-facing request.
+ *
+ * Analysis is logged to stdout; no DB writes occur here.
+ */
+import Groq from 'groq-sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import type { WhaleAlert } from '@/lib/redis/whale-subscriber';
+import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
+import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+
+const SEPARATOR = '━'.repeat(60);
+
+function buildPrompt(alert: WhaleAlert): { system: string; user: string } {
+  const { symbol, anomaly_type, delta_pct, timestamp } = alert;
+  const direction = delta_pct > 0 ? 'spike' : 'collapse';
+  const magnitude = Math.abs(delta_pct).toFixed(2);
+
+  const user =
+    `A sudden liquidity ${direction} of ${magnitude}% occurred on ${symbol} at ${timestamp}. ` +
+    `Anomaly classification from the ingestion engine: "${anomaly_type}". ` +
+    `Based on institutional order flow mechanics, evaluate if this is likely spoofing, ` +
+    `legitimate accumulation, or aggressive distribution. ` +
+    `Provide a concise 2–3 sentence institutional-grade assessment and a confidence level (low / medium / high).`;
+
+  const system =
+    'You are a quantitative analyst specializing in market microstructure and institutional order flow. ' +
+    'Respond in precise, concise English. Output only the assessment — no preamble, no markdown.';
+
+  return { system, user };
+}
+
+async function callGroq(system: string, user: string): Promise<string> {
+  const apiKey = getGroqApiKey();
+  if (!apiKey) throw new Error('GROQ_API_KEY not available');
+
+  const client = new Groq({ apiKey });
+  const completion = await client.chat.completions.create({
+    model: process.env.GROQ_MODEL || 'llama-3.1-8b-instant',
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user',   content: user },
+    ],
+    temperature: 0.25,
+    max_tokens: 280,
+  });
+  return (completion.choices?.[0]?.message?.content || '').trim();
+}
+
+async function callGemini(system: string, user: string): Promise<string> {
+  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+  const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.0-flash-exp');
+  const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
+
+  const response = await withGeminiRateLimitRetry(() =>
+    model.generateContent({
+      contents: [{ role: 'user', parts: [{ text: `${system}\n\n${user}` }] }],
+      generationConfig: { temperature: 0.25, maxOutputTokens: 280 },
+    })
+  );
+  return (response.response.text() || '').trim();
+}
+
+export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
+  const { symbol, anomaly_type, delta_pct, timestamp } = alert;
+
+  console.log(`\n[WhaleAnalysis] ${SEPARATOR}`);
+  console.log(`[WhaleAnalysis] ALERT  : ${anomaly_type.toUpperCase()} on ${symbol}`);
+  console.log(`[WhaleAnalysis] DELTA  : ${delta_pct > 0 ? '+' : ''}${delta_pct.toFixed(2)}%`);
+  console.log(`[WhaleAnalysis] TIME   : ${timestamp}`);
+  console.log(`[WhaleAnalysis] STATUS : Dispatching to AI...`);
+
+  const { system, user } = buildPrompt(alert);
+
+  let assessment: string | null = null;
+  let provider = 'groq';
+
+  try {
+    assessment = await callGroq(system, user);
+  } catch (groqErr) {
+    console.warn(
+      `[WhaleAnalysis] Groq unavailable (${groqErr instanceof Error ? groqErr.message : groqErr}), ` +
+      'falling back to Gemini...'
+    );
+    provider = 'gemini';
+    try {
+      assessment = await callGemini(system, user);
+    } catch (geminiErr) {
+      console.error(
+        '[WhaleAnalysis] All AI providers failed:',
+        geminiErr instanceof Error ? geminiErr.message : geminiErr
+      );
+      return;
+    }
+  }
+
+  console.log(`[WhaleAnalysis] PROVIDER: ${provider.toUpperCase()}`);
+  console.log(`[WhaleAnalysis] RESULT :`);
+  console.log(`  ${assessment}`);
+  console.log(`[WhaleAnalysis] ${SEPARATOR}\n`);
+}
