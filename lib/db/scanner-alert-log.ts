@@ -3,6 +3,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface ScannerAlertLogRow {
@@ -29,6 +30,8 @@ function usePostgres(): boolean {
 
 async function ensureTable(): Promise<boolean> {
   if (!usePostgres()) return false;
+  // Short-circuit: Orchestrator already booted all tables sequentially.
+  if (areTablesReady()) return true;
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS scanner_alert_log (

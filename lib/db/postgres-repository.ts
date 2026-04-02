@@ -1,9 +1,12 @@
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import type { PredictionRecord } from '@/lib/db';
 import type { PredictionRepository } from '@/lib/db/repository';
 
 export class PostgresPredictionRepository implements PredictionRepository {
   private async ensureTable(): Promise<boolean> {
+    // Short-circuit: Orchestrator already booted all tables sequentially.
+    if (areTablesReady()) return true;
     try {
       await sql`
         CREATE TABLE IF NOT EXISTS prediction_records (

@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 const ROW_ID = 1;
@@ -15,6 +16,8 @@ function usePostgres(): boolean {
 /** Exported for ops-metadata and any module that needs the singleton row + columns. */
 export async function ensureSystemSettingsTable(): Promise<boolean> {
   if (!usePostgres()) return false;
+  // Short-circuit: Orchestrator already booted all tables sequentially.
+  if (areTablesReady()) return true;
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS system_settings (

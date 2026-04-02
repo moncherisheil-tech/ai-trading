@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface SimulationTradeRow {
@@ -22,6 +23,8 @@ export interface SimulationTradeRow {
 /** Ensures simulation_trades table exists in Postgres. Safe to call on every request. */
 async function ensureTable(): Promise<boolean> {
   if (!APP_CONFIG.postgresUrl?.trim()) return false;
+  // Short-circuit: Orchestrator already booted all tables sequentially.
+  if (areTablesReady()) return true;
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS simulation_trades (

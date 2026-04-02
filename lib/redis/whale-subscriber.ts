@@ -1,13 +1,23 @@
 /**
- * Whale Alert Redis Subscriber
+ * Whale Alert Redis Subscriber  —  CHOKE POINT
  *
- * Maintains a dedicated IORedis subscriber client connected to the bare-metal
- * Rust ingestion engine's Redis instance (WHALE_REDIS_URL). Listens on the
- * `quant:alerts` channel and dispatches parsed payloads to registered handlers.
+ * THIS MODULE DOES ZERO PROCESSING.
  *
- * Singleton pattern via `globalThis` ensures exactly one connection survives
- * Next.js hot-reload cycles in development.
+ * Its only responsibility: receive a raw payload from the Rust ingestion
+ * engine (WS2 via WHALE_REDIS_URL) and immediately enqueue it into the
+ * quantum-core-queue.  All analysis, validation, and AI calls happen
+ * exclusively inside the Orchestrator (lib/core/orchestrator.ts).
+ *
+ * ┌─────────────────────────────────────────────────────┐
+ * │  WHALE_REDIS_URL  →  WhaleSubscriber._dispatch()    │
+ * │      → quantum-core-queue.add('process-whale', …)   │
+ * │          → Orchestrator.orchestrateWhaleSignal()    │
+ * └─────────────────────────────────────────────────────┘
+ *
+ * Singleton pattern via `globalThis` survives Next.js hot-reload.
+ * Exponential back-off, gives up after 50 attempts (~8 min cumulative).
  */
+
 import IORedis from 'ioredis';
 
 export interface WhaleAlert {
@@ -17,20 +27,16 @@ export interface WhaleAlert {
   timestamp: string;
 }
 
-type AlertHandler = (alert: WhaleAlert) => Promise<void>;
-
 const CHANNEL = 'quant:alerts';
 
 function getWhaleRedisUrl(): string {
-  // קורא מהסביבה או משתמש בכתובת המאובטחת כברירת מחדל
-  const rawUrl = process.env.WHALE_REDIS_URL || 'redis://default:QuantumMonCheri2026!@88.99.208.99:6379';
-  // מנקה אוטומטית מרכאות כפולות או יחידות שאולי עברו מקובץ ה-.env כדי למנוע שגיאות NOAUTH
+  const rawUrl =
+    process.env.WHALE_REDIS_URL ||
+    'redis://default:QuantumMonCheri2026!@88.99.208.99:6379';
   return rawUrl.replace(/^["']|["']$/g, '').trim();
 }
 
 // ── Singleton guards ──────────────────────────────────────────────────────────
-// `globalThis` outlives module hot-reload in Next.js dev mode, preventing
-// duplicate TCP connections to the remote Redis host on every file save.
 const g = globalThis as typeof globalThis & {
   __whaleSubscriberInstance?: WhaleSubscriber;
   __whaleSubscriberWired?: boolean;
@@ -38,20 +44,14 @@ const g = globalThis as typeof globalThis & {
 
 export class WhaleSubscriber {
   private client: IORedis;
-  private handlers: AlertHandler[] = [];
 
   constructor() {
     const url = getWhaleRedisUrl();
 
     this.client = new IORedis(url, {
-      // Subscriber clients must never time out individual commands.
       maxRetriesPerRequest: null,
-      // Don't block process startup — reconnect logic handles the READY state.
       enableReadyCheck: false,
       connectTimeout: 10_000,
-      // Exponential back-off, capped at 10 s. Give up after 50 attempts
-      // (~8 min cumulative) so a permanently-down host doesn't silently
-      // burn CPU. The Next.js process stays alive; only this subscriber stops.
       retryStrategy(times) {
         if (times > 50) {
           console.error(
@@ -67,8 +67,7 @@ export class WhaleSubscriber {
     });
 
     this.client.on('connect', () =>
-      // מסתיר את הסיסמה בלוגים כדי לשמור על אבטחה
-      console.log(`[WhaleSubscriber] TCP connected → redis://***@88.99.208.99:6379`)
+      console.log('[WhaleSubscriber] TCP connected → redis://***@88.99.208.99:6379')
     );
 
     this.client.on('ready', () => {
@@ -96,41 +95,54 @@ export class WhaleSubscriber {
 
     this.client.on('message', (channel, raw) => {
       if (channel !== CHANNEL) return;
-      this._dispatch(raw);
+      void this._dispatch(raw);
     });
   }
 
-  /** Register a handler that will be called for every validated alert. */
-  addHandler(handler: AlertHandler): void {
-    this.handlers.push(handler);
-  }
-
-  /** Graceful shutdown — call on SIGTERM / process exit. */
+  /** Graceful shutdown. */
   async disconnect(): Promise<void> {
     await this.client.quit().catch(() => this.client.disconnect());
   }
 
+  /**
+   * CHOKE POINT — the only thing that happens here is enqueueing.
+   * No analysis. No AI calls. No DB writes. Just queue.add().
+   */
   private async _dispatch(raw: string): Promise<void> {
     let alert: WhaleAlert;
+
     try {
       alert = JSON.parse(raw) as WhaleAlert;
     } catch {
-      console.error('[WhaleSubscriber] Malformed JSON on quant:alerts channel:', raw);
+      console.error('[WhaleSubscriber] Malformed JSON on quant:alerts — dropped:', raw);
       return;
     }
 
-    // Basic shape guard
+    // Minimal shape guard (full Zod validation happens inside the Orchestrator)
     if (!alert.symbol || alert.delta_pct === undefined) {
-      console.warn('[WhaleSubscriber] Alert payload missing required fields:', alert);
+      console.warn('[WhaleSubscriber] Alert missing required fields — dropped:', alert);
       return;
     }
 
-    for (const handler of this.handlers) {
-      try {
-        await handler(alert);
-      } catch (err) {
-        console.error('[WhaleSubscriber] Handler threw:', err instanceof Error ? err.message : err);
-      }
+    // ── THE ONLY ACTION: enqueue into quantum-core-queue ──────────────────
+    try {
+      const { getQuantumCoreQueue } = await import('@/lib/queue/bullmq-setup');
+      const queue = getQuantumCoreQueue();
+      const jobId = `whale:${alert.symbol}:${alert.timestamp}`;
+
+      await queue.add('process-whale', alert, {
+        jobId,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2_000 },
+      });
+
+      console.log(
+        `[WhaleSubscriber] ✓ Signal enqueued → quantum-core-queue: ` +
+        `${alert.symbol} | ${alert.anomaly_type} | Δ${alert.delta_pct}%`
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[WhaleSubscriber] Failed to enqueue signal — signal lost:', msg);
     }
   }
 }
@@ -144,16 +156,15 @@ export function getWhaleSubscriber(): WhaleSubscriber {
 }
 
 /**
- * Wire the subscriber to the given alert handler — idempotent.
- * Subsequent calls (e.g. from hot-reload) are no-ops because the
- * `__whaleSubscriberWired` flag persists on `globalThis`.
+ * Wire the subscriber — idempotent.
+ * Subsequent calls (e.g. from hot-reload) are no-ops because
+ * `__whaleSubscriberWired` persists on `globalThis`.
  */
-export function initWhaleSubscriber(handler: AlertHandler): WhaleSubscriber {
+export function initWhaleSubscriber(): WhaleSubscriber {
   const subscriber = getWhaleSubscriber();
   if (!g.__whaleSubscriberWired) {
-    subscriber.addHandler(handler);
     g.__whaleSubscriberWired = true;
-    console.log('[WhaleSubscriber] Alert handler registered.');
+    console.log('[WhaleSubscriber] Subscriber wired → quantum-core-queue (choke-point active).');
   }
   return subscriber;
 }

@@ -20,13 +20,23 @@ import 'dotenv/config';
 import { validateInfraEnv } from '../env';
 
 // Run pre-flight validation but never let it kill the worker process.
-// validateInfraEnv() now auto-corrects numeric PINECONE_INDEX_NAME values;
-// the try-catch here is a final defence layer against any residual throws.
 try {
   validateInfraEnv();
 } catch (err) {
   const msg = err instanceof Error ? err.message : String(err);
   console.error('[Worker] [AUTO-RECOVERY] validateInfraEnv threw (non-fatal — worker continues):', msg);
+}
+
+// ── Quantum Core Worker Boot ─────────────────────────────────────────────────
+// Start the quantum-core-queue worker immediately so whale signals are
+// processed as soon as the process is alive.
+import { startQuantumWorker } from './bullmq-setup';
+try {
+  startQuantumWorker();
+  console.log('[Worker] Quantum Core Worker started (quantum-core-queue, concurrency=1).');
+} catch (err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error('[Worker] Failed to start Quantum Core Worker (non-fatal):', msg);
 }
 
 // ── DB Graceful Boot ─────────────────────────────────────────────────────────
@@ -374,6 +384,16 @@ worker.on('error', (err) => {
 //   BullMQ job with up to 5 retries before giving up (non-fatal).
 
 async function runInitSequence(): Promise<void> {
+  // Phase 0 — Single DB Boot via Orchestrator (eliminates all scattered ensureTable calls)
+  try {
+    const { ensureAllTablesExist } = await import('../core/orchestrator');
+    await ensureAllTablesExist();
+    console.log('[Worker] Orchestrator DB boot complete — all tables verified.');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[Worker] Orchestrator DB boot failed (non-fatal — per-job fallback active):', msg);
+  }
+
   // Phase 1 — Redis connectivity gate
   const redisReady = await waitForRedisReady(
     10,       // up to 10 PING attempts
@@ -545,6 +565,12 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`[Worker] ${signal} received — shutting down gracefully.`);
   stopHeartbeat();
   await worker.close();
+  // Close Quantum Core Worker
+  try {
+    const { closeQuantumWorker, closeQuantumQueue } = await import('./bullmq-setup');
+    await closeQuantumWorker();
+    await closeQuantumQueue();
+  } catch { /* non-fatal */ }
   // Close QueueEvents BEFORE the shared IORedis client so the event loop
   // drains cleanly. Without this, the open QueueEvents connection keeps the
   // process alive and PM2 must force-kill it after the kill timeout.

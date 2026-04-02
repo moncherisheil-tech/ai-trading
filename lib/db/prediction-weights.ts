@@ -4,6 +4,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export const DEFAULT_WEIGHTS = { volume: 0.4, rsi: 0.3, sentiment: 0.3 };
@@ -37,6 +38,8 @@ function usePostgres(): boolean {
 
 async function ensureTables(): Promise<boolean> {
   if (!usePostgres()) return false;
+  // Short-circuit: Orchestrator already booted all tables sequentially.
+  if (areTablesReady()) return true;
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS prediction_weights (

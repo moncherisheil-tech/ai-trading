@@ -5,6 +5,7 @@
  */
 
 import { sql } from '@/lib/db/sql';
+import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import type { ScalpRiskTier } from '@/lib/trading/scalp-tiers';
@@ -92,6 +93,8 @@ async function ensureExecStateColumn(): Promise<void> {
 
 async function ensureTable(): Promise<boolean> {
   if (!usePostgres()) return false;
+  // Short-circuit: Orchestrator already booted all tables sequentially.
+  if (areTablesReady()) return true;
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS virtual_portfolio (
