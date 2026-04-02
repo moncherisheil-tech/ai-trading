@@ -5,7 +5,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface SimulationTradeRow {
@@ -20,34 +19,6 @@ export interface SimulationTradeRow {
   date_label: string;
 }
 
-/** Ensures simulation_trades table exists in Postgres. Safe to call on every request. */
-async function ensureTable(): Promise<boolean> {
-  if (!APP_CONFIG.postgresUrl?.trim()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS simulation_trades (
-        id TEXT PRIMARY KEY,
-        symbol TEXT NOT NULL,
-        side TEXT NOT NULL CHECK (side IN ('buy', 'sell')),
-        price DOUBLE PRECISION NOT NULL,
-        amount_usd DOUBLE PRECISION NOT NULL,
-        amount_asset DOUBLE PRECISION NOT NULL,
-        fee_usd DOUBLE PRECISION NOT NULL,
-        timestamp BIGINT NOT NULL,
-        date_label TEXT NOT NULL
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_simulation_trades_timestamp ON simulation_trades(timestamp)`;
-    return true;
-  } catch (err) {
-    console.error('simulation_trades ensureTable failed:', err);
-    return false;
-  }
-}
-
-/** Returns true if Postgres is configured and should be used for simulation trades. */
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
@@ -55,8 +26,6 @@ function usePostgres(): boolean {
 export async function insertSimulationTrade(row: SimulationTradeRow): Promise<void> {
   if (!usePostgres()) return;
   try {
-    const ok = await ensureTable();
-    if (!ok) return;
     await sql`
       INSERT INTO simulation_trades (id, symbol, side, price, amount_usd, amount_asset, fee_usd, timestamp, date_label)
       VALUES (${row.id}, ${row.symbol}, ${row.side}, ${row.price}, ${row.amount_usd}, ${row.amount_asset}, ${row.fee_usd}, ${row.timestamp}, ${row.date_label})
@@ -80,8 +49,6 @@ export async function insertSimulationTrade(row: SimulationTradeRow): Promise<vo
 export async function listSimulationTrades(): Promise<SimulationTradeRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, side, price, amount_usd, amount_asset, fee_usd, timestamp, date_label
       FROM simulation_trades
@@ -107,8 +74,6 @@ export async function listSimulationTrades(): Promise<SimulationTradeRow[]> {
 export async function resetSimulationTrades(): Promise<void> {
   if (!usePostgres()) return;
   try {
-    const ok = await ensureTable();
-    if (!ok) return;
     await sql`DELETE FROM simulation_trades`;
   } catch (err) {
     console.error('resetSimulationTrades failed:', err);

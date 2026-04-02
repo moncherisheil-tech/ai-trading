@@ -3,7 +3,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface HistoricalPredictionRow {
@@ -32,43 +31,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS historical_predictions (
-        id SERIAL PRIMARY KEY,
-        prediction_id VARCHAR(255) NOT NULL,
-        symbol VARCHAR(32) NOT NULL,
-        prediction_date VARCHAR(32) NOT NULL,
-        predicted_direction VARCHAR(16) NOT NULL,
-        entry_price NUMERIC(24,8) NOT NULL,
-        actual_price NUMERIC(24,8) NOT NULL,
-        price_diff_pct NUMERIC(12,6) NOT NULL,
-        absolute_error_pct NUMERIC(12,6) NOT NULL,
-        target_percentage NUMERIC(12,6),
-        probability NUMERIC(8,4),
-        outcome_label VARCHAR(64) NOT NULL,
-        requires_deep_analysis BOOLEAN NOT NULL,
-        evaluated_at TIMESTAMPTZ NOT NULL,
-        sentiment_score NUMERIC(10,4),
-        market_narrative TEXT,
-        bottom_line_he TEXT,
-        risk_level_he TEXT,
-        forecast_24h_he TEXT
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_historical_predictions_symbol ON historical_predictions(symbol)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_historical_predictions_evaluated_at ON historical_predictions(evaluated_at)`;
-    return true;
-  } catch (err) {
-    console.error('historical_predictions ensureTable failed:', err);
-    return false;
-  }
-}
-
 export interface AppendHistoricalInput {
   prediction_id: string;
   symbol: string;
@@ -93,8 +55,6 @@ export interface AppendHistoricalInput {
 export async function appendHistoricalPrediction(row: AppendHistoricalInput): Promise<void> {
   if (!usePostgres()) return;
   try {
-    const ok = await ensureTable();
-    if (!ok) return;
     await sql`
       INSERT INTO historical_predictions (prediction_id, symbol, prediction_date, predicted_direction, entry_price, actual_price, price_diff_pct, absolute_error_pct, target_percentage, probability, outcome_label, requires_deep_analysis, evaluated_at, sentiment_score, market_narrative, bottom_line_he, risk_level_he, forecast_24h_he)
       VALUES (${row.prediction_id}, ${row.symbol}, ${row.prediction_date}, ${row.predicted_direction}, ${row.entry_price}, ${row.actual_price}, ${row.price_diff_pct}, ${row.absolute_error_pct}, ${row.target_percentage ?? null}, ${row.probability ?? null}, ${row.outcome_label}, ${row.requires_deep_analysis}, ${row.evaluated_at}, ${row.sentiment_score ?? null}, ${row.market_narrative ?? null}, ${row.bottom_line_he ?? null}, ${row.risk_level_he ?? null}, ${row.forecast_24h_he ?? null})
@@ -111,8 +71,6 @@ export async function getAccuracyByConfidenceBucket(limit = 100): Promise<
 > {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT probability::float, outcome_label FROM historical_predictions WHERE probability IS NOT NULL ORDER BY evaluated_at DESC LIMIT ${limit}
     `;
@@ -145,8 +103,6 @@ export async function getAccuracyByConfidenceBucket(limit = 100): Promise<
 export async function listHistoricalPredictions(limit = 100): Promise<HistoricalPredictionRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, prediction_id, symbol, prediction_date, predicted_direction, entry_price::float, actual_price::float, price_diff_pct::float, absolute_error_pct::float, target_percentage::float, probability::float, outcome_label, requires_deep_analysis, evaluated_at::text, sentiment_score::float, market_narrative, bottom_line_he, risk_level_he, forecast_24h_he
       FROM historical_predictions ORDER BY evaluated_at DESC LIMIT ${limit}
@@ -161,8 +117,6 @@ export async function listHistoricalPredictions(limit = 100): Promise<Historical
 export async function getHistoricalBySymbol(symbol: string, limit = 50): Promise<HistoricalPredictionRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, prediction_id, symbol, prediction_date, predicted_direction, entry_price::float, actual_price::float, price_diff_pct::float, absolute_error_pct::float, target_percentage::float, probability::float, outcome_label, requires_deep_analysis, evaluated_at::text, sentiment_score::float, market_narrative, bottom_line_he, risk_level_he, forecast_24h_he
       FROM historical_predictions WHERE symbol = ${symbol} ORDER BY evaluated_at DESC LIMIT ${limit}
@@ -177,8 +131,6 @@ export async function getHistoricalBySymbol(symbol: string, limit = 50): Promise
 export async function getLatestPredictionIdBySymbol(symbol: string): Promise<string | null> {
   if (!usePostgres()) return null;
   try {
-    const ok = await ensureTable();
-    if (!ok) return null;
     const { rows } = await sql`
       SELECT prediction_id FROM historical_predictions WHERE symbol = ${symbol} ORDER BY evaluated_at DESC LIMIT 1
     `;

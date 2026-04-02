@@ -5,7 +5,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface PortfolioHistoryRow {
@@ -19,35 +18,12 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS portfolio_history (
-        id SERIAL PRIMARY KEY,
-        snapshot_date DATE NOT NULL UNIQUE,
-        equity_value NUMERIC(24,8) NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_portfolio_history_snapshot_date ON portfolio_history(snapshot_date DESC)`;
-    return true;
-  } catch (err) {
-    console.error('portfolio_history ensureTable failed:', err);
-    return false;
-  }
-}
-
 /**
  * Insert or upsert daily equity snapshot. Call from CRON once per day.
  */
 export async function insertPortfolioHistorySnapshot(equityValue: number): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const today = new Date().toISOString().slice(0, 10);
     await sql`
       INSERT INTO portfolio_history (snapshot_date, equity_value)
@@ -69,8 +45,6 @@ export async function insertPortfolioHistorySnapshot(equityValue: number): Promi
 export async function listPortfolioHistoryInRange(fromDate: string, toDate: string): Promise<PortfolioHistoryRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, snapshot_date::text, equity_value::float, created_at::text
       FROM portfolio_history

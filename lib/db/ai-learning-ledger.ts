@@ -4,7 +4,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface AiLearningLedgerRow {
@@ -21,34 +20,6 @@ export interface AiLearningLedgerRow {
 
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
-}
-
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS ai_learning_ledger (
-        id SERIAL PRIMARY KEY,
-        prediction_id VARCHAR(255) NOT NULL UNIQUE,
-        timestamp TIMESTAMPTZ NOT NULL,
-        symbol VARCHAR(32) NOT NULL,
-        predicted_price DECIMAL(24,8) NOT NULL,
-        actual_price DECIMAL(24,8) NOT NULL,
-        error_margin_pct DECIMAL(12,6) NOT NULL,
-        ai_conclusion TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_ai_learning_ledger_timestamp ON ai_learning_ledger(timestamp)`;
-    await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_learning_ledger_prediction_id ON ai_learning_ledger(prediction_id)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_ai_learning_ledger_symbol ON ai_learning_ledger(symbol)`;
-    return true;
-  } catch (err) {
-    console.error('ai_learning_ledger ensureTable failed:', err);
-    return false;
-  }
 }
 
 export interface InsertLearningLedgerInput {
@@ -68,8 +39,6 @@ export interface InsertLearningLedgerInput {
 export async function insertLearningLedgerRow(row: InsertLearningLedgerInput): Promise<boolean> {
   if (!usePostgres()) return false;
   try {
-    const ok = await ensureTable();
-    if (!ok) return false;
     const created = new Date().toISOString();
     const result = await sql`
       INSERT INTO ai_learning_ledger (prediction_id, timestamp, symbol, predicted_price, actual_price, error_margin_pct, ai_conclusion, created_at)
@@ -120,8 +89,6 @@ export async function syncHistoricalToLedger(
 export async function getLedgerBySymbol(symbol: string, limit = 100): Promise<AiLearningLedgerRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, prediction_id, timestamp::text, symbol, predicted_price::float, actual_price::float, error_margin_pct::float, ai_conclusion, created_at::text
       FROM ai_learning_ledger WHERE symbol = ${symbol} ORDER BY timestamp DESC LIMIT ${limit}
@@ -137,8 +104,6 @@ export async function getLedgerBySymbol(symbol: string, limit = 100): Promise<Ai
 export async function getRecentLedger(limit = 200): Promise<AiLearningLedgerRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, prediction_id, timestamp::text, symbol, predicted_price::float, actual_price::float, error_margin_pct::float, ai_conclusion, created_at::text
       FROM ai_learning_ledger ORDER BY timestamp DESC LIMIT ${limit}

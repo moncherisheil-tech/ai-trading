@@ -1,11 +1,9 @@
 /**
  * Adaptive Reporting & Learning Monitor (v1.4).
  * daily_accuracy_stats: daily win rate, prediction accuracy vs actual PnL, learning delta.
- * Compares agent_insights (outcome/insight) with virtual_portfolio (pnl_pct) to measure intelligence growth.
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 import { toDecimal, round2 } from '@/lib/decimal';
 import { listAgentInsightsInRange } from '@/lib/db/agent-insights';
@@ -23,29 +21,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS daily_accuracy_stats (
-        stat_date DATE PRIMARY KEY,
-        win_rate NUMERIC(10,4) NOT NULL DEFAULT 0,
-        prediction_accuracy_score NUMERIC(10,4) NOT NULL DEFAULT 0,
-        learning_delta NUMERIC(10,4) NOT NULL DEFAULT 0,
-        false_positives_avoided INTEGER NOT NULL DEFAULT 0,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_daily_accuracy_stats_stat_date ON daily_accuracy_stats(stat_date DESC)`;
-    return true;
-  } catch (err) {
-    console.error('daily_accuracy_stats ensureTable failed:', err);
-    return false;
-  }
-}
-
 /** Infer from insight/outcome text whether the agent considered the trade a success or failure. */
 function insightIndicatesSuccess(insight: string | null, outcome: string | null): boolean {
   const text = `${insight ?? ''} ${outcome ?? ''}`;
@@ -54,13 +29,6 @@ function insightIndicatesSuccess(insight: string | null, outcome: string | null)
   return true;
 }
 
-/**
- * Calculate daily accuracy: match agent_insights (by trade_id) to virtual_portfolio closed that day.
- * Win rate = % of closed trades with pnl_pct > 0.
- * Prediction accuracy = % where agent's outcome/insight agrees with actual pnl (success vs success, failure vs failure).
- * Learning delta = today's prediction_accuracy_score minus yesterday's (improvement).
- * false_positives_avoided: reserved for Neural Fortress filter count (e.g. signals skipped due to low confidence); 0 when not tracked.
- */
 export async function calculateDailyAccuracyDelta(
   forDate?: string
 ): Promise<{ stats: DailyAccuracyStatsRow; recorded: boolean }> {
@@ -79,9 +47,6 @@ export async function calculateDailyAccuracyDelta(
   if (!usePostgres()) return { stats: defaultStats, recorded: false };
 
   try {
-    const ok = await ensureTable();
-    if (!ok) return { stats: defaultStats, recorded: false };
-
     const [insightsInRange, closedInRange] = await Promise.all([
       listAgentInsightsInRange(dayStart, dayEnd),
       listClosedVirtualTradesInRange(dayStart, dayEnd),
@@ -120,14 +85,12 @@ export async function calculateDailyAccuracyDelta(
       learningDelta = round2(toDecimal(predictionAccuracyScore).minus(yesterdayRow.prediction_accuracy_score));
     }
 
-    const falsePositivesAvoided = 0;
-
     const stats: DailyAccuracyStatsRow = {
       stat_date: dateStr,
       win_rate: round2(winRate),
       prediction_accuracy_score: round2(predictionAccuracyScore),
       learning_delta: round2(learningDelta),
-      false_positives_avoided: falsePositivesAvoided,
+      false_positives_avoided: 0,
     };
 
     await sql`
@@ -150,8 +113,6 @@ export async function calculateDailyAccuracyDelta(
 export async function getDailyAccuracyStatsByDate(statDate: string): Promise<DailyAccuracyStatsRow | null> {
   if (!usePostgres()) return null;
   try {
-    const ok = await ensureTable();
-    if (!ok) return null;
     const { rows } = await sql`
       SELECT stat_date::text, win_rate::float, prediction_accuracy_score::float, learning_delta::float, false_positives_avoided::int
       FROM daily_accuracy_stats WHERE stat_date = ${statDate}
@@ -177,8 +138,6 @@ export async function getDailyAccuracyStatsInRange(
 ): Promise<DailyAccuracyStatsRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT stat_date::text, win_rate::float, prediction_accuracy_score::float, learning_delta::float, false_positives_avoided::int
       FROM daily_accuracy_stats

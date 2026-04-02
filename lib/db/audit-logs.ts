@@ -5,7 +5,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface AuditLogRow {
@@ -22,31 +21,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id SERIAL PRIMARY KEY,
-        timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        action_type VARCHAR(128) NOT NULL,
-        actor_ip VARCHAR(64),
-        user_agent TEXT,
-        payload_diff JSONB,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_action_type ON audit_logs(action_type)`;
-    return true;
-  } catch (err) {
-    console.error('audit_logs ensureTable failed:', err);
-    return false;
-  }
-}
-
 export interface RecordAuditLogInput {
   action_type: string;
   actor_ip?: string | null;
@@ -60,8 +34,6 @@ export interface RecordAuditLogInput {
 export async function recordAuditLog(input: RecordAuditLogInput): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const { rows } = await sql`
       INSERT INTO audit_logs (action_type, actor_ip, user_agent, payload_diff)
       VALUES (${input.action_type}, ${input.actor_ip ?? null}, ${input.user_agent ?? null}, ${input.payload_diff ? JSON.stringify(input.payload_diff) : null})
@@ -89,8 +61,6 @@ export interface ListAuditLogsOptions {
 export async function listAuditLogs(options: ListAuditLogsOptions = {}): Promise<AuditLogRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const limit = Math.min(500, options.limit ?? 100);
     const offset = options.offset ?? 0;
 

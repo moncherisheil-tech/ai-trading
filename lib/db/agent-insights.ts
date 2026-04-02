@@ -3,7 +3,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface AgentInsightRow {
@@ -14,65 +13,20 @@ export interface AgentInsightRow {
   outcome: string | null;
   insight: string;
   created_at: string;
-  /** MoE: Technician expert score (0–100). */
   tech_score?: number | null;
-  /** MoE: Risk Manager expert score (0–100). */
   risk_score?: number | null;
-  /** MoE: Market Psychologist expert score (0–100). */
   psych_score?: number | null;
-  /** MoE: Macro & Order Book expert score (0–100). */
   macro_score?: number | null;
-  /** MoE: On-Chain Sleuth expert score (0–100). */
   onchain_score?: number | null;
-  /** MoE: Deep Memory expert score (0–100). */
   deep_memory_score?: number | null;
-  /** MoE: Judge consensus insight (Board Decision), Hebrew. */
   master_insight?: string | null;
-  /** MoE: Reasoning path from Judge. */
   reasoning_path?: string | null;
-  /** God-Mode: Why did this trade win/lose (structured for RAG). */
   why_win_lose?: string | null;
-  /** God-Mode: Which agent was right/wrong (for RAG). */
   agent_verdict?: string | null;
 }
 
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
-}
-
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS agent_insights (
-        id SERIAL PRIMARY KEY,
-        symbol VARCHAR(32) NOT NULL,
-        trade_id INTEGER NOT NULL,
-        entry_conditions TEXT,
-        outcome TEXT,
-        insight TEXT NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_agent_insights_symbol ON agent_insights(symbol)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_agent_insights_created_at ON agent_insights(created_at DESC)`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS tech_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS risk_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS psych_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS macro_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS onchain_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS deep_memory_score INTEGER`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS master_insight TEXT`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS reasoning_path TEXT`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS why_win_lose TEXT`;
-    await sql`ALTER TABLE agent_insights ADD COLUMN IF NOT EXISTS agent_verdict TEXT`;
-    return true;
-  } catch (err) {
-    console.error('agent_insights ensureTable failed:', err);
-    return false;
-  }
 }
 
 export interface InsertAgentInsightInput {
@@ -96,8 +50,6 @@ export interface InsertAgentInsightInput {
 export async function insertAgentInsight(row: InsertAgentInsightInput): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const { rows } = await sql`
       INSERT INTO agent_insights (symbol, trade_id, entry_conditions, outcome, insight, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict)
       VALUES (
@@ -130,8 +82,6 @@ export async function insertAgentInsight(row: InsertAgentInsightInput): Promise<
 export async function listAgentInsightsBySymbol(symbol: string, limit = 50): Promise<AgentInsightRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights WHERE symbol = ${symbol} ORDER BY created_at DESC LIMIT ${limit}
@@ -146,8 +96,6 @@ export async function listAgentInsightsBySymbol(symbol: string, limit = 50): Pro
 export async function listAgentInsights(limit = 200): Promise<AgentInsightRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, trade_id, entry_conditions, outcome, insight, created_at::text, tech_score, risk_score, psych_score, macro_score, onchain_score, deep_memory_score, master_insight, reasoning_path, why_win_lose, agent_verdict
       FROM agent_insights ORDER BY created_at DESC LIMIT ${limit}
@@ -184,13 +132,10 @@ function mapAgentInsightRow(r: Record<string, unknown>): AgentInsightRow {
 
 /**
  * Delete all rows from agent_insights (zero-state for production launch).
- * Use with caution. Does not touch AppSettings/settings table.
  */
 export async function deleteAllAgentInsights(): Promise<{ deleted: number }> {
   if (!usePostgres()) return { deleted: 0 };
   try {
-    const ok = await ensureTable();
-    if (!ok) return { deleted: 0 };
     const { rowCount } = await sql`DELETE FROM agent_insights`;
     return { deleted: rowCount ?? 0 };
   } catch (err) {
@@ -199,12 +144,10 @@ export async function deleteAllAgentInsights(): Promise<{ deleted: number }> {
   }
 }
 
-/** Agent insights with created_at within the given date range (inclusive). */
+/** Agent insights since a given ISO timestamp. */
 export async function listAgentInsightsSince(isoSince: string, limit = 500): Promise<AgentInsightRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const since = new Date(isoSince);
     if (Number.isNaN(since.getTime())) return [];
     const { rows } = await sql`
@@ -224,8 +167,6 @@ export async function listAgentInsightsSince(isoSince: string, limit = 500): Pro
 export async function listAgentInsightsInRange(fromDate: string, toDate: string): Promise<AgentInsightRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const from = new Date(fromDate);
     const to = new Date(toDate);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];

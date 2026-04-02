@@ -3,7 +3,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface ScannerAlertLogRow {
@@ -28,30 +27,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS scanner_alert_log (
-        id SERIAL PRIMARY KEY,
-        symbol VARCHAR(32) NOT NULL,
-        prediction_id VARCHAR(255) NOT NULL,
-        probability DOUBLE PRECISION NOT NULL,
-        entry_price DOUBLE PRECISION NOT NULL,
-        alerted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_scanner_alert_log_alerted_at ON scanner_alert_log(alerted_at)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_scanner_alert_log_symbol ON scanner_alert_log(symbol)`;
-    return true;
-  } catch (err) {
-    console.error('scanner_alert_log ensureTable failed:', err);
-    return false;
-  }
-}
-
 /** @returns true only after a successful row insert (fail-closed for Telegram idempotency). */
 export async function insertScannerAlert(params: {
   symbol: string;
@@ -64,11 +39,6 @@ export async function insertScannerAlert(params: {
     return false;
   }
   try {
-    const ok = await ensureTable();
-    if (!ok) {
-      console.error('insertScannerAlert failed: scanner_alert_log table could not be ensured');
-      return false;
-    }
     await sql`
       INSERT INTO scanner_alert_log (symbol, prediction_id, probability, entry_price, alerted_at)
       VALUES (${params.symbol}, ${params.prediction_id}, ${params.probability}, ${params.entry_price}, ${new Date().toISOString()})
@@ -83,8 +53,6 @@ export async function insertScannerAlert(params: {
 export async function countScannerAlertsToday(): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart);
@@ -104,8 +72,6 @@ export async function countScannerAlertsToday(): Promise<number> {
 export async function getSymbolsAlertedSince(sinceMs: number): Promise<string[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const since = new Date(Date.now() - sinceMs).toISOString();
     const { rows } = await sql`
       SELECT DISTINCT symbol FROM scanner_alert_log WHERE alerted_at >= ${since}
@@ -120,8 +86,6 @@ export async function getSymbolsAlertedSince(sinceMs: number): Promise<string[]>
 export async function getLatestScannerAlertForSymbol(symbol: string): Promise<ScannerAlertLogLatestRow | null> {
   if (!usePostgres()) return null;
   try {
-    const ok = await ensureTable();
-    if (!ok) return null;
     const { rows } = await sql`
       SELECT symbol, probability::float, entry_price::float, alerted_at::text
       FROM scanner_alert_log
@@ -154,8 +118,6 @@ export async function listRecentAlertedSymbolsSince(params: {
   if (!usePostgres()) return [];
   const limit = Math.max(1, Math.min(25, params.limit ?? 8));
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const since = new Date(Date.now() - params.sinceMs).toISOString();
     const { rows } = await sql`
       SELECT symbol, MAX(alerted_at) AS last_alert
@@ -175,8 +137,6 @@ export async function listRecentAlertedSymbolsSince(params: {
 export async function countScannerAlertsSince(sinceMs: number): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const since = new Date(Date.now() - sinceMs).toISOString();
     const { rows } = await sql`
       SELECT id FROM scanner_alert_log WHERE alerted_at >= ${since}
@@ -199,8 +159,6 @@ export async function listRecentScannerAlertsSince(params: {
   if (!usePostgres()) return [];
   const limit = Math.max(1, Math.min(500, params.limit ?? 200));
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const since = new Date(Date.now() - params.sinceMs).toISOString();
     const { rows } = await sql`
       SELECT id, symbol, prediction_id, probability::float, entry_price::float, alerted_at::text
@@ -225,13 +183,10 @@ export async function listRecentScannerAlertsSince(params: {
 
 /**
  * Delete all rows from scanner_alert_log (zero-state for production launch).
- * Ensures first production scan does not consider test alerts as "recently alerted".
  */
 export async function deleteAllScannerAlertLog(): Promise<{ deleted: number }> {
   if (!usePostgres()) return { deleted: 0 };
   try {
-    const ok = await ensureTable();
-    if (!ok) return { deleted: 0 };
     const { rowCount } = await sql`DELETE FROM scanner_alert_log`;
     return { deleted: rowCount ?? 0 };
   } catch (err) {

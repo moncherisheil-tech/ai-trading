@@ -4,7 +4,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 const ROW_ID = 1;
@@ -13,31 +12,13 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-/** Exported for ops-metadata and any module that needs the singleton row + columns. */
+/**
+ * Returns true when Postgres is configured. Kept for backward compatibility
+ * with modules that call this before querying system_settings.
+ * Schema is guaranteed by db-bootstrapper.ts at server boot.
+ */
 export async function ensureSystemSettingsTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS system_settings (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        scanner_is_active BOOLEAN NOT NULL DEFAULT true,
-        last_scan_timestamp BIGINT,
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `;
-    await sql`
-      INSERT INTO system_settings (id, scanner_is_active)
-      VALUES (${ROW_ID}, true)
-      ON CONFLICT (id) DO NOTHING
-    `;
-    // Pinecone / vector ops timestamp on singleton row (avoids legacy `settings` DDL conflicts).
-    await sql`ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS last_pinecone_upsert_at TEXT`;
-    return true;
-  } catch {
-    return false;
-  }
+  return usePostgres();
 }
 
 export interface ScannerSettingsRow {
@@ -48,7 +29,6 @@ export interface ScannerSettingsRow {
 export async function getScannerSettings(): Promise<ScannerSettingsRow | null> {
   if (!usePostgres()) return null;
   try {
-    await ensureSystemSettingsTable();
     const { rows } = await sql`
       SELECT scanner_is_active, last_scan_timestamp
       FROM system_settings
@@ -61,51 +41,30 @@ export async function getScannerSettings(): Promise<ScannerSettingsRow | null> {
       scanner_is_active: Boolean(r.scanner_is_active),
       last_scan_timestamp: r.last_scan_timestamp != null ? Number(r.last_scan_timestamp) : null,
     };
-  } catch {
+  } catch (err) {
+    console.error('getScannerSettings failed:', err);
     return null;
   }
 }
 
-export type SetScannerResult = { ok: true } | { ok: false; error: string };
-
-export async function setScannerActive(active: boolean): Promise<SetScannerResult> {
-  if (!usePostgres()) {
-    const msg = 'DATABASE_URL not configured. Set DATABASE_URL in environment.';
-    console.error('[SAVE_ERROR] Scanner settings:', msg);
-    return { ok: false, error: msg };
-  }
+export async function setScannerActive(isActive: boolean): Promise<void> {
+  if (!usePostgres()) return;
   try {
-    await ensureSystemSettingsTable();
     await sql`
-      UPDATE system_settings
-      SET scanner_is_active = ${active}, updated_at = NOW()
-      WHERE id = ${ROW_ID}
+      UPDATE system_settings SET scanner_is_active = ${isActive}, updated_at = NOW() WHERE id = ${ROW_ID}
     `;
-    return { ok: true };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.error('[SAVE_ERROR] Scanner settings (setScannerActive)', e);
-    return { ok: false, error: message };
+  } catch (err) {
+    console.error('setScannerActive failed:', err);
   }
 }
 
-export async function setLastScanTimestamp(ts: number): Promise<SetScannerResult> {
-  if (!usePostgres()) {
-    const msg = 'DATABASE_URL not configured. Set DATABASE_URL in environment.';
-    console.error('[SAVE_ERROR] Scanner settings (setLastScanTimestamp):', msg);
-    return { ok: false, error: msg };
-  }
+export async function setLastScanTimestamp(ts: number): Promise<void> {
+  if (!usePostgres()) return;
   try {
-    await ensureSystemSettingsTable();
     await sql`
-      UPDATE system_settings
-      SET last_scan_timestamp = ${ts}, updated_at = NOW()
-      WHERE id = ${ROW_ID}
+      UPDATE system_settings SET last_scan_timestamp = ${ts}, updated_at = NOW() WHERE id = ${ROW_ID}
     `;
-    return { ok: true };
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.error('[SAVE_ERROR] Scanner settings (setLastScanTimestamp)', e);
-    return { ok: false, error: message };
+  } catch (err) {
+    console.error('setLastScanTimestamp failed:', err);
   }
 }

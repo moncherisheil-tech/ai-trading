@@ -10,7 +10,8 @@
     "build:production": "bash scripts/build-production.sh",
     "start": "next start",
     "start:prod": "bash start-production.sh",
-    "deploy": "bash deploy.sh"
+    "deploy": "bash deploy.sh",
+    "verify": "tsx scripts/verify-system.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

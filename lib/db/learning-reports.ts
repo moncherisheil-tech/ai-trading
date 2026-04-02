@@ -3,7 +3,6 @@
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface LearningReportRow {
@@ -19,29 +18,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS learning_reports (
-        id SERIAL PRIMARY KEY,
-        success_summary_he TEXT NOT NULL,
-        key_lesson_he TEXT NOT NULL,
-        action_taken_he TEXT NOT NULL,
-        accuracy_pct NUMERIC(10,4) NOT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_learning_reports_created_at ON learning_reports(created_at)`;
-    return true;
-  } catch (err) {
-    console.error('learning_reports ensureTable failed:', err);
-    return false;
-  }
-}
-
 export async function insertLearningReport(row: {
   success_summary_he: string;
   key_lesson_he: string;
@@ -50,8 +26,6 @@ export async function insertLearningReport(row: {
 }): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const created = new Date().toISOString();
     const { rows } = await sql`
       INSERT INTO learning_reports (success_summary_he, key_lesson_he, action_taken_he, accuracy_pct, created_at)
@@ -69,8 +43,6 @@ export async function insertLearningReport(row: {
 export async function getLatestLearningReports(limit = 10): Promise<LearningReportRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, success_summary_he, key_lesson_he, action_taken_he, accuracy_pct::float, created_at::text
       FROM learning_reports ORDER BY created_at DESC LIMIT ${limit}
@@ -93,8 +65,6 @@ export async function getLatestLearningReports(limit = 10): Promise<LearningRepo
 export async function getLearningReportsInRange(fromDate: string, toDate: string): Promise<LearningReportRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const from = new Date(fromDate);
     const to = new Date(toDate);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];

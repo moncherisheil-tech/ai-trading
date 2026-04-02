@@ -40,6 +40,22 @@ export async function register() {
       );
     }
 
+    // ── Central DB Schema Bootstrapper ────────────────────────────────────────
+    // Runs ALL CREATE TABLE statements sequentially exactly once at server boot,
+    // before any API route or BullMQ worker can fire. This eliminates the
+    // concurrent ECONNREFUSED storm caused by per-component ensureTable() calls.
+    try {
+      const { runDbBootstrapper } = await import('@/lib/core/db-bootstrapper');
+      await runDbBootstrapper();
+    } catch (bootstrapErr) {
+      // Non-fatal at boot so the server still starts; individual queries will
+      // surface proper errors if tables are genuinely missing.
+      console.error(
+        '[Instrumentation] DB bootstrapper FAILED:',
+        bootstrapErr instanceof Error ? bootstrapErr.message : bootstrapErr
+      );
+    }
+
     // ── Whale Alert Subscriber (Phase 3: AI Brain Integration) ────────────────
     // Connects to the bare-metal Rust engine's Redis at WHALE_REDIS_URL,
     // subscribes to `quant:alerts`, and pipes every anomaly through the AI

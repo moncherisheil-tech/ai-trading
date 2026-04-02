@@ -1,31 +1,22 @@
 /**
  * Virtual portfolio (paper trading) persisted in Vercel Postgres.
- * Symbol, Entry Price, Amount (Virtual $), Entry Date (high-precision ISO-8601), Status (Open/Closed).
  * All PnL and percentage math uses Decimal.js to avoid floating-point errors.
  */
 
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import type { ScalpRiskTier } from '@/lib/trading/scalp-tiers';
 
 export type VirtualTradeStatus = 'open' | 'closed';
-
-/** Reason for closing: professional journaling so traders know why a trade ended. */
 export type CloseReason = 'take_profit' | 'stop_loss' | 'liquidation' | 'manual';
-
 export type VirtualTradeSource = 'manual' | 'agent';
 
-/** Agent trades: partial take-profit + trailing stop state (JSONB). */
 export interface AgentExecState {
   scaleOutDone?: boolean;
   peakUnrealizedPct?: number;
-  /** Ratcheted stop in % from entry (same sign convention as stop_loss_pct). */
   effectiveStopLossPct?: number;
-  /** Kelly fraction used at entry (0–1). Survives restarts for tactical recovery. */
   kellyFraction?: number;
-  /** Scalp risk tier at entry (CAUTIOUS / MODERATE / DANGEROUS). */
   scalpTier?: ScalpRiskTier;
 }
 
@@ -43,86 +34,14 @@ export interface VirtualPortfolioRow {
   pnl_pct: number | null;
   close_reason: CloseReason | null;
   source: VirtualTradeSource;
-  /** Fee structure: 0.1% entry + 0.1% exit (maker/taker simulation). */
   entry_fee_usd?: number | null;
   exit_fee_usd?: number | null;
-  /** Net PnL in USD: ((Exit_Price - Entry_Price) * Amount) - Total_Fees. */
   pnl_net_usd?: number | null;
   exec_state?: AgentExecState | null;
 }
 
 function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
-}
-
-/** Self-healing: ensures close_reason column exists (e.g. after production deploy without manual migration). Fails silently. */
-async function ensureCloseReasonColumn(): Promise<void> {
-  try {
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS close_reason VARCHAR(20)`;
-  } catch {
-    // Column already exists or table not yet created — ignore; ensureTable/create will handle it.
-  }
-}
-
-async function ensureSourceColumn(): Promise<void> {
-  try {
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS source VARCHAR(16) DEFAULT 'manual'`;
-  } catch {
-    // ignore
-  }
-}
-
-/** Fee structure: 0.1% entry, 0.1% exit. Columns for PnL audit. */
-async function ensureFeeColumns(): Promise<void> {
-  try {
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS entry_fee_usd NUMERIC(24,8)`;
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS exit_fee_usd NUMERIC(24,8)`;
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS pnl_net_usd NUMERIC(24,8)`;
-  } catch {
-    // ignore
-  }
-}
-
-async function ensureExecStateColumn(): Promise<void> {
-  try {
-    await sql`ALTER TABLE virtual_portfolio ADD COLUMN IF NOT EXISTS exec_state JSONB DEFAULT '{}'::jsonb`;
-  } catch {
-    // ignore
-  }
-}
-
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS virtual_portfolio (
-        id SERIAL PRIMARY KEY,
-        symbol VARCHAR(32) NOT NULL,
-        entry_price NUMERIC(24,8) NOT NULL,
-        amount_usd NUMERIC(24,8) NOT NULL,
-        entry_date VARCHAR(32) NOT NULL,
-        status VARCHAR(16) NOT NULL CHECK (status IN ('open', 'closed')),
-        target_profit_pct NUMERIC(10,4) NOT NULL DEFAULT 2,
-        stop_loss_pct NUMERIC(10,4) NOT NULL DEFAULT -1.5,
-        closed_at TIMESTAMPTZ,
-        exit_price NUMERIC(24,8),
-        pnl_pct NUMERIC(12,6),
-        close_reason VARCHAR(20)
-      )
-    `;
-    await ensureCloseReasonColumn();
-    await ensureSourceColumn();
-    await ensureFeeColumns();
-    await ensureExecStateColumn();
-    await sql`CREATE INDEX IF NOT EXISTS idx_virtual_portfolio_status ON virtual_portfolio(status)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_virtual_portfolio_entry_date ON virtual_portfolio(entry_date)`;
-    return true;
-  } catch (err) {
-    console.error('virtual_portfolio ensureTable failed:', err);
-    return false;
-  }
 }
 
 export interface InsertVirtualTradeInput {
@@ -138,14 +57,11 @@ export interface InsertVirtualTradeInput {
 export async function insertVirtualTrade(row: InsertVirtualTradeInput): Promise<number> {
   if (!usePostgres()) return 0;
   try {
-    const ok = await ensureTable();
-    if (!ok) return 0;
     const entryDate = new Date().toISOString();
     const targetPct = row.target_profit_pct ?? 2;
     const stopPct = row.stop_loss_pct ?? -1.5;
     const src = row.source === 'agent' ? 'agent' : 'manual';
     const entryFeeUsd = toDecimal(row.amount_usd).times(D.entryFeeRate).toNumber();
-    await ensureExecStateColumn();
     const execJson = JSON.stringify(row.exec_state && Object.keys(row.exec_state).length ? row.exec_state : {});
     const { rows } = await sql`
       INSERT INTO virtual_portfolio (symbol, entry_price, amount_usd, entry_date, status, target_profit_pct, stop_loss_pct, source, entry_fee_usd, exec_state)
@@ -179,8 +95,6 @@ export async function closeVirtualTrade(
   if (!usePostgres()) return null;
   if (!Number.isFinite(exitPrice) || exitPrice <= 0) return null;
   try {
-    const ok = await ensureTable();
-    if (!ok) return null;
     const { rows } = await sql`
       SELECT entry_price, amount_usd, COALESCE(entry_fee_usd, 0) as entry_fee_usd
       FROM virtual_portfolio WHERE id = ${id} AND status = 'open'
@@ -221,8 +135,6 @@ export async function closeVirtualTrade(
 export async function listOpenVirtualTrades(): Promise<VirtualPortfolioRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
       COALESCE(exec_state::text, '{}') as exec_state_json
@@ -238,8 +150,6 @@ export async function listOpenVirtualTrades(): Promise<VirtualPortfolioRow[]> {
 export async function listClosedVirtualTrades(limit = 200): Promise<VirtualPortfolioRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
       COALESCE(exec_state::text, '{}') as exec_state_json
@@ -256,8 +166,6 @@ export async function listClosedVirtualTrades(limit = 200): Promise<VirtualPortf
 export async function listClosedVirtualTradesInRange(fromDate: string, toDate: string): Promise<VirtualPortfolioRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const from = new Date(fromDate);
     const to = new Date(toDate);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
@@ -278,8 +186,6 @@ export async function listClosedVirtualTradesInRange(fromDate: string, toDate: s
 export async function listAllVirtualTrades(limit = 500): Promise<VirtualPortfolioRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } = await sql`
       SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
       COALESCE(exec_state::text, '{}') as exec_state_json
@@ -295,8 +201,6 @@ export async function listAllVirtualTrades(limit = 500): Promise<VirtualPortfoli
 export async function getVirtualTradeById(id: number): Promise<VirtualPortfolioRow | null> {
   if (!usePostgres()) return null;
   try {
-    const ok = await ensureTable();
-    if (!ok) return null;
     const { rows } = await sql`
       SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
       COALESCE(exec_state::text, '{}') as exec_state_json
@@ -311,14 +215,10 @@ export async function getVirtualTradeById(id: number): Promise<VirtualPortfolioR
 
 /**
  * Delete all rows from virtual_portfolio (zero-state for production launch).
- * Removes both open and closed trades including any Mock/Test data.
- * Does not touch AppSettings/settings table.
  */
 export async function deleteAllVirtualTrades(): Promise<{ deleted: number }> {
   if (!usePostgres()) return { deleted: 0 };
   try {
-    const ok = await ensureTable();
-    if (!ok) return { deleted: 0 };
     const { rowCount } = await sql`DELETE FROM virtual_portfolio`;
     return { deleted: rowCount ?? 0 };
   } catch (err) {
@@ -329,7 +229,6 @@ export async function deleteAllVirtualTrades(): Promise<{ deleted: number }> {
 
 const SCALP_TIERS: ScalpRiskTier[] = ['CAUTIOUS', 'MODERATE', 'DANGEROUS'];
 
-/** Exported for tests and tactical recovery verification after restarts. */
 export function parseExecState(raw: unknown): AgentExecState {
   if (raw == null) return {};
   const s = typeof raw === 'string' ? raw : String(raw);
@@ -362,7 +261,6 @@ export async function patchVirtualTradeExecState(id: number, patch: Partial<Agen
   const next: AgentExecState = { ...prev, ...patch };
   const json = JSON.stringify(next);
   try {
-    await ensureExecStateColumn();
     await sql`UPDATE virtual_portfolio SET exec_state = ${json}::jsonb WHERE id = ${id} AND status = 'open'`;
   } catch (err) {
     console.error('patchVirtualTradeExecState failed:', err);
@@ -373,7 +271,6 @@ export async function patchVirtualTradeExecState(id: number, patch: Partial<Agen
 export async function applyAgentScaleOutHalf(id: number): Promise<void> {
   if (!usePostgres()) return;
   try {
-    await ensureExecStateColumn();
     await sql`
       UPDATE virtual_portfolio SET
         amount_usd = amount_usd * 0.5,
@@ -389,8 +286,6 @@ export async function applyAgentScaleOutHalf(id: number): Promise<void> {
 export async function listClosedVirtualTradesBySource(source: VirtualTradeSource, symbol?: string, limit = 200): Promise<VirtualPortfolioRow[]> {
   if (!usePostgres()) return [];
   try {
-    const ok = await ensureTable();
-    if (!ok) return [];
     const { rows } =
       symbol != null
         ? await sql`

@@ -1,5 +1,4 @@
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export interface ExpertWeights {
@@ -30,40 +29,11 @@ function clampWeight(value: number): number {
   return Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, value));
 }
 
-async function ensureTable(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS expert_weights (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        data_expert_weight NUMERIC(10,6) NOT NULL DEFAULT 1.0,
-        news_expert_weight NUMERIC(10,6) NOT NULL DEFAULT 1.0,
-        macro_expert_weight NUMERIC(10,6) NOT NULL DEFAULT 1.0,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_reason TEXT
-      )
-    `;
-    await sql`
-      INSERT INTO expert_weights (id, data_expert_weight, news_expert_weight, macro_expert_weight, updated_at, updated_reason)
-      VALUES (${SINGLETON_ID}, 1.0, 1.0, 1.0, NOW(), 'Initial defaults')
-      ON CONFLICT (id) DO NOTHING
-    `;
-    return true;
-  } catch (err) {
-    console.error('expert_weights ensureTable failed:', err);
-    return false;
-  }
-}
-
 export async function getExpertWeights(): Promise<ExpertWeights> {
   const now = Date.now();
   if (weightsCache && weightsCache.expiresAt > now) return weightsCache.data;
   if (!usePostgres()) return { ...DEFAULT_EXPERT_WEIGHTS };
   try {
-    const ok = await ensureTable();
-    if (!ok) return { ...DEFAULT_EXPERT_WEIGHTS };
     const { rows } = await sql`
       SELECT
         data_expert_weight::float AS data_expert_weight,
@@ -99,8 +69,6 @@ export async function updateExpertWeights(next: ExpertWeights, reason?: string):
     return sanitized;
   }
   try {
-    const ok = await ensureTable();
-    if (!ok) return sanitized;
     await sql`
       UPDATE expert_weights
       SET
@@ -133,4 +101,3 @@ export async function applyExpertWeightDeltas(
     reason
   );
 }
-

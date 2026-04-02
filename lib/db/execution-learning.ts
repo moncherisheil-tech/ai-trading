@@ -1,5 +1,4 @@
 import { sql } from '@/lib/db/sql';
-import { areTablesReady } from '@/lib/db/init-guard';
 import { APP_CONFIG } from '@/lib/config';
 
 export type TradeExecutionType = 'PAPER' | 'LIVE';
@@ -34,48 +33,6 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
-export async function ensureExecutionLearningTables(): Promise<boolean> {
-  if (!usePostgres()) return false;
-  // Short-circuit: Orchestrator already booted all tables sequentially.
-  if (areTablesReady()) return true;
-  try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS trade_executions (
-        id TEXT PRIMARY KEY,
-        symbol TEXT NOT NULL,
-        alpha_signal_id TEXT,
-        type TEXT NOT NULL CHECK (type IN ('PAPER', 'LIVE')),
-        side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
-        amount NUMERIC(24,8) NOT NULL,
-        entry_price NUMERIC(24,8) NOT NULL,
-        exit_price NUMERIC(24,8),
-        pnl NUMERIC(24,8),
-        status TEXT NOT NULL CHECK (status IN ('OPEN', 'CLOSED', 'FAILED')),
-        executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        closed_at TIMESTAMPTZ
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_trade_exec_symbol_executed_at ON trade_executions(symbol, executed_at DESC)`;
-    await sql`CREATE INDEX IF NOT EXISTS idx_trade_exec_status_executed_at ON trade_executions(status, executed_at DESC)`;
-
-    await sql`
-      CREATE TABLE IF NOT EXISTS learned_insights (
-        id TEXT PRIMARY KEY,
-        trade_id TEXT NOT NULL REFERENCES trade_executions(id) ON DELETE CASCADE,
-        failure_reason TEXT NOT NULL,
-        academy_reference TEXT,
-        adjustment_applied BOOLEAN NOT NULL DEFAULT false,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `;
-    await sql`CREATE INDEX IF NOT EXISTS idx_learned_insights_trade_created ON learned_insights(trade_id, created_at DESC)`;
-    return true;
-  } catch (err) {
-    console.error('[execution-learning] ensure table failed:', err);
-    return false;
-  }
-}
-
 export async function insertTradeExecution(input: {
   id: string;
   symbol: string;
@@ -86,8 +43,7 @@ export async function insertTradeExecution(input: {
   entryPrice: number;
   status?: TradeExecutionStatus;
 }): Promise<{ row: TradeExecutionRow | null; inserted: boolean }> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return { row: null, inserted: false };
+  if (!usePostgres()) return { row: null, inserted: false };
   const status = input.status ?? 'OPEN';
   const { rows } = await sql`
     INSERT INTO trade_executions (
@@ -115,8 +71,7 @@ export async function closeTradeExecution(input: {
   pnl: number;
   status?: TradeExecutionStatus;
 }): Promise<TradeExecutionRow | null> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return null;
+  if (!usePostgres()) return null;
   const status = input.status ?? 'CLOSED';
   const { rows } = await sql`
     UPDATE trade_executions
@@ -128,8 +83,7 @@ export async function closeTradeExecution(input: {
 }
 
 export async function markTradeExecutionFailed(id: string, pnl = 0): Promise<TradeExecutionRow | null> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return null;
+  if (!usePostgres()) return null;
   const { rows } = await sql`
     UPDATE trade_executions
     SET status = 'FAILED', pnl = ${pnl}, closed_at = NOW()
@@ -140,15 +94,13 @@ export async function markTradeExecutionFailed(id: string, pnl = 0): Promise<Tra
 }
 
 export async function getTradeExecutionById(id: string): Promise<TradeExecutionRow | null> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return null;
+  if (!usePostgres()) return null;
   const { rows } = await sql`SELECT * FROM trade_executions WHERE id = ${id} LIMIT 1`;
   return mapTradeRow(rows?.[0] as Record<string, unknown> | undefined);
 }
 
 export async function listRecentTradeExecutions(limit = 50): Promise<TradeExecutionRow[]> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return [];
+  if (!usePostgres()) return [];
   const { rows } = await sql`SELECT * FROM trade_executions ORDER BY executed_at DESC LIMIT ${limit}`;
   return (rows || [])
     .map((r: Record<string, unknown>) => mapTradeRow(r))
@@ -162,8 +114,7 @@ export async function insertLearnedInsight(input: {
   academyReference?: string | null;
   adjustmentApplied?: boolean;
 }): Promise<LearnedInsightRow | null> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return null;
+  if (!usePostgres()) return null;
   const { rows } = await sql`
     INSERT INTO learned_insights (id, trade_id, failure_reason, academy_reference, adjustment_applied, created_at)
     VALUES (${input.id}, ${input.tradeId}, ${input.failureReason}, ${input.academyReference ?? null}, ${input.adjustmentApplied ?? false}, NOW())
@@ -173,8 +124,7 @@ export async function insertLearnedInsight(input: {
 }
 
 export async function listRecentLearnedInsights(limit = 50): Promise<LearnedInsightRow[]> {
-  const ok = await ensureExecutionLearningTables();
-  if (!ok) return [];
+  if (!usePostgres()) return [];
   const { rows } = await sql`SELECT * FROM learned_insights ORDER BY created_at DESC LIMIT ${limit}`;
   return (rows || [])
     .map((r: Record<string, unknown>) => mapInsightRow(r))

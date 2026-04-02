@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 import type { Job } from 'bullmq';
-import { markTablesReady, areTablesReady, setTablesInitPromise, getTablesInitPromise } from '@/lib/db/init-guard';
+import { runDbBootstrapper } from '@/lib/core/db-bootstrapper';
 import { queryRaw } from '@/lib/db/sql';
 import { writeAudit } from '@/lib/audit';
 
@@ -52,21 +52,14 @@ export const WhaleSignalSchema = z.object({
 export type ValidatedWhaleSignal = z.infer<typeof WhaleSignalSchema>;
 
 // ─── DB Boot: ensureAllTablesExist ─────────────────────────────────────────
-// Runs ALL table DDL sequentially — exactly once per process.
-// All scattered module-level ensureTable() calls short-circuit once this runs
-// (via areTablesReady() check in lib/db/init-guard.ts).
+// Delegates to the central db-bootstrapper. The bootstrapper is idempotent
+// (module-level promise cache) so calling this from BullMQ workers is safe.
 
 export async function ensureAllTablesExist(): Promise<void> {
-  if (areTablesReady()) return;
-
-  const inflight = getTablesInitPromise();
-  if (inflight) return inflight;
-
-  const initPromise = _runAllDDL();
-  setTablesInitPromise(initPromise);
-  return initPromise;
+  await runDbBootstrapper();
 }
 
+// Retained for reference — no longer used directly; DDL is in db-bootstrapper.ts
 async function _runAllDDL(): Promise<void> {
   console.log('[Orchestrator] ⚡ Sequential DB boot — initializing all tables...');
   const t0 = Date.now();
@@ -365,7 +358,6 @@ async function _runAllDDL(): Promise<void> {
     }
   }
 
-  markTablesReady();
   const elapsed = Date.now() - t0;
   console.log(`[Orchestrator] ✅ All tables initialized in ${elapsed}ms`);
   writeAudit({ event: 'orchestrator.db_boot_complete', level: 'info', meta: { elapsed, tables: steps.length } });
