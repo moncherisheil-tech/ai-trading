@@ -81,22 +81,34 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const res  = await fetch('/api/auth/request-otp', {
+      const res = await fetch('/api/auth/request-otp', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ masterPassword: password }),
+        // Password is always sent in the request body — NEVER in the URL.
+        body:    JSON.stringify({ masterPassword: password.trim() }),
       });
-      const data = await res.json() as { error?: string; nonce?: string };
+
+      // Parse body before branching so we always have the server message.
+      let data: { error?: string; nonce?: string } = {};
+      try { data = await res.json() as typeof data; } catch { /* non-JSON body */ }
+
       if (!res.ok) {
-        setError(data.error ?? 'Authentication failed.');
+        if (res.status === 401) {
+          setError('Invalid password. Please try again.');
+        } else if (res.status >= 500) {
+          setError('Server error — please try again in a moment.');
+        } else {
+          setError(data.error ?? 'Authentication failed.');
+        }
         return;
       }
+
       setNonce(data.nonce ?? '');
       setStep('otp');
       // Autofocus first OTP cell after paint
       setTimeout(() => otpRefs.current[0]?.focus(), 60);
     } catch {
-      setError('Connection error. Please try again.');
+      setError('Connection error. Please check your network and try again.');
     } finally {
       setLoading(false);
     }

@@ -105,21 +105,35 @@ async function dispatchTelegramOtp(otp: string): Promise<void> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-    const masterPassword = typeof body.masterPassword === 'string' ? body.masterPassword : '';
+    // Trim to eliminate hidden leading/trailing whitespace from copy-paste or
+    // env-var editors that append a trailing newline.
+    const masterPassword = (typeof body.masterPassword === 'string' ? body.masterPassword : '').trim();
 
     if (!masterPassword) {
       return NextResponse.json({ error: 'Master password is required.' }, { status: 400 });
     }
 
-    const correctPassword = process.env.ADMIN_LOGIN_PASSWORD;
-    if (!correctPassword) {
+    const rawEnvPassword = process.env.ADMIN_LOGIN_PASSWORD;
+    if (!rawEnvPassword) {
       console.error('[request-otp] ADMIN_LOGIN_PASSWORD env var is not set.');
       return NextResponse.json({ error: 'Server configuration error.' }, { status: 500 });
     }
+    // Trim env var for the same reason — `.env` files often have invisible
+    // trailing whitespace that survives into process.env.
+    const correctPassword = rawEnvPassword.trim();
 
     const isMatch = timingSafeStringEqual(masterPassword, correctPassword);
 
     if (!isMatch) {
+      // Diagnostic — masked so secrets never appear in plain-text logs.
+      console.error(
+        '[request-otp] Password mismatch diagnostic —',
+        `provided_len=${masterPassword.length}`,
+        `env_len=${correctPassword.length}`,
+        `provided_masked=${'*'.repeat(masterPassword.length)}`,
+        `first_char_match=${masterPassword[0] === correctPassword[0]}`,
+        `last_char_match=${masterPassword.at(-1) === correctPassword.at(-1)}`,
+      );
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
 

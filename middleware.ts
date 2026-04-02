@@ -154,37 +154,47 @@ function deny401(): NextResponse {
 // ---------------------------------------------------------------------------
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  try {
+    const { pathname } = request.nextUrl;
 
-  // HEAD probes for uptime monitors — never gate
-  if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();
+    // HEAD probes for uptime monitors — never gate
+    if (pathname === '/' && request.method === 'HEAD') return NextResponse.next();
 
-  // Static assets / Next.js internals
-  if (shouldBypassAuth(pathname)) return NextResponse.next();
+    // Static assets / Next.js internals (belt-and-suspenders guard; matcher
+    // should already exclude these, but keeps logic self-contained).
+    if (shouldBypassAuth(pathname)) return NextResponse.next();
 
-  // ── Auth endpoints — always pass through ──────────────────────────────────
-  if (isPublicApiRoute(pathname)) return NextResponse.next();
+    // ── Auth endpoints — always pass through ──────────────────────────────────
+    if (isPublicApiRoute(pathname)) return NextResponse.next();
 
-  // ── All other /api/ routes ─────────────────────────────────────────────────
-  if (pathname.startsWith('/api/')) {
-    if (!(await verifyAuthCookie(request))) return deny401();
+    // ── All other /api/ routes ─────────────────────────────────────────────────
+    if (pathname.startsWith('/api/')) {
+      if (!(await verifyAuthCookie(request))) return deny401();
+      return NextResponse.next();
+    }
+
+    // ── Page routes ────────────────────────────────────────────────────────────
+    if (!isProtectedPath(pathname)) return NextResponse.next();
+
+    if (!(await verifyAuthCookie(request))) {
+      const loginUrl = new URL('/login', request.url);
+      loginUrl.searchParams.set('from', pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    return NextResponse.next();
+  } catch (err) {
+    // Never let an unhandled middleware exception surface as a 500 to the client.
+    console.error('[middleware] Unhandled exception — allowing request through:', err);
     return NextResponse.next();
   }
-
-  // ── Page routes ────────────────────────────────────────────────────────────
-  if (!isProtectedPath(pathname)) return NextResponse.next();
-
-  if (!(await verifyAuthCookie(request))) {
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('from', pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  return NextResponse.next();
 }
 
 export const config = {
+  // Exclude ALL _next/* internals (static, image, webpack-hmr, server, data …),
+  // favicon.ico, and every common static-asset extension so the middleware never
+  // runs on files it cannot meaningfully gate.
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ttf|eot)$).*)',
+    '/((?!_next/|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?|ttf|eot|css|js\\.map)$).*)',
   ],
 };
