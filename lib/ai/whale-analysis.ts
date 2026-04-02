@@ -15,6 +15,7 @@ import type { WhaleAlert } from '@/lib/redis/whale-subscriber';
 import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
 import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
 import { prisma } from '@/lib/prisma';
+import { sendTelegramMessage } from '@/lib/notifications/telegram';
 
 const SEPARATOR = '━'.repeat(60);
 
@@ -160,6 +161,31 @@ export async function analyzeWhaleAlert(alert: WhaleAlert): Promise<void> {
     );
 
     console.log(`[WhaleAnalysis] SUCCESS: Analysis saved — EpisodicMemory Record ID: ${record.id}`);
+
+    // ── Fire-and-forget Telegram alert ──────────────────────────────────────
+    const direction = delta_pct > 0 ? '📈 SPIKE' : '📉 COLLAPSE';
+    const magnitude = Math.abs(delta_pct).toFixed(2);
+    const snippet   = assessment.length > 220
+      ? assessment.slice(0, 220).trimEnd() + '…'
+      : assessment;
+
+    const telegramMsg = [
+      '🐋 <b>QUANTUM WHALE ALERT</b> 🐋',
+      '',
+      `<b>Symbol:</b>  <code>${symbol}</code>`,
+      `<b>Event:</b>   ${direction}  <code>${delta_pct > 0 ? '+' : ''}${magnitude}%</code>`,
+      `<b>Regime:</b>  <code>${anomaly_type}</code>`,
+      `<b>Provider:</b> ${provider.toUpperCase()}`,
+      '',
+      `<b>📋 Assessment:</b>`,
+      snippet,
+      '',
+      `<i>🕐 ${new Date(timestamp).toUTCString()}</i>`,
+    ].join('\n');
+
+    void sendTelegramMessage(telegramMsg).then((sent) => {
+      if (!sent) console.warn('[WhaleAnalysis] Telegram alert was not delivered (non-fatal).');
+    });
   } catch (dbErr) {
     const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
     const isTimeout = msg.startsWith('DB_UNREACHABLE_WS1');
