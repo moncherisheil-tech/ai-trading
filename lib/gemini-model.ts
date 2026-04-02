@@ -18,6 +18,7 @@ const RETIRED_GEMINI_MODEL_IDS: Record<string, string> = {
   'gemini-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-2.0-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-2.0-flash-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-3.0-flash-exp': 'gemini-3.1-pro-preview',
   'gemini-2.0-flash-thinking-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-2.0-flash-lite': GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-2.5-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
