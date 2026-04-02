@@ -41,7 +41,17 @@ function getPool(): Pool {
       // Default 5 for the worker (low concurrency); override via PG_POOL_MAX.
       max: Number(process.env.PG_POOL_MAX ?? 5),
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
+      // 15 s — accounts for Israel → Germany cross-border latency (was 5 s,
+      // which caused premature ETIMEDOUT on the first post-idle query).
+      connectionTimeoutMillis: 15_000,
+      // TCP keepalives — prevents silent TCP drops by routers/firewalls during
+      // quiet market hours. Mirrors the keepalive config on the Prisma pool.
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 60_000,
+    });
+
+    pool.on('error', (err) => {
+      console.error('[sql:pool] idle-client error:', err.message);
     });
   }
   return pool;

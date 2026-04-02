@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRedisClient } from '@/lib/queue/redis-client';
+import { getHttpRedisClient } from '@/lib/queue/redis-client';
 import { createSessionToken } from '@/lib/session';
 import { shouldUseSecureCookies } from '@/lib/config';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     try {
-      const redis    = getRedisClient();
+      const redis    = getHttpRedisClient();
       const redisKey = `${OTP_KEY_PREFIX}${nonce}`;
       const stored   = await redis.get(redisKey);
 

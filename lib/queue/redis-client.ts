@@ -3,10 +3,43 @@
  * Connects via REDIS_URL (TCP/TLS, e.g. rediss://default:token@host:port).
  * Upstash Redis provides this URL separately from the REST URL.
  * Falls back gracefully when REDIS_URL is absent so the Next.js build never hard-crashes.
+ *
+ * Two client types are exported:
+ *   - getRedisClient()     → BullMQ worker client (maxRetriesPerRequest: null — retries indefinitely)
+ *   - getHttpRedisClient() → HTTP route client    (maxRetriesPerRequest: 3   — fails fast for API handlers)
+ *
+ * IMPORTANT: Never use getRedisClient() in HTTP route handlers (API routes / Server Actions).
+ * maxRetriesPerRequest: null will cause commands to hang indefinitely when Redis is unreachable,
+ * blocking the request until the Vercel/Next.js function timeout kills it. Use getHttpRedisClient()
+ * in all HTTP-facing code paths.
  */
 import IORedis from 'ioredis';
 
 let _client: IORedis | null = null;
+let _httpClient: IORedis | null = null;
+
+function createClient(redisUrl: string, label: string, maxRetriesPerRequest: number | null): IORedis {
+  const client = new IORedis(redisUrl, {
+    maxRetriesPerRequest,
+    enableReadyCheck: false,
+    connectTimeout: 10_000,
+    tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    retryStrategy(times) {
+      if (times > 30) {
+        console.error(`[${label}] Giving up after ${times} reconnect attempts.`);
+        return null;
+      }
+      const delay = Math.min(times * 200, 5_000);
+      console.warn(`[${label}] Reconnect attempt #${times}, waiting ${delay}ms`);
+      return delay;
+    },
+  });
+
+  client.on('error', (err) => console.error(`[${label}] Connection error:`, err.message));
+  client.on('ready', () => console.log(`[${label}] Connection established.`));
+
+  return client;
+}
 
 export function getRedisClient(): IORedis {
   if (_client) return _client;
@@ -22,48 +55,33 @@ export function getRedisClient(): IORedis {
     console.log(`[Redis] Using REDIS_URL from environment: ${redisUrl.replace(/:\/\/[^@]+@/, '://***@')}`);
   }
 
-  _client = new IORedis(redisUrl, {
-    // BullMQ requirement: never time out individual commands — the worker must
-    // survive transient Redis blips without throwing "Command timed out" errors.
-    maxRetriesPerRequest: null,
-    // Do not block process startup waiting for Redis to confirm READY.
-    // The retryStrategy below handles reconnection transparently.
-    enableReadyCheck: false,
-    // Hard deadline for the TCP handshake itself. Without this, a completely
-    // unreachable Redis host causes the client to hang forever at deploy time.
-    connectTimeout: 10_000,
-    tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-    // Exponential back-off capped at 5 s; returning null (after 30 attempts ≈
-    // 2.5 min of cumulative wait) stops retrying and lets the process surface
-    // the error so PM2 can log it and decide whether to restart the worker.
-    retryStrategy(times) {
-      if (times > 30) {
-        console.error(`[Redis] Giving up after ${times} reconnect attempts. PM2 will restart the worker.`);
-        return null;
-      }
-      const delay = Math.min(times * 200, 5_000);
-      console.warn(`[Redis] Reconnect attempt #${times}, waiting ${delay}ms`);
-      return delay;
-    },
-  });
-
-  _client.on('error', (err) => {
-    console.error('[Redis] Connection error:', err.message);
-  });
-
-  _client.on('ready', () => {
-    console.log('[Redis] Connection established.');
-  });
-
+  // maxRetriesPerRequest: null is required by BullMQ — workers must survive transient blips.
+  _client = createClient(redisUrl, 'Redis/BullMQ', null);
   return _client;
+}
+
+/**
+ * HTTP-safe Redis client for use in API route handlers and Server Actions.
+ * Uses maxRetriesPerRequest: 3 so commands fail fast (throw) when Redis is
+ * unreachable instead of hanging indefinitely like the BullMQ client.
+ * Callers should wrap operations in try/catch and return a 503/500 response.
+ */
+export function getHttpRedisClient(): IORedis {
+  if (_httpClient) return _httpClient;
+
+  const redisUrl = getRedisUrl();
+  _httpClient = createClient(redisUrl, 'Redis/HTTP', 3);
+  return _httpClient;
 }
 
 /** Graceful shutdown — call in PM2 SIGTERM handler. */
 export async function closeRedisClient(): Promise<void> {
-  if (_client) {
-    await _client.quit().catch(() => _client?.disconnect());
-    _client = null;
-  }
+  await Promise.allSettled([
+    _client ? _client.quit().catch(() => _client?.disconnect()) : Promise.resolve(),
+    _httpClient ? _httpClient.quit().catch(() => _httpClient?.disconnect()) : Promise.resolve(),
+  ]);
+  _client = null;
+  _httpClient = null;
 }
 
 /**
