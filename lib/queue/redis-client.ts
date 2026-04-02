@@ -65,11 +65,14 @@ export function getRedisClient(): IORedis {
  * Uses maxRetriesPerRequest: 3 so commands fail fast (throw) when Redis is
  * unreachable instead of hanging indefinitely like the BullMQ client.
  * Callers should wrap operations in try/catch and return a 503/500 response.
+ *
+ * Prefers WHALE_REDIS_URL (remote ingestion Redis) over REDIS_URL so that
+ * HTTP handlers never accidentally connect to 127.0.0.1.
  */
 export function getHttpRedisClient(): IORedis {
   if (_httpClient) return _httpClient;
 
-  const redisUrl = getRedisUrl();
+  const redisUrl = getHttpRedisUrl();
   _httpClient = createClient(redisUrl, 'Redis/HTTP', 3);
   return _httpClient;
 }
@@ -97,7 +100,23 @@ export function isRedisAvailable(): boolean {
   return true;
 }
 
-/** Effective Redis URL — env value or the hardcoded on-prem fallback. */
+/** BullMQ Redis URL — uses REDIS_URL only (local or dedicated queue broker). */
 export function getRedisUrl(): string {
   return process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
+}
+
+/**
+ * HTTP handler Redis URL — prefers WHALE_REDIS_URL (remote Germany ingestion
+ * Redis) and falls back to REDIS_URL.  Never returns a bare localhost address
+ * unless both env vars are explicitly set to one.
+ */
+export function getHttpRedisUrl(): string {
+  const url = (process.env.WHALE_REDIS_URL || process.env.REDIS_URL)?.trim();
+  if (!url) {
+    throw new Error(
+      '[Redis/HTTP] Neither WHALE_REDIS_URL nor REDIS_URL is set. ' +
+      'Add one of these to your .env file.'
+    );
+  }
+  return url;
 }

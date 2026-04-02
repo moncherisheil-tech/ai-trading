@@ -1,4 +1,3 @@
-import 'dotenv/config';
 import { Pool, type QueryResult } from 'pg';
 import {
   assertAuthorizedDatabaseUrl,

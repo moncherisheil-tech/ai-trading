@@ -24,7 +24,7 @@ import { cookies } from 'next/headers';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { runConsensusEngine } from '@/lib/consensus-engine';
 import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
-import { sql } from '@/lib/db/sql';
+import { prisma } from '@/lib/prisma';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
@@ -169,19 +169,23 @@ async function runAudit(): Promise<NextResponse> {
     };
   }
 
-  // —— Stage 2: DB ping ——
+  // —— Stage 2: DB ping (uses the global Prisma client — same connection as all other DB calls) ——
+  // Deliberately avoids lib/db/sql.ts so the probe uses the identical pg pool that powers
+  // the rest of the app. Any ECONNREFUSED here is a real infra failure, not a pool mis-config.
   try {
     const probeKey = 'audit_check_db_probe';
     const probeValue = JSON.stringify({ ts: new Date().toISOString() });
-    await sql`
+    await prisma.$executeRaw`
       INSERT INTO settings (key, value, "updatedAt")
       VALUES (${probeKey}, ${probeValue}, NOW())
       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "updatedAt" = NOW()
     `;
-    const { rows: readRows } = await sql`SELECT value FROM settings WHERE key = ${probeKey} LIMIT 1`;
-    const readBack = (readRows?.[0] as { value?: string } | undefined)?.value;
+    const readRows = await prisma.$queryRaw<Array<{ value: string }>>`
+      SELECT value FROM settings WHERE key = ${probeKey} LIMIT 1
+    `;
+    const readBack = readRows?.[0]?.value;
     if (!readBack) throw new Error('DB probe write succeeded but read-back returned no value.');
-    report.db = { passed: true, details: { probe: 'settings table round-trip ok' } };
+    report.db = { passed: true, details: { probe: 'settings table round-trip ok (via Prisma)' } };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('[ops.audit-check] Stage 2 (DB) failed:', errMsg);

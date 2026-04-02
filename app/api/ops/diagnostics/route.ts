@@ -19,8 +19,6 @@ import { cookies } from 'next/headers';
 import { hasRequiredRole, isSessionEnabled, verifySessionToken } from '@/lib/session';
 import { getDbAsync } from '@/lib/db';
 import { getLastPineconeUpsertAt } from '@/lib/db/ops-metadata';
-import { getAppSettings } from '@/lib/db/app-settings';
-import { listOpenVirtualTrades } from '@/lib/db/virtual-portfolio';
 import { fetchMacroContext } from '@/lib/api-utils';
 import { prisma } from '@/lib/prisma';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
@@ -103,10 +101,12 @@ export async function GET(): Promise<NextResponse> {
     error: null,
   };
 
-  // ── Postgres ping ──────────────────────────────────────────────────────────────────────────────
+  // ── Postgres ping — live round-trip via Prisma ────────────────────────────────────────────────
+  // Intentionally NOT using getAppSettings() / listOpenVirtualTrades() here — those helpers
+  // swallow all DB errors internally and always return defaults, which would make this block
+  // report "online" even when the database is completely unreachable.
   try {
-    await getAppSettings();
-    await listOpenVirtualTrades();
+    await prisma.$queryRaw`SELECT 1`;
     postgres = 'ok';
     dbHealth = { status: 'online', error: null };
   } catch (error) {
