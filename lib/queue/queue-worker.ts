@@ -19,12 +19,13 @@
 import 'dotenv/config';
 import { validateInfraEnv } from '../env';
 
-// Run pre-flight validation but never let it kill the worker process.
+// Protocol Omega: same vault gates as Next.js boot — worker MUST NOT run with invalid secrets.
 try {
   validateInfraEnv();
 } catch (err) {
   const msg = err instanceof Error ? err.message : String(err);
-  console.error('[Worker] [AUTO-RECOVERY] validateInfraEnv threw (non-fatal — worker continues):', msg);
+  console.error('[Worker] [FATAL] validateInfraEnv failed — exiting:', msg);
+  process.exit(1);
 }
 
 // ── Quantum Core Worker Boot ─────────────────────────────────────────────────
@@ -77,6 +78,7 @@ waitForPostgres().catch(() => {/* non-fatal — logged inside waitForPostgres */
 import { Worker, type Job } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { getRedisClient, closeRedisClient } from './redis-client';
+import { disconnectPrisma } from '@/lib/prisma';
 import {
   QUEUE_NAME,
   attachDrainListener,
@@ -576,6 +578,9 @@ async function shutdown(signal: string): Promise<void> {
   // process alive and PM2 must force-kill it after the kill timeout.
   await closeCoinScanQueueEvents();
   await closeRedisClient();
+  await disconnectPrisma().catch((e) =>
+    console.warn('[Worker] Prisma disconnect:', e instanceof Error ? e.message : e)
+  );
   process.exit(0);
 }
 

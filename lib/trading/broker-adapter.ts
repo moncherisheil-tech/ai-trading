@@ -1,4 +1,5 @@
 import ccxt from 'ccxt';
+import { stripEnvQuotes } from '@/lib/env';
 
 export type BrokerOrderSide = 'buy' | 'sell';
 
@@ -88,11 +89,17 @@ export class CcxtBrokerAdapter implements IBrokerAdapter {
 
   constructor(params?: { exchangeId?: 'binance'; testnet?: boolean }) {
     const exchangeId = params?.exchangeId ?? 'binance';
-    const apiKey = process.env.EXCHANGE_API_KEY;
-    const secret = process.env.EXCHANGE_SECRET;
+    // Live spot orders: Binance credentials only (vault-aligned with validateInfraEnv).
+    const apiKey = stripEnvQuotes(process.env.BINANCE_API_KEY)?.trim();
+    const secret =
+      stripEnvQuotes(process.env.BINANCE_SECRET)?.trim() ||
+      stripEnvQuotes(process.env.BINANCE_API_SECRET)?.trim();
 
     if (!apiKey || !secret) {
-      throw new Error('Missing EXCHANGE_API_KEY / EXCHANGE_SECRET for live exchange connection.');
+      throw new Error(
+        'Missing Binance credentials for live connection. ' +
+        'Set BINANCE_API_KEY and BINANCE_API_SECRET (or BINANCE_SECRET) in the environment.'
+      );
     }
 
     if (exchangeId !== 'binance') {
@@ -163,8 +170,8 @@ export function createBrokerAdapter(options?: { allowSimulationFallback?: boolea
 }
 
 /**
- * PAPER mode must never hit a real exchange, even if EXCHANGE_API_KEY is set.
- * LIVE uses CCXT when keys exist; otherwise simulated (with optional fallback).
+ * PAPER mode must never hit a real exchange.
+ * LIVE uses CCXT with BINANCE_* keys; simulated only when allowSimulationFallback is true and keys are missing.
  */
 export function createExecutionBrokerAdapter(
   mode: 'PAPER' | 'LIVE',

@@ -6,7 +6,7 @@ const INVALID_KEY_MARKERS = ['TODO', 'your_', 'changeme', 'example', 'placeholde
  * Strip wrapping quotes that some deployment tools (Docker ENV, PM2 ecosystem.config.js,
  * systemd EnvironmentFile, etc.) leave around env values when not using dotenv.
  */
-function stripEnvQuotes(raw: string | undefined): string | undefined {
+export function stripEnvQuotes(raw: string | undefined): string | undefined {
   if (!raw) return raw;
   const v = raw.trim();
   if (v.length >= 2 && ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'")))) {
@@ -88,6 +88,10 @@ export function getPineconeIndexName(): string | undefined {
  *      redis://127.0.0.1:6379 for this on-prem deployment.
  *   4. Core secrets        — DATABASE_URL, APP_SESSION_SECRET, TELEGRAM_BOT_TOKEN
  *      must all be present and non-empty.
+ *   5. GEMINI_API_KEY      — must be present and non-placeholder (GOOGLE_API_KEY accepted as alias).
+ *   6. BINANCE_API_KEY     — must be present and non-placeholder.
+ *   7. Binance secret      — BINANCE_SECRET or BINANCE_API_SECRET must be present and non-placeholder.
+ *   8. SCAN_TOKEN          — required for /api/ops/absolute-scan and ops automation; boot fails if missing.
  *
  * This function is safe to call multiple times (idempotent warn/throw logic).
  */
@@ -175,5 +179,47 @@ export function validateInfraEnv(): void {
       console.error(msg);
       throw new Error(msg);
     }
+  }
+
+  // ── 5. Gemini API key ──────────────────────────────────────────────────────
+  // Accepts GEMINI_API_KEY (canonical) or GOOGLE_API_KEY (deploy-platform alias).
+  const geminiKey = stripEnvQuotes(process.env.GEMINI_API_KEY) || stripEnvQuotes(process.env.GOOGLE_API_KEY);
+  if (!geminiKey || isInvalidKey(geminiKey)) {
+    const msg =
+      '[FATAL BOOT ERROR] GEMINI_API_KEY (or GOOGLE_API_KEY) is missing or contains a placeholder value. ' +
+      'Set GEMINI_API_KEY in your .env file before starting the server.';
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  // ── 6. Binance API key ─────────────────────────────────────────────────────
+  const binanceApiKey = stripEnvQuotes(process.env.BINANCE_API_KEY);
+  if (!binanceApiKey || isInvalidKey(binanceApiKey)) {
+    const msg =
+      '[FATAL BOOT ERROR] BINANCE_API_KEY is missing or contains a placeholder value. ' +
+      'Set BINANCE_API_KEY in your .env file before starting the server.';
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  // ── 7. Binance secret (BINANCE_SECRET or BINANCE_API_SECRET alias) ─────────
+  const binanceSecret =
+    stripEnvQuotes(process.env.BINANCE_SECRET) || stripEnvQuotes(process.env.BINANCE_API_SECRET);
+  if (!binanceSecret || isInvalidKey(binanceSecret)) {
+    const msg =
+      '[FATAL BOOT ERROR] Binance secret is missing or contains a placeholder value. ' +
+      'Set BINANCE_API_SECRET (or legacy BINANCE_SECRET) in your .env file before starting the server.';
+    console.error(msg);
+    throw new Error(msg);
+  }
+
+  // ── 8. SCAN_TOKEN (ops / absolute-scan auth) ───────────────────────────────
+  const scanToken = stripEnvQuotes(process.env.SCAN_TOKEN);
+  if (!scanToken || scanToken.trim() === '' || isInvalidKey(scanToken)) {
+    const msg =
+      '[FATAL BOOT ERROR] SCAN_TOKEN is missing or contains a placeholder value. ' +
+      'Set SCAN_TOKEN in your .env file (Bearer token for ops routes) before starting the server.';
+    console.error(msg);
+    throw new Error(msg);
   }
 }

@@ -17,6 +17,7 @@ import {
   updateTradingExecutionStatusAction,
   type SignalCoreTelemetryPayload,
 } from '@/app/actions';
+import SectionErrorBoundary from '@/components/SectionErrorBoundary';
 
 /** Obsidian & Wealth — institutional deck tokens */
 const C = {
@@ -437,26 +438,28 @@ export default function QuantumCommandCenter() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <MicroSparkline
-              series={cvdHist.length >= 2 ? cvdHist : metrics ? [metrics.cvd_slope * 0.97, metrics.cvd_slope] : [0, 0]}
-              accent="#5eead4"
-              label="שיפוע נפח דלתא מצטבר"
-              valueDisplay={metrics ? formatNum(metrics.cvd_slope, 'exp') : telemEnabled ? '…' : 'לא פעיל'}
-            />
-            <MicroSparkline
-              series={entHist.length >= 2 ? entHist : metrics?.entropy_returns != null ? [metrics.entropy_returns, metrics.entropy_returns * 1.001] : [0, 0]}
-              accent="#a78bfa"
-              label="אנטרופיית תשואות"
-              valueDisplay={metrics?.entropy_returns != null ? formatNum(metrics.entropy_returns, 'fixed4') : '—'}
-            />
-            <MicroSparkline
-              series={kalHist.length >= 2 ? kalHist : metrics?.kalman_velocity != null ? [metrics.kalman_velocity, metrics.kalman_velocity * 1.02] : [0, 0]}
-              accent={C.goldBright}
-              label="מהירות קלמן"
-              valueDisplay={metrics?.kalman_velocity != null ? formatNum(metrics.kalman_velocity, 'exp') : '—'}
-            />
-          </div>
+          <SectionErrorBoundary title="טלמטריה — הנתונים אינם זמינים">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <MicroSparkline
+                series={cvdHist.length >= 2 ? cvdHist : metrics ? [metrics.cvd_slope * 0.97, metrics.cvd_slope] : [0, 0]}
+                accent="#5eead4"
+                label="שיפוע נפח דלתא מצטבר"
+                valueDisplay={metrics ? formatNum(metrics.cvd_slope, 'exp') : telemEnabled ? '…' : 'לא פעיל'}
+              />
+              <MicroSparkline
+                series={entHist.length >= 2 ? entHist : metrics?.entropy_returns != null ? [metrics.entropy_returns, metrics.entropy_returns * 1.001] : [0, 0]}
+                accent="#a78bfa"
+                label="אנטרופיית תשואות"
+                valueDisplay={metrics?.entropy_returns != null ? formatNum(metrics.entropy_returns, 'fixed4') : '—'}
+              />
+              <MicroSparkline
+                series={kalHist.length >= 2 ? kalHist : metrics?.kalman_velocity != null ? [metrics.kalman_velocity, metrics.kalman_velocity * 1.02] : [0, 0]}
+                accent={C.goldBright}
+                label="מהירות קלמן"
+                valueDisplay={metrics?.kalman_velocity != null ? formatNum(metrics.kalman_velocity, 'exp') : '—'}
+              />
+            </div>
+          </SectionErrorBoundary>
 
           {!telemEnabled && telemetry?.message ? (
             <p className="text-center text-[11px] text-zinc-500">{telemetry.message}</p>
@@ -669,6 +672,7 @@ export default function QuantumCommandCenter() {
         </div>
 
         {/* TIER 3 — HEX CONCLAVE */}
+        <SectionErrorBoundary title="מועצת המומחים — Data Unavailable">
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="font-inter-tight text-[10px] font-bold uppercase tracking-[0.35em] text-zinc-500">
@@ -722,7 +726,7 @@ export default function QuantumCommandCenter() {
                   <p className="mt-1 line-clamp-2 font-mono text-[10px] leading-snug text-zinc-400">{line}</p>
                   {logic.length > 0 ? (
                     <div
-                      className="pointer-events-none absolute inset-0 z-10 rounded-xl border border-white/10 bg-black/95 p-3 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
+                      className="pointer-events-none absolute inset-0 z-[10050] rounded-xl border border-white/10 bg-black/95 p-3 opacity-0 shadow-[0_0_0_1px_rgba(0,0,0,0.5)] transition-opacity group-hover:pointer-events-auto group-hover:opacity-100"
                       style={{ backdropFilter: 'blur(12px)' }}
                     >
                       <p className="font-inter-tight text-[10px] font-bold uppercase tracking-wider text-zinc-500">
@@ -738,6 +742,7 @@ export default function QuantumCommandCenter() {
             })}
           </div>
         </div>
+        </SectionErrorBoundary>
       </div>
     </section>
   );

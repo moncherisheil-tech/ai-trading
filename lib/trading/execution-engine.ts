@@ -36,6 +36,13 @@ import { insertTradeExecution, markTradeExecutionFailed, type TradeExecutionRow 
 
 const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
 
+// Hard cap on single-order notional USD. Protocol Omega: never exceed $50 even if env is higher.
+const MAX_TRADE_SIZE_USD = (() => {
+  const raw = Number(process.env.MAX_TRADE_SIZE_USD);
+  const fromEnv = Number.isFinite(raw) && raw > 0 ? raw : 50;
+  return Math.min(50, fromEnv);
+})();
+
 export interface AutonomousExecutionInput {
   predictionId: string;
   decisionId?: string;
@@ -459,7 +466,7 @@ export async function executeAutonomousConsensusSignal(
       const amountUsd = Math.max(
         0,
         round2(
-          Math.min(desiredAmountUsd, sizing.positionSizeUsd, kelly.positionUsd, availableGlobalUsd, availableSingleAssetUsd)
+          Math.min(desiredAmountUsd, sizing.positionSizeUsd, kelly.positionUsd, availableGlobalUsd, availableSingleAssetUsd, MAX_TRADE_SIZE_USD)
         )
       );
 
@@ -591,7 +598,7 @@ export async function executeAutonomousConsensusSignal(
       }
 
       const broker = createExecutionBrokerAdapter(effectiveMode, {
-        allowSimulationFallback: true,
+        allowSimulationFallback: effectiveMode !== 'LIVE',
         testnet: process.env.EXCHANGE_TESTNET === 'true',
       });
       const stealth = new StealthExecutionEngine(broker);
@@ -677,7 +684,7 @@ export async function executeAutonomousConsensusSignal(
     }
 
     const broker = createExecutionBrokerAdapter(effectiveMode, {
-      allowSimulationFallback: true,
+      allowSimulationFallback: effectiveMode !== 'LIVE',
       testnet: process.env.EXCHANGE_TESTNET === 'true',
     });
     const stealth = new StealthExecutionEngine(broker);
@@ -996,7 +1003,7 @@ export class LiveExecutionEngine {
     const isLiveTradingEnabled = settings.execution.masterSwitchEnabled && settings.execution.mode === 'LIVE';
     const mode: 'PAPER' | 'LIVE' = isLiveTradingEnabled ? 'LIVE' : 'PAPER';
     const symbol = normalizeSymbol(signal.symbol);
-    const amountUsd = signal.amountUsd ?? settings.trading.defaultTradeSizeUsd ?? 100;
+    const amountUsd = Math.min(signal.amountUsd ?? settings.trading.defaultTradeSizeUsd ?? 100, MAX_TRADE_SIZE_USD);
     const idem = signal.idempotencyKey?.trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
     const executionId =
       idem && idem.length >= 8 ? `alpha-exec-${idem}` : `alpha-exec-${generateSafeId()}`;
@@ -1038,10 +1045,16 @@ export class LiveExecutionEngine {
 
     try {
       const apiKey = process.env.BINANCE_API_KEY?.trim();
-      const secret = process.env.BINANCE_SECRET?.trim();
+      const secret =
+        process.env.BINANCE_SECRET?.trim() || process.env.BINANCE_API_SECRET?.trim();
       if (!apiKey || !secret) {
         if (execution?.id) await markTradeExecutionFailed(execution.id);
-        return { success: false, mode, reason: 'Missing BINANCE_API_KEY / BINANCE_SECRET.', execution };
+        return {
+          success: false,
+          mode,
+          reason: 'Missing BINANCE_API_KEY / BINANCE_API_SECRET (or BINANCE_SECRET).',
+          execution,
+        };
       }
 
       const exchange = new ccxt.binance({

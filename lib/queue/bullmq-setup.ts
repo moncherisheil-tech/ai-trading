@@ -190,3 +190,17 @@ export async function closeQuantumQueue(): Promise<void> {
     console.log('[QuantumQueue] Closed gracefully.');
   }
 }
+
+if (typeof process !== 'undefined') {
+  const onSig = async (sig: string) => {
+    try {
+      await closeQuantumWorker();
+      await closeQuantumQueue();
+      console.log(`[QuantumQueue] ${sig} — worker/queue closed.`);
+    } catch (e) {
+      console.warn('[QuantumQueue] shutdown:', e instanceof Error ? e.message : e);
+    }
+  };
+  process.once('SIGTERM', () => void onSig('SIGTERM'));
+  process.once('SIGINT', () => void onSig('SIGINT'));
+}

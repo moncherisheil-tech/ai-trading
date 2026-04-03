@@ -13,7 +13,11 @@ import Groq from 'groq-sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { WhaleAlert } from '@/lib/redis/whale-subscriber';
 import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
-import { resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import {
+  GEMINI_CANONICAL_PRO_MODEL_ID,
+  resolveGeminiModel,
+  withGeminiRateLimitRetry,
+} from '@/lib/gemini-model';
 import { prisma } from '@/lib/prisma';
 import { sendTelegramMessage } from '@/lib/notifications/telegram';
 
@@ -77,7 +81,9 @@ async function callGroq(system: string, user: string): Promise<string> {
 
 async function callGemini(system: string, user: string): Promise<string> {
   const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selected = resolveGeminiModel(process.env.GEMINI_MODEL_PRIMARY || 'gemini-2.0-flash-exp');
+  const selected = resolveGeminiModel(
+    process.env.GEMINI_MODEL_PRIMARY || GEMINI_CANONICAL_PRO_MODEL_ID
+  );
   const model = genAI.getGenerativeModel({ model: selected.model }, selected.requestOptions);
 
   const response = await withGeminiRateLimitRetry(() =>

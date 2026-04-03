@@ -1,4 +1,4 @@
-import { Pool, type QueryResult } from 'pg';
+import { Pool, type PoolClient, type QueryResult } from 'pg';
 import {
   assertAuthorizedDatabaseUrl,
   normalizeDatabaseUrlEnv,
@@ -96,4 +96,24 @@ export function sql(
     text += `$${params.length}` + (strings[i + 1] ?? '');
   }
   return runCoreSchemaInitOnce().then(() => getPool().query(text, params));
+}
+
+/**
+ * ACID helper for multi-statement writes (e.g. portfolio + execution log). Single `sql` inserts are already atomic.
+ */
+export async function withSqlTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  ensureDatabaseAuthorizedForQuery();
+  await runCoreSchemaInitOnce();
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const out = await fn(client);
+    await client.query('COMMIT');
+    return out;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }

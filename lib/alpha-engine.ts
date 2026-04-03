@@ -21,7 +21,11 @@ import {
 import { ANTHROPIC_MODEL_CANDIDATES } from '@/lib/anthropic-model';
 import { parseAiJsonObject } from '@/lib/ai/parser';
 import { getGeminiApiKey, getGroqApiKey, getRequiredAnthropicApiKey } from '@/lib/env';
-import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel, withGeminiRateLimitRetry } from '@/lib/gemini-model';
+import {
+  GEMINI_CANONICAL_PRO_MODEL_ID,
+  resolveGeminiModel,
+  withGeminiRateLimitRetry,
+} from '@/lib/gemini-model';
 import { resolveGroqModel } from '@/lib/groq-model';
 import { atr } from '@/lib/indicators';
 import { getLeviathanSnapshot } from '@/lib/leviathan';
@@ -262,7 +266,7 @@ export async function callGeminiWeeklyLong(
   price: number
 ): Promise<z.infer<typeof geminiDualSchema>> {
   const apiKey = getGeminiApiKey();
-  const primary = process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID;
+  const primary = process.env.GEMINI_MODEL_PRIMARY || GEMINI_CANONICAL_PRO_MODEL_ID;
   const selected = resolveGeminiModel(primary);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel(
@@ -381,10 +385,25 @@ export async function runTriCoreAlphaMatrix(symbol: string): Promise<{ createdId
 
   const macroLine = `DXY: ${macro.dxyNote}; BTC dom ${macro.btcDominancePct ?? '—'}%; F&G ${macro.fearGreedIndex ?? '—'}`;
 
-  /** Isolated try/catch per leg so timeouts, quota errors, or SDK throws never abort sibling cores. */
+  const triCoreLegTimeoutMs = Math.min(180_000, Math.max(45_000, APP_CONFIG.geminiTimeoutMs + 15_000));
+
+  function withLegTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} timed out after ${triCoreLegTimeoutMs}ms`)),
+        triCoreLegTimeoutMs
+      );
+    });
+    return Promise.race([promise, timeout]).finally(() => {
+      if (timer) clearTimeout(timer);
+    }) as Promise<T>;
+  }
+
+  /** Isolated try/catch + timeout per leg — failures do not abort sibling Tri-Core experts. */
   async function runTriCoreLeg<T>(label: string, fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
     try {
-      return { ok: true, value: await fn() };
+      return { ok: true, value: await withLegTimeout(label, fn()) };
     } catch (reason) {
       console.error(`[Tri-Core] ${label} leg failed:`, reason);
       return { ok: false };

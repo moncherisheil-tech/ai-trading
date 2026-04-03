@@ -16,7 +16,7 @@ import { getGroqApiKey, getGeminiApiKey } from '@/lib/env';
 import { APP_CONFIG } from '@/lib/config';
 import { rsi, ema20, ema50 } from '@/lib/indicators';
 import { toDecimal } from '@/lib/decimal';
-import { GEMINI_DEFAULT_FLASH_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
+import { GEMINI_CANONICAL_PRO_MODEL_ID, resolveGeminiModel } from '@/lib/gemini-model';
 import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
 
 const GROQ_POST_MORTEM_MODEL = 'llama-3.3-70b-versatile';
@@ -231,7 +231,7 @@ export async function generatePostMortem(
     const geminiKey = getGeminiApiKey();
     const genAI = new GoogleGenerativeAI(geminiKey);
     const selectedGeminiModel = resolveGeminiModel(
-      APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+      APP_CONFIG.fallbackModel || GEMINI_CANONICAL_PRO_MODEL_ID
     );
     const model = genAI.getGenerativeModel(
       {

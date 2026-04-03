@@ -39,7 +39,7 @@ import {
   buildTechnicalLiquidityAugmentation,
 } from '@/lib/agents/psych-agent';
 import {
-  GEMINI_DEFAULT_FLASH_MODEL_ID,
+  GEMINI_CANONICAL_PRO_MODEL_ID,
   resolveGeminiModel,
   withGeminiRateLimitRetry,
 } from '@/lib/gemini-model';
@@ -66,7 +66,7 @@ const WEIGHT_DEEP_MEMORY = WEIGHT_PER_EXPERT;
 const WEIGHT_CONTRARIAN = WEIGHT_PER_EXPERT;
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 const SAFE_GEMINI_FALLBACK_MODEL = resolveGeminiModel(
-  APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+  APP_CONFIG.fallbackModel || GEMINI_CANONICAL_PRO_MODEL_ID
 ).model.replace(/^models\//, '');
 const HAWKEYE_HOT_SWAP_LATENCY_MS = 1_500;
 const WATCHDOG_WINDOW = 20;
@@ -1091,7 +1091,7 @@ function parseMacroJson(raw: string): ExpertMacroOutput {
 
 /** Gemini model used when Groq Macro agent hits 429 rate limit; keeps all 6 experts active. */
 const GEMINI_MACRO_FALLBACK_MODEL = resolveGeminiModel(
-  APP_CONFIG.fallbackModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+  APP_CONFIG.fallbackModel || GEMINI_CANONICAL_PRO_MODEL_ID
 ).model.replace(/^models\//, '');
 
 /**
@@ -1668,7 +1668,7 @@ export async function runConsensusEngine(
   consensusEngineLlmTemperature = resolveLlmTemperature(settingsForConsensus);
 
   try {
-  const requestedRaw = options?.model ?? APP_CONFIG.primaryModel ?? GEMINI_DEFAULT_FLASH_MODEL_ID;
+  const requestedRaw = options?.model ?? APP_CONFIG.primaryModel ?? GEMINI_CANONICAL_PRO_MODEL_ID;
   const isGeminiLike =
     /gemini/i.test(String(requestedRaw)) || String(requestedRaw).startsWith('models/gemini');
   const model = isGeminiLike

@@ -33,6 +33,10 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
+/**
+ * Persists CEO / learning-center execution rows. Single INSERT is atomic; live exchange orders always run after this returns.
+ * Use `withSqlTransaction` from `@/lib/db/sql` when multiple related rows must commit together.
+ */
 export async function insertTradeExecution(input: {
   id: string;
   symbol: string;

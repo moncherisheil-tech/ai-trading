@@ -63,8 +63,7 @@ export async function register() {
     // prevents duplicate TCP connections on hot-reload in development.
     try {
       const { initWhaleSubscriber } = await import('@/lib/redis/whale-subscriber');
-      const { analyzeWhaleAlert } = await import('@/lib/ai/whale-analysis');
-      initWhaleSubscriber(analyzeWhaleAlert);
+      initWhaleSubscriber();
       console.log('[Instrumentation] Whale subscriber online — listening on quant:alerts');
     } catch (err) {
       // Non-fatal: the app runs without the subscriber if Redis is unreachable at boot.
@@ -73,5 +72,17 @@ export async function register() {
         err instanceof Error ? err.message : err
       );
     }
+
+    const onShutdown = async (sig: string) => {
+      try {
+        const { disconnectPrisma } = await import('@/lib/prisma');
+        await disconnectPrisma();
+        console.log(`[Instrumentation] ${sig} — Prisma disconnected.`);
+      } catch (e) {
+        console.warn('[Instrumentation] Prisma shutdown:', e instanceof Error ? e.message : e);
+      }
+    };
+    process.once('SIGTERM', () => void onShutdown('SIGTERM'));
+    process.once('SIGINT', () => void onShutdown('SIGINT'));
   }
 }

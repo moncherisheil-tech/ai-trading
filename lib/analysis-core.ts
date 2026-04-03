@@ -50,7 +50,7 @@ import { calculatePositionSize, calculateTradeLevels } from '@/lib/trading/risk-
 import { getRecentWhaleMovements } from '@/lib/trading/whale-tracker';
 import { getDeveloperActivity } from '@/lib/trading/github-tracker';
 import {
-  GEMINI_DEFAULT_FLASH_MODEL_ID,
+  GEMINI_CANONICAL_PRO_MODEL_ID,
   resolveGeminiModel,
   withGeminiRateLimitRetry,
 } from '@/lib/gemini-model';
@@ -427,7 +427,7 @@ export async function doAnalysisCore(
     outputLocale === 'he' ? 'fluent, professional Hebrew' : 'fluent, professional English';
   const hardLocaleDirective =
     outputLocale === 'he' ? '\nCRITICAL: You MUST answer in Hebrew. Do not use English.' : '';
-  let activeModel = APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID;
+  let activeModel = APP_CONFIG.primaryModel || GEMINI_CANONICAL_PRO_MODEL_ID;
   if (process.env.NODE_ENV === 'development') {
     console.log('[HEARTBEAT] doAnalysisCore started', { model: activeModel });
   }
@@ -1241,7 +1241,7 @@ RULES:
   }
 
   const auditModel = resolveGeminiModel(
-    activeModel || APP_CONFIG.primaryModel || GEMINI_DEFAULT_FLASH_MODEL_ID
+    activeModel || APP_CONFIG.primaryModel || GEMINI_CANONICAL_PRO_MODEL_ID
   ).model.replace(/^models\//, '');
   writeAudit({ event: 'analysis.success', meta: { symbol: cleanSymbol, model: auditModel, fallbackUsed } });
 

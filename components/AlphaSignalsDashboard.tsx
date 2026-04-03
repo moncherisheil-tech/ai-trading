@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { BookOpen, Loader2, RefreshCw, Sparkles, X, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { AlphaSignalDTO } from '@/lib/alpha-signals-db';
@@ -116,6 +116,10 @@ function ProbabilityBar({ value }: { value: number }) {
 // ─── Executive Summary Drawer ────────────────────────────────────────────────
 
 function SignalDrawer({ row, onClose }: { row: AlphaSignalDTO; onClose: () => void }) {
+  useLayoutEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
   const isLong   = (row.direction ?? '') === 'Long';
   const entry    = row.entryPrice    ?? 0;
   const target   = row.targetPrice   ?? 0;
@@ -153,15 +157,19 @@ function SignalDrawer({ row, onClose }: { row: AlphaSignalDTO; onClose: () => vo
     : 'bg-gradient-to-l from-rose-950/50    to-slate-950';
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-start" dir="rtl">
+    <div className="fixed inset-0 z-[10000] flex justify-start" dir="rtl">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={onClose} aria-hidden />
+      <div
+        className="absolute inset-0 z-[9999] bg-black/75 backdrop-blur-md"
+        onClick={onClose}
+        aria-hidden
+      />
 
       <motion.aside
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-        className="relative z-[60] flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-white/10 bg-slate-950 shadow-2xl"
+        className="relative z-[10000] flex h-full w-full max-w-lg flex-col overflow-hidden border-l border-white/10 bg-slate-950 shadow-2xl"
         role="dialog"
         aria-modal="true"
       >
@@ -397,6 +405,7 @@ export default function AlphaSignalsDashboard() {
         toast?.success('בוצע כבר — TWAP פעיל.');
         return;
       }
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       setPendingExecution({ row, side });
     },
     [execKey, toast]
@@ -693,13 +702,17 @@ export default function AlphaSignalsDashboard() {
       {drawerRow && <SignalDrawer row={drawerRow} onClose={() => setDrawerRow(null)} />}
 
       {pendingExecution && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={closeModal} aria-hidden />
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 z-[9999] bg-black/75 backdrop-blur-md"
+            onClick={closeModal}
+            aria-hidden
+          />
           <div
             dir="rtl"
             role="dialog"
             aria-modal="true"
-            className="relative z-[60] w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
+            className="relative z-[10000] w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
           >
             <div className="mb-4 flex items-start justify-between gap-2">
               <h3 className="text-lg font-semibold text-white">אישור ביצוע</h3>

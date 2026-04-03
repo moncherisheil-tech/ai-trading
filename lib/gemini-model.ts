@@ -6,30 +6,38 @@ type GeminiRequestOptions = {
 /** Default production Flash model for `@google/generative-ai` v1beta (2026). Locked — do not change without updating Pinecone embeddings. */
 export const GEMINI_DEFAULT_FLASH_MODEL_ID = 'gemini-3-flash-preview' as const;
 
+/** Canonical primary Pro model for all high-stakes analysis and consensus (2026). */
+export const GEMINI_CANONICAL_PRO_MODEL_ID = 'gemini-3.1-pro-preview' as const;
+
 /**
- * Legacy / retired model IDs from env or old configs → canonical production Flash.
+ * Legacy / retired model IDs from env or old configs → canonical live models.
+ * - Flash-family legacy IDs → GEMINI_DEFAULT_FLASH_MODEL_ID (cheap fallback tier).
+ * - Pro-family / experimental legacy IDs → GEMINI_CANONICAL_PRO_MODEL_ID (primary).
  */
 const RETIRED_GEMINI_MODEL_IDS: Record<string, string> = {
-  'gemini-1.5-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-1.5-flash-8b': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-1.5-flash-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-1.5-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-1.5-pro-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.0-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.0-flash-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-3.0-flash-exp': 'gemini-3.1-pro-preview',
+  // Flash-family: stay on Flash tier
+  'gemini-1.5-flash':              GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-flash-8b':           GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-1.5-flash-latest':       GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash':              GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash-exp':          GEMINI_DEFAULT_FLASH_MODEL_ID,
   'gemini-2.0-flash-thinking-exp': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.0-flash-lite': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-flash': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-flash-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-flash-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-pro': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-pro-latest': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-2.5-pro-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-3-pro-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-exp-1206': GEMINI_DEFAULT_FLASH_MODEL_ID,
-  'gemini-3-flash-preview': GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.0-flash-lite':         GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash':              GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash-latest':       GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-2.5-flash-preview':      GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-3-flash-preview':        GEMINI_DEFAULT_FLASH_MODEL_ID,
+  'gemini-exp-1206':               GEMINI_DEFAULT_FLASH_MODEL_ID,
+  // Pro-family / experimental: upgrade to canonical Pro — do NOT downgrade to Flash
+  'gemini-1.5-pro':                GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-1.5-pro-latest':         GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-pro':                    GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-2.5-pro':                GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-2.5-pro-latest':         GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-2.5-pro-preview':        GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-3.0-flash-exp':          GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-3-pro-preview':          GEMINI_CANONICAL_PRO_MODEL_ID,
+  'gemini-3.1-pro-preview':        GEMINI_CANONICAL_PRO_MODEL_ID,
 };
 
 export function normalizeGeminiModelId(modelName: string): string {

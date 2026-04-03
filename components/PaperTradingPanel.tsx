@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Lock, RefreshCw, Zap, Wallet, Crosshair, TrendingUp } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -13,6 +13,7 @@ import {
   Legend,
 } from 'recharts';
 import { getTradingExecutionStatusAction, updateTradingExecutionStatusAction } from '@/app/actions';
+import SectionErrorBoundary from '@/components/SectionErrorBoundary';
 
 type ExecutionStatusResponse = {
   mode: 'PAPER' | 'LIVE';
@@ -160,6 +161,10 @@ export default function PaperTradingPanel() {
     return () => clearInterval(t);
   }, [refresh]);
 
+  useLayoutEffect(() => {
+    if (analysis) window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [analysis]);
+
   const updateConfig = useCallback(
     async (payload: Partial<Pick<ExecutionStatusResponse, 'masterSwitchEnabled' | 'mode' | 'minConfidenceToExecute'>>) => {
       if (saving) return;
@@ -236,7 +241,8 @@ export default function PaperTradingPanel() {
                   <span className="text-[10px] text-zinc-600 font-mono">Cumulative PnL $ · Rolling win %</span>
                 </div>
                 <div className="h-[220px] w-full min-w-0 max-w-full overflow-x-hidden">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <SectionErrorBoundary title="גרף אבולוציית אלפא — Data Unavailable">
+                    <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={status.alphaEvolution} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                       <XAxis
@@ -300,6 +306,7 @@ export default function PaperTradingPanel() {
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </SectionErrorBoundary>
                 </div>
               </div>
             )}
@@ -519,13 +526,20 @@ export default function PaperTradingPanel() {
       </div>
 
       {analysis && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 z-[9999] bg-black/75 backdrop-blur-md"
+            onClick={() => setAnalysis(null)}
+            role="presentation"
+            aria-hidden
+          />
           <div
             dir="rtl"
             role="dialog"
             aria-modal="true"
             aria-label="Execution audit analysis"
-            className="mx-auto w-full max-w-4xl rounded-3xl border border-slate-800 bg-slate-950/95 backdrop-blur-sm p-6 sm:p-8 shadow-[0_18px_48px_rgba(0,0,0,0.45)] max-h-[90vh] overflow-y-auto"
+            className="relative z-[10000] mx-auto w-full max-w-4xl rounded-3xl border border-slate-800 bg-slate-950/95 backdrop-blur-sm p-6 sm:p-8 shadow-[0_18px_48px_rgba(0,0,0,0.45)] max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-6 border-b border-white/5 pb-5">
               <div className="flex items-start gap-4">

@@ -140,6 +140,28 @@ export function getPrisma(): PrismaClient | null {
 }
 
 /**
+ * Graceful shutdown: closes Prisma engine and underlying pg pool (SIGTERM / worker exit).
+ */
+export async function disconnectPrisma(): Promise<void> {
+  try {
+    if (globalForPrisma.prisma) {
+      await globalForPrisma.prisma.$disconnect();
+      globalForPrisma.prisma = undefined;
+    }
+  } catch (err) {
+    console.warn('[prisma] $disconnect:', err instanceof Error ? err.message : err);
+  }
+  try {
+    if (globalForPrisma.prismaPool) {
+      await globalForPrisma.prismaPool.end();
+      globalForPrisma.prismaPool = undefined;
+    }
+  } catch (err) {
+    console.warn('[prisma] pool.end:', err instanceof Error ? err.message : err);
+  }
+}
+
+/**
  * Wraps any Prisma call and re-throws with a categorised diagnostic message.
  * Use in API routes where you want a clean server log entry:
  *

@@ -40,7 +40,25 @@ function getWhaleRedisUrl(): string {
 const g = globalThis as typeof globalThis & {
   __whaleSubscriberInstance?: WhaleSubscriber;
   __whaleSubscriberWired?: boolean;
+  __whaleSubscriberShutdownHooks?: boolean;
 };
+
+function registerWhaleSubscriberShutdownHooks(): void {
+  if (g.__whaleSubscriberShutdownHooks) return;
+  g.__whaleSubscriberShutdownHooks = true;
+  const shutdown = async (sig: string) => {
+    try {
+      if (g.__whaleSubscriberInstance) {
+        await g.__whaleSubscriberInstance.disconnect();
+        console.log(`[WhaleSubscriber] ${sig} — Redis subscriber disconnected.`);
+      }
+    } catch (e) {
+      console.warn('[WhaleSubscriber] disconnect error:', e instanceof Error ? e.message : e);
+    }
+  };
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+}
 
 export class WhaleSubscriber {
   private client: IORedis;
@@ -161,6 +179,7 @@ export function getWhaleSubscriber(): WhaleSubscriber {
  * `__whaleSubscriberWired` persists on `globalThis`.
  */
 export function initWhaleSubscriber(): WhaleSubscriber {
+  registerWhaleSubscriberShutdownHooks();
   const subscriber = getWhaleSubscriber();
   if (!g.__whaleSubscriberWired) {
     g.__whaleSubscriberWired = true;

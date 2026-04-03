@@ -4,7 +4,7 @@
  * Zero-trust infrastructure probe for bin/absolute-truth-scanner.ts.
  * Runs directly on the server — queries Postgres, Redis, Pinecone, Neuroplasticity, EpisodicMemory.
  *
- * Auth: Authorization: Bearer <SCAN_TOKEN env var OR hardcoded fallback>
+ * Auth: Authorization: Bearer <SCAN_TOKEN env var> — SCAN_TOKEN must be set; no fallback.
  */
 
 import { NextResponse } from 'next/server';
@@ -12,10 +12,9 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
-const FALLBACK_TOKEN = 'qmc-absolute-scan-2026-03-31';
-
 function isAuthorized(request: Request): boolean {
-  const token = process.env.SCAN_TOKEN?.trim() || FALLBACK_TOKEN;
+  const token = process.env.SCAN_TOKEN?.trim();
+  if (!token) return false;
   const auth = request.headers.get('authorization') ?? '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim() === token;
   return false;

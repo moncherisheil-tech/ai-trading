@@ -1,4 +1,4 @@
-import { GEMINI_DEFAULT_FLASH_MODEL_ID, normalizeGeminiModelId } from './gemini-model';
+import { GEMINI_CANONICAL_PRO_MODEL_ID, normalizeGeminiModelId } from './gemini-model';
 import { CRYPTO_SYMBOLS } from './symbols';
 
 const PRODUCTION_FALLBACK_URL = 'https://quantum.moncherigroup.co.il';
@@ -97,11 +97,17 @@ export const APP_CONFIG = {
   tickerSocketUrl: 'wss://stream.binance.com:9443/ws/!miniTicker@arr',
   tickerReconnectBaseMs: 1_500,
   tickerReconnectMaxMs: 15_000,
-  /** Primary Gemini model (legacy env IDs are normalized to GEMINI_DEFAULT_FLASH_MODEL_ID). */
-  primaryModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_PRIMARY || GEMINI_DEFAULT_FLASH_MODEL_ID),
-  fallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
+  /** Alpha Engine generative default: gemini-3.1-pro-preview (env may override; legacy IDs normalized). */
+  primaryModel: normalizeGeminiModelId(
+    process.env.GEMINI_MODEL_PRIMARY || GEMINI_CANONICAL_PRO_MODEL_ID
+  ),
+  fallbackModel: normalizeGeminiModelId(
+    process.env.GEMINI_MODEL_FALLBACK || GEMINI_CANONICAL_PRO_MODEL_ID
+  ),
   /** Model used when primary returns 429 (quota exhausted). */
-  quotaFallbackModel: normalizeGeminiModelId(process.env.GEMINI_MODEL_QUOTA_FALLBACK || GEMINI_DEFAULT_FLASH_MODEL_ID),
+  quotaFallbackModel: normalizeGeminiModelId(
+    process.env.GEMINI_MODEL_QUOTA_FALLBACK || GEMINI_CANONICAL_PRO_MODEL_ID
+  ),
   authToken: process.env.APP_AUTH_TOKEN || '',
   turnstileSecret: process.env.TURNSTILE_SECRET_KEY || '',
   postgresUrl: normalizeEnvValue(process.env.DATABASE_URL),
