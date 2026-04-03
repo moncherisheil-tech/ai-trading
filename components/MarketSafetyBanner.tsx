@@ -1,42 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { Shield, AlertTriangle } from 'lucide-react';
-
-type MarketRiskStatus = 'SAFE' | 'DANGEROUS';
-
-interface MarketRiskSentiment {
-  status: MarketRiskStatus;
-  reasoning: string;
-  checkedAt: string;
-}
+import { useMarketState } from '@/context/MarketStateContext';
 
 const SAFE_LABEL = 'שוק יציב — תנאים אופטימליים';
 const DANGER_LABEL = 'אזהרת סיכון: תנודתיות גבוהה — מומלץ להימנע ממסחר';
 
+/**
+ * Reads market risk data from the shared MarketStateContext instead of issuing
+ * its own fetch. Previously this component sent an independent GET /api/market/risk
+ * on every mount, duplicating the request already fired by MarketStateProvider
+ * (which polls every 18 s). Consuming the context eliminates the duplicate
+ * round-trip and cuts initial page-load latency by ~1–10 s.
+ */
 export default function MarketSafetyBanner() {
-  const [data, setData] = useState<MarketRiskSentiment | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { sentiment, loading } = useMarketState();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchRisk() {
-      try {
-        const res = await fetch('/api/market/risk', { cache: 'no-store', credentials: 'include' });
-        if (!res.ok || cancelled) return;
-        const json = (await res.json()) as MarketRiskSentiment;
-        if (!cancelled) setData(json);
-      } catch {
-        if (!cancelled) setData({ status: 'SAFE', reasoning: '—', checkedAt: new Date().toISOString() });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    fetchRisk();
-    return () => { cancelled = true; };
-  }, []);
-
-  if (loading || !data) {
+  if (loading || !sentiment) {
     return (
       <div
         className="w-full py-2.5 px-4 bg-zinc-800/80 border-b border-white/5 text-center text-sm text-zinc-400"
@@ -50,7 +30,7 @@ export default function MarketSafetyBanner() {
     );
   }
 
-  const isSafe = data.status === 'SAFE';
+  const isSafe = sentiment.status === 'SAFE';
   return (
     <div
       role="status"
@@ -68,9 +48,9 @@ export default function MarketSafetyBanner() {
         <AlertTriangle className="w-4 h-4 shrink-0 text-red-400 animate-pulse" aria-hidden />
       )}
       <span>{isSafe ? SAFE_LABEL : DANGER_LABEL}</span>
-      {data.reasoning && (
-        <span className="text-xs opacity-90 font-normal max-w-2xl truncate" title={data.reasoning}>
-          ({data.reasoning})
+      {sentiment.reasoning && (
+        <span className="text-xs opacity-90 font-normal max-w-2xl truncate" title={sentiment.reasoning}>
+          ({sentiment.reasoning})
         </span>
       )}
     </div>

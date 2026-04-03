@@ -108,8 +108,11 @@ export function getPrisma(): PrismaClient | null {
         // Keep the Prisma pool small; raw sql.ts has its own separate pool.
         max: Number(process.env.PRISMA_POOL_MAX ?? 5),
         idleTimeoutMillis: 30_000,
-        // 30 s — accounts for Israel → Germany cross-border latency.
-        connectionTimeoutMillis: 30_000,
+        // 8 s — fail fast on unreachable DB rather than blocking requests for 30 s.
+        // Cross-border RTT to 178.104.75.47 is typically <200 ms when the server
+        // is reachable; 8 s is generous while preventing the diagnostics route and
+        // any API handler from hanging for a full 30 s on a dropped connection.
+        connectionTimeoutMillis: 8_000,
         // TCP keepalives prevent silent bridge drops during quiet market hours.
         // First probe fires after 60 s idle; retried every 10 s up to 5 times.
         keepAlive: true,

@@ -39,7 +39,7 @@ type RedisPingResult = {
 
 async function pingRedis(): Promise<RedisPingResult> {
   const url = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
-  const defaultHb = { alive: false, lastBeatAt: null, staleSinceMs: null };
+  const defaultHb: { alive: boolean; lastBeatAt: string | null; staleSinceMs: number | null } = { alive: false, lastBeatAt: null, staleSinceMs: null };
   try {
     const IORedis = (await import('ioredis')).default;
     const client = new IORedis(url, {
@@ -101,51 +101,95 @@ export async function GET(): Promise<NextResponse> {
     error: null,
   };
 
-  // ── Postgres ping — live round-trip via Prisma ────────────────────────────────────────────────
-  // Intentionally NOT using getAppSettings() / listOpenVirtualTrades() here — those helpers
-  // swallow all DB errors internally and always return defaults, which would make this block
-  // report "online" even when the database is completely unreachable.
-  try {
-    await prisma.$queryRaw`SELECT 1`;
+  // ── Fire ALL I/O in parallel ──────────────────────────────────────────────────────────────────
+  // Previously each operation awaited sequentially (postgres → redis → pinecone → DB queries →
+  // macro → neuroPlasticity → episodicMemory). With cross-border latency to 178.104.75.47 and
+  // 88.99.208.99 each round-trip adds 100–300 ms; 8 sequential calls = 800 ms–2.4 s minimum.
+  // Promise.allSettled fires them all at once and processes results after all settle.
+  const MACRO_LOAD_TIMEOUT_MS = 5_000;
+
+  const [
+    postgresRes,
+    redisPingRes,
+    pineconeRes,
+    consensusRes,
+    boardRes,
+    macroRes,
+    neuroRes,
+    episodicRes,
+  ] = await Promise.allSettled([
+    // 1. Postgres liveness ping
+    prisma.$queryRaw`SELECT 1`,
+    // 2. Redis ping + worker heartbeat (new TCP connection — acceptable cost for diagnostics)
+    pingRedis(),
+    // 3. Pinecone connection verification (skipped when not configured)
+    pinecone === 'ok'
+      ? import('@/lib/vector-db').then((m) => m.verifyPineconeConnectionStrict())
+      : Promise.resolve(null),
+    // 4. Latest consensus record
+    getDbAsync(),
+    // 5. Board meeting logs — last entry timestamp
+    prisma.$queryRaw<{ timestamp: string }[]>`
+      SELECT timestamp::text AS timestamp FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1
+    `,
+    // 6. DXY macro — hard 5 s cap inside the race is preserved here
+    Promise.race([
+      fetchMacroContext(MACRO_LOAD_TIMEOUT_MS),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), MACRO_LOAD_TIMEOUT_MS)),
+    ]),
+    // 7. NeuroPlasticity weights (id = 1)
+    prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } }),
+    // 8. Episodic memory — 10 most recent lessons
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (prisma as any).episodicMemory.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
+    }),
+  ]);
+
+  // ── Process results ───────────────────────────────────────────────────────────────────────────
+
+  // Postgres
+  if (postgresRes.status === 'fulfilled') {
     postgres = 'ok';
     dbHealth = { status: 'online', error: null };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    postgres = 'fail';
+  } else {
+    const message = postgresRes.reason instanceof Error ? postgresRes.reason.message : String(postgresRes.reason);
     dbHealth = { status: 'offline', error: message };
   }
 
-  // ── Redis ping + worker heartbeat ─────────────────────────────────────────────────────────────
-  // Single TCP connection handles both the PING and the heartbeat GET key read.
-  const redisPing = await pingRedis();
+  // Redis
+  const redisPing = redisPingRes.status === 'fulfilled'
+    ? redisPingRes.value
+    : { ok: false, latencyMs: 0, error: 'ping failed', workerHeartbeat: { alive: false, lastBeatAt: null, staleSinceMs: null } } as RedisPingResult;
   const redisStatus: 'ok' | 'fail' | 'skip' = redisPing.ok ? 'ok' : 'fail';
   const workerHeartbeat = redisPing.workerHeartbeat;
 
-  // ── Pinecone ping ──────────────────────────────────────────────────────────────────────────────
+  // Pinecone
   if (pinecone === 'ok') {
-    try {
-      const { verifyPineconeConnectionStrict } = await import('@/lib/vector-db');
-      const connection = await verifyPineconeConnectionStrict();
-      if (!connection.ok) {
+    if (pineconeRes.status === 'fulfilled' && pineconeRes.value != null) {
+      const conn = pineconeRes.value as { ok: boolean; error?: string };
+      if (!conn.ok) {
         pinecone = 'fail';
-        vectorStorageHealth = { status: 'offline', error: connection.error || 'Pinecone connection failed.' };
+        vectorStorageHealth = { status: 'offline', error: conn.error || 'Pinecone connection failed.' };
       } else {
         vectorStorageHealth = { status: 'online', error: null };
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+    } else if (pineconeRes.status === 'rejected') {
+      const message = pineconeRes.reason instanceof Error ? pineconeRes.reason.message : String(pineconeRes.reason);
       pinecone = 'fail';
       vectorStorageHealth = { status: 'offline', error: message };
     }
   }
 
-  // ── Latest consensus ───────────────────────────────────────────────────────────────────────────
+  // Latest consensus
   let latestConsensus: { saved: boolean; prediction_date: string | null; symbol?: string } = {
     saved: false,
     prediction_date: null,
   };
-  try {
-    const records = await getDbAsync();
+  if (consensusRes.status === 'fulfilled') {
+    const records = consensusRes.value as Array<{ master_insight_he?: unknown; final_confidence?: unknown; prediction_date: string; symbol: string }>;
     const withConsensus = records.filter((r) => r.master_insight_he != null && r.final_confidence != null);
     const latest = withConsensus.sort(
       (a, b) => new Date(b.prediction_date).getTime() - new Date(a.prediction_date).getTime()
@@ -153,20 +197,13 @@ export async function GET(): Promise<NextResponse> {
     if (latest) {
       latestConsensus = { saved: true, prediction_date: latest.prediction_date, symbol: latest.symbol };
     }
-  } catch {
-    latestConsensus = { saved: false, prediction_date: null };
   }
 
-  // ── Board meeting logs ─────────────────────────────────────────────────────────────────────────
+  // Board meeting logs
   let latestBoardMeetingAt: string | null = null;
-  try {
-    const rows = await prisma.$queryRaw<{ timestamp: string }[]>`
-      SELECT timestamp::text AS timestamp FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1
-    `;
-    const row = rows?.[0] as { timestamp?: string } | undefined;
-    latestBoardMeetingAt = row?.timestamp ?? null;
-  } catch {
-    latestBoardMeetingAt = null;
+  if (boardRes.status === 'fulfilled') {
+    const rows = boardRes.value as Array<{ timestamp?: string }> | undefined;
+    latestBoardMeetingAt = rows?.[0]?.timestamp ?? null;
   }
 
   const nowMs = Date.now();
@@ -273,12 +310,7 @@ export async function GET(): Promise<NextResponse> {
     lastPineconeUpsert = await getLastPineconeUpsertAt();
   } catch { /* non-fatal */ }
 
-  // ── DXY macro health ──────────────────────────────────────────────────────────────────────────
-  // Hard 5-second cap: external APIs (CoinGecko, Yahoo) can return 429 with Retry-After: 60s.
-  // fetchWithBackoff with maxRetries=3 would wait up to 2×60s = 120s → 504. We race against a
-  // 5-second sentinel so the diagnostics response is always delivered promptly, regardless of
-  // third-party rate limits. The macro snapshot is purely informational on this page.
-  const MACRO_LOAD_TIMEOUT_MS = 5_000;
+  // ── DXY macro health (from parallel batch result) ─────────────────────────────────────────────
   let macroDxy: {
     status: 'ok' | 'fail';
     value: number | null;
@@ -286,37 +318,30 @@ export async function GET(): Promise<NextResponse> {
     note: string;
     updatedAt: string | null;
   } = { status: 'fail', value: null, source: null, note: 'DXY diagnostics unavailable.', updatedAt: null };
-  try {
-    const macro = await Promise.race([
-      fetchMacroContext(MACRO_LOAD_TIMEOUT_MS),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), MACRO_LOAD_TIMEOUT_MS)),
-    ]);
-    if (macro) {
-      macroDxy = {
-        status: macro.dxyStatus ?? (typeof macro.dxyValue === 'number' ? 'ok' : 'fail'),
-        value: typeof macro.dxyValue === 'number' ? macro.dxyValue : null,
-        source: macro.dxySource ?? null,
-        note: macro.dxyNote,
-        updatedAt: macro.updatedAt ?? null,
-      };
-    }
-  } catch { /* keep fail defaults */ }
-
-  // ── Auto-seed NeuroPlasticity + EpisodicMemory if never initialized ──────────────────────────
-  // Safe to run on every diagnostics request — ensureNeuroPlasticityInitialized() is idempotent.
-  // It only writes when the singleton (id=1) is absent or when the episodicMemory table is empty.
-  // Failure here is non-fatal: the UI will show null/empty and the user can trigger init manually.
-  if (postgres === 'ok') {
-    try {
-      const { ensureNeuroPlasticityInitialized } = await import('@/lib/learning/recursive-optimizer');
-      await ensureNeuroPlasticityInitialized();
-    } catch (seedErr) {
-      const msg = seedErr instanceof Error ? seedErr.message : String(seedErr);
-      console.warn('[ops/diagnostics] ensureNeuroPlasticityInitialized skipped (non-fatal):', msg);
-    }
+  if (macroRes.status === 'fulfilled' && macroRes.value) {
+    const macro = macroRes.value;
+    macroDxy = {
+      status: macro.dxyStatus ?? (typeof macro.dxyValue === 'number' ? 'ok' : 'fail'),
+      value: typeof macro.dxyValue === 'number' ? macro.dxyValue : null,
+      source: macro.dxySource ?? null,
+      note: macro.dxyNote,
+      updatedAt: macro.updatedAt ?? null,
+    };
   }
 
-  // ── SystemNeuroPlasticity (id=1) ──────────────────────────────────────────────────────────────
+  // ── Auto-seed NeuroPlasticity — fire-and-forget, never blocks the response ───────────────────
+  // Runs only when Postgres is confirmed online. The background promise is intentionally detached:
+  // we do not await it so the HTTP response is returned immediately to the client.
+  if (postgres === 'ok') {
+    void import('@/lib/learning/recursive-optimizer')
+      .then(({ ensureNeuroPlasticityInitialized }) => ensureNeuroPlasticityInitialized())
+      .catch((seedErr) => {
+        const msg = seedErr instanceof Error ? seedErr.message : String(seedErr);
+        console.warn('[ops/diagnostics] ensureNeuroPlasticityInitialized skipped (non-fatal):', msg);
+      });
+  }
+
+  // ── SystemNeuroPlasticity (from parallel batch result) ────────────────────────────────────────
   type NeuroPlasticityPayload = {
     techWeight: number;
     riskWeight: number;
@@ -333,27 +358,25 @@ export async function GET(): Promise<NextResponse> {
   } | null;
 
   let neuroPlasticity: NeuroPlasticityPayload = null;
-  try {
-    const row = await prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } });
-    if (row) {
-      neuroPlasticity = {
-        techWeight: row.techWeight,
-        riskWeight: row.riskWeight,
-        psychWeight: row.psychWeight,
-        macroWeight: row.macroWeight,
-        onchainWeight: row.onchainWeight,
-        deepMemoryWeight: row.deepMemoryWeight,
-        contrarianWeight: row.contrarianWeight,
-        ceoConfidenceThreshold: row.ceoConfidenceThreshold,
-        ceoRiskTolerance: row.ceoRiskTolerance,
-        robotSlBufferPct: row.robotSlBufferPct,
-        robotTpAggressiveness: row.robotTpAggressiveness,
-        updatedAt: row.updatedAt?.toISOString() ?? null,
-      };
-    }
-  } catch { /* non-fatal; UI handles null */ }
+  if (neuroRes.status === 'fulfilled' && neuroRes.value) {
+    const row = neuroRes.value;
+    neuroPlasticity = {
+      techWeight: row.techWeight,
+      riskWeight: row.riskWeight,
+      psychWeight: row.psychWeight,
+      macroWeight: row.macroWeight,
+      onchainWeight: row.onchainWeight,
+      deepMemoryWeight: row.deepMemoryWeight,
+      contrarianWeight: row.contrarianWeight,
+      ceoConfidenceThreshold: row.ceoConfidenceThreshold,
+      ceoRiskTolerance: row.ceoRiskTolerance,
+      robotSlBufferPct: row.robotSlBufferPct,
+      robotTpAggressiveness: row.robotTpAggressiveness,
+      updatedAt: row.updatedAt?.toISOString() ?? null,
+    };
+  }
 
-  // ── EpisodicMemory feed (10 most recent lessons) ──────────────────────────────────────────────
+  // ── EpisodicMemory feed (from parallel batch result) ──────────────────────────────────────────
   type EpisodicLesson = {
     id: string;
     symbol: string;
@@ -362,13 +385,8 @@ export async function GET(): Promise<NextResponse> {
     createdAt: string;
   };
   let episodicMemory: EpisodicLesson[] = [];
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = (await (prisma as any).episodicMemory.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
-    })) as Array<{ id: string; symbol: string; marketRegime: string; abstractLesson: string; createdAt: Date }>;
+  if (episodicRes.status === 'fulfilled') {
+    const rows = episodicRes.value as Array<{ id: string; symbol: string; marketRegime: string; abstractLesson: string; createdAt: Date }>;
     episodicMemory = rows.map((r) => ({
       id: r.id,
       symbol: r.symbol,
@@ -376,7 +394,7 @@ export async function GET(): Promise<NextResponse> {
       abstractLesson: r.abstractLesson,
       createdAt: r.createdAt.toISOString(),
     }));
-  } catch { /* non-fatal */ }
+  }
 
   return NextResponse.json({
     connections: { gemini, groq, anthropic, pinecone, postgres, redis: redisStatus },

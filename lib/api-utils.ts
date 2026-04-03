@@ -371,33 +371,38 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
   const out: MacroContextSnapshot = { dxyNote: 'DXY (US Dollar Index) unavailable this cycle.', updatedAt };
 
   try {
-    const [dxySnapshot, fngRes, dominanceRes, fxUplink] = await Promise.all([
-      fetchDxySnapshot(timeoutMs).catch(() => null),
+    // fetchForexUplink already calls fetchDxySnapshot internally (parallel) — no need to call it
+    // twice from here. Removing the standalone fetchDxySnapshot eliminates a duplicate stooq/yahoo
+    // request that previously fired in parallel with the one inside fetchForexUplink.
+    const [fxUplinkRes, fngRes, dominanceRes] = await Promise.allSettled([
+      fetchForexUplink(timeoutMs).catch(() => null),
       fetchWithBackoff('https://api.alternative.me/fng/?limit=1', {
         timeoutMs,
-        maxRetries: 3,
+        maxRetries: 2,
         cache: 'no-store',
       }).catch(() => null),
       fetchWithBackoff('https://api.coingecko.com/api/v3/global', {
         timeoutMs,
-        maxRetries: 3,
+        maxRetries: 2,
         cache: 'no-store',
       }).catch(() => null),
-      fetchForexUplink(timeoutMs).catch(() => null),
     ]);
 
-    if (dxySnapshot) {
-      out.dxyValue = dxySnapshot.value;
-      out.dxySource = dxySnapshot.source;
+    const fxUplink = fxUplinkRes.status === 'fulfilled' ? fxUplinkRes.value : null;
+
+    if (fxUplink?.dxy != null) {
+      out.dxyValue = fxUplink.dxy;
+      out.dxySource = 'forex-uplink';
       out.dxyStatus = 'ok';
-      out.dxyNote = `DXY live: ${dxySnapshot.value.toFixed(3)} (source: ${dxySnapshot.source}).`;
+      out.dxyNote = `DXY live: ${fxUplink.dxy.toFixed(3)}.`;
     } else {
       out.dxyStatus = 'fail';
       out.dxySource = 'none';
     }
 
-    if (fngRes?.ok) {
-      const fngData = (await fngRes.json()) as { data?: Array<{ value?: string; value_classification?: string }> };
+    const fngResponse = fngRes.status === 'fulfilled' ? fngRes.value : null;
+    if (fngResponse?.ok) {
+      const fngData = (await fngResponse.json()) as { data?: Array<{ value?: string; value_classification?: string }> };
       const first = fngData?.data?.[0];
       if (first?.value) {
         const val = parseInt(first.value, 10);
@@ -408,8 +413,9 @@ export async function fetchMacroContext(timeoutMs: number = DEFAULT_TIMEOUT_MS):
       }
     }
 
-    if (dominanceRes?.ok) {
-      const domData = (await dominanceRes.json()) as { data?: { market_cap_percentage?: Record<string, number> } };
+    const dominanceResponse = dominanceRes.status === 'fulfilled' ? dominanceRes.value : null;
+    if (dominanceResponse?.ok) {
+      const domData = (await dominanceResponse.json()) as { data?: { market_cap_percentage?: Record<string, number> } };
       const btc = domData?.data?.market_cap_percentage?.btc;
       if (typeof btc === 'number' && Number.isFinite(btc)) {
         out.btcDominancePct = Math.round(btc * 10) / 10;
@@ -498,49 +504,100 @@ function parseYahooChartLastClose(raw: string): number | null {
 
 /**
  * Live DXY, EUR/USD, USD/ILS for macro panel and localized ILS risk (Yahoo chart endpoints).
+ *
+ * ── Performance contract ──────────────────────────────────────────────────────
+ * All external I/O (Yahoo × 3, stooq/yahoo-chart DXY fallback, Binance USDT/USDC)
+ * now runs IN PARALLEL, not sequentially. An aggregate hard cap ensures the
+ * function returns within AGGREGATE_CAP_MS regardless of individual call timing.
+ *
+ * Previous worst-case:  Yahoo(retry×3) + stooq(10s) + yahoo-chart(10s) + Binance(retry×3) ≈ 22–60 s
+ * New worst-case:       max(all parallel) bounded by AGGREGATE_CAP_MS              ≈ 8 s
  */
 export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): Promise<ForexUplinkSnapshot> {
   const updatedAt = new Date().toISOString();
   const out: ForexUplinkSnapshot = { updatedAt };
-  const symbols = [
-    { key: 'dxy' as const, yahoo: 'DX-Y.NYB' },
-    { key: 'eurUsd' as const, yahoo: 'EURUSD=X' },
-    { key: 'usdIls' as const, yahoo: 'ILS=X' },
+
+  // Hard aggregate cap: the entire function must resolve within this window.
+  const AGGREGATE_CAP_MS = Math.min(timeoutMs, 8_000);
+  // Per-call budget: each individual request gets a generous slice, but the
+  // outer cap guarantees we never block longer than AGGREGATE_CAP_MS total.
+  const perCall = Math.min(timeoutMs, 5_000);
+
+  const symbols: Array<{ key: 'dxy' | 'eurUsd' | 'usdIls'; yahoo: string }> = [
+    { key: 'dxy', yahoo: 'DX-Y.NYB' },
+    { key: 'eurUsd', yahoo: 'EURUSD=X' },
+    { key: 'usdIls', yahoo: 'ILS=X' },
   ];
-  await Promise.all(
-    symbols.map(async ({ key, yahoo }) => {
-      try {
-        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoo)}?range=1d&interval=5m`;
-        const res = await fetchWithBackoff(url, {
-          timeoutMs,
-          maxRetries: 3,
-          cache: 'no-store',
-          init: {
-            headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
-          },
-        });
-        if (!res.ok) return;
-        const text = await res.text();
-        const v = parseYahooChartLastClose(text);
-        if (v == null) return;
-        const rounded = Math.round(v * 10_000) / 10_000;
-        // Reject cross-ticker garbage (e.g. wrong slot) so DXY / FX pairs never mix scales.
-        if (key === 'dxy' && (rounded < 72 || rounded > 140)) return;
-        if (key === 'eurUsd' && (rounded < 0.65 || rounded > 1.65)) return;
-        if (key === 'usdIls' && (rounded < 2 || rounded > 8)) return;
-        out[key] = rounded;
-      } catch {
-        // skip symbol
-      }
-    })
+
+  type YahooResult = { key: 'dxy' | 'eurUsd' | 'usdIls'; value: number } | null;
+
+  // All five network calls run in parallel.
+  // slots: [0]=dxy, [1]=eurUsd, [2]=usdIls, [3]=dxySnap, [4]=usdtUsdc
+  const allWork = Promise.allSettled<YahooResult | { value: number; source: string } | number | null>([
+    // Yahoo Finance — 1 attempt each (maxRetries:1 eliminates 3× retry storms)
+    ...symbols.map(({ key, yahoo }) =>
+      (async (): Promise<YahooResult> => {
+        try {
+          const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahoo)}?range=1d&interval=5m`;
+          const res = await fetchWithBackoff(url, {
+            timeoutMs: perCall,
+            maxRetries: 1,
+            cache: 'no-store',
+            init: { headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } },
+          });
+          if (!res.ok) return null;
+          const text = await res.text();
+          const v = parseYahooChartLastClose(text);
+          if (v == null) return null;
+          const rounded = Math.round(v * 10_000) / 10_000;
+          // Reject cross-ticker garbage so DXY / FX pairs never mix scales.
+          if (key === 'dxy' && (rounded < 72 || rounded > 140)) return null;
+          if (key === 'eurUsd' && (rounded < 0.65 || rounded > 1.65)) return null;
+          if (key === 'usdIls' && (rounded < 2 || rounded > 8)) return null;
+          return { key, value: rounded };
+        } catch {
+          return null;
+        }
+      })()
+    ),
+    // DXY fallback via stooq/yahoo-chart — runs IN PARALLEL, not after Yahoo
+    fetchDxySnapshot(perCall).catch(() => null),
+    // USDT/USDC Binance spot — runs IN PARALLEL, not after DXY fallback
+    fetchUsdtUsdcSpot(perCall).catch(() => null),
+  ]);
+
+  // Race the parallel work against a hard aggregate cap.
+  // If the cap fires first, we return whatever data we have (possibly empty).
+  let didTimeout = false;
+  const aggregateCap = new Promise<void>((resolve) =>
+    setTimeout(() => { didTimeout = true; resolve(); }, AGGREGATE_CAP_MS)
   );
-  const dxySnap = await fetchDxySnapshot(timeoutMs).catch(() => null);
-  if (dxySnap && out.dxy == null) {
-    const v = dxySnap.value;
-    if (v >= 72 && v <= 140) out.dxy = v;
+  await Promise.race([allWork, aggregateCap]);
+  if (didTimeout) return out;
+
+  // allWork is already settled here (it won the race) — await is instant.
+  const results = await allWork;
+
+  // Apply Yahoo results
+  for (let i = 0; i < symbols.length; i++) {
+    const r = results[i];
+    if (r.status === 'fulfilled' && r.value != null) {
+      const entry = r.value as YahooResult;
+      if (entry) out[entry.key] = entry.value;
+    }
   }
-  const usdtUsdc = await fetchUsdtUsdcSpot(timeoutMs).catch(() => null);
-  if (usdtUsdc != null) {
+
+  // Apply DXY fallback (stooq/yahoo-chart) if Yahoo did not supply it
+  const dxyR = results[3];
+  if (dxyR.status === 'fulfilled' && dxyR.value != null && out.dxy == null) {
+    const snap = dxyR.value as { value: number; source: string };
+    if (snap.value >= 72 && snap.value <= 140) out.dxy = snap.value;
+  }
+
+  // Apply USDT/USDC and compute ILS live proxy
+  const usdtR = results[4];
+  if (usdtR.status === 'fulfilled' && usdtR.value != null) {
+    const usdtUsdc = usdtR.value as number;
     out.usdtUsdc = usdtUsdc;
     if (out.usdIls != null) {
       const liveProxy = out.usdIls * usdtUsdc;
@@ -548,6 +605,7 @@ export async function fetchForexUplink(timeoutMs: number = DEFAULT_TIMEOUT_MS): 
       out.usdIlsVolatilityPct = Math.round(((usdtUsdc - 1) * 100) * 10_000) / 10_000;
     }
   }
+
   return out;
 }
 
