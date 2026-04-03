@@ -385,6 +385,73 @@ export interface OrchestratorContext {
   marketContext?: Record<string, unknown>;
 }
 
+// ─── Safe JSON Helpers ─────────────────────────────────────────────────────
+
+const VALID_EXPERT_VERDICTS = ['BULLISH', 'BEARISH', 'NEUTRAL'] as const;
+
+/**
+ * Parses the raw LLM text into an ExpertResult payload.
+ * Returns a NEUTRAL fallback instead of throwing when the model returns
+ * malformed JSON, partial JSON, or wraps the response in markdown fences.
+ */
+function safeParseExpertJson(raw: string): Pick<ExpertResult, 'verdict' | 'confidence' | 'reasoning'> {
+  try {
+    const cleaned = raw.replace(/```json|```/gi, '').trim();
+    const obj = JSON.parse(cleaned) as Record<string, unknown>;
+    const verdict = VALID_EXPERT_VERDICTS.includes(obj.verdict as ExpertResult['verdict'])
+      ? (obj.verdict as ExpertResult['verdict'])
+      : 'NEUTRAL';
+    const rawConf = Number(obj.confidence);
+    const confidence = Number.isFinite(rawConf) ? Math.max(0, Math.min(100, Math.round(rawConf))) : 50;
+    const reasoning =
+      typeof obj.reasoning === 'string' && obj.reasoning.trim()
+        ? obj.reasoning.slice(0, 400)
+        : 'No reasoning provided.';
+    return { verdict, confidence, reasoning };
+  } catch {
+    return { verdict: 'NEUTRAL', confidence: 50, reasoning: 'LLM returned malformed JSON — neutral fallback applied.' };
+  }
+}
+
+/**
+ * Parses the CEO Overseer's raw LLM response into a typed decision payload.
+ * Falls back to SKIP / 0 confidence on parse failure so the caller's own
+ * catch block can still issue a safe default rather than crashing.
+ */
+function safeParseOverseerJson(raw: string): {
+  verdict: 'TRADE' | 'HOLD' | 'SKIP';
+  confidence: number;
+  reasoning: string;
+  keyRisk: string;
+} {
+  try {
+    const cleaned = raw.replace(/```json|```/gi, '').trim();
+    const obj = JSON.parse(cleaned) as Record<string, unknown>;
+    const validVerdicts = ['TRADE', 'HOLD', 'SKIP'] as const;
+    const verdict = validVerdicts.includes(obj.verdict as 'TRADE' | 'HOLD' | 'SKIP')
+      ? (obj.verdict as 'TRADE' | 'HOLD' | 'SKIP')
+      : 'SKIP';
+    const rawConf = Number(obj.confidence);
+    const confidence = Number.isFinite(rawConf) ? Math.max(0, Math.min(100, Math.round(rawConf))) : 0;
+    const reasoning =
+      typeof obj.reasoning === 'string' && obj.reasoning.trim()
+        ? obj.reasoning.slice(0, 500)
+        : 'CEO analysis unavailable.';
+    const keyRisk =
+      typeof obj.keyRisk === 'string' && obj.keyRisk.trim()
+        ? obj.keyRisk.slice(0, 200)
+        : 'Unknown risk — defaulting to SKIP.';
+    return { verdict, confidence, reasoning, keyRisk };
+  } catch {
+    return {
+      verdict: 'SKIP',
+      confidence: 0,
+      reasoning: 'CEO LLM returned malformed JSON — defaulting to SKIP.',
+      keyRisk: 'Parse failure — system defaulted to SKIP for safety.',
+    };
+  }
+}
+
 // ─── The 7 Experts ────────────────────────────────────────────────────────
 
 async function runTechnicianExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -398,8 +465,7 @@ Episodic memory context: ${ctx.episodicMemory.slice(0, 2).join(' | ') || 'none'}
 Analyze purely from a technical price-action perspective.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'groq');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'Technician', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'Technician', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runRiskExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -413,8 +479,7 @@ Analyze from a risk/reward and position-sizing perspective.
 Consider volatility, liquidity, and downside exposure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'gemini');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'RiskManager', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'RiskManager', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runPsychExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -427,8 +492,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Analyze market sentiment, fear/greed, and crowd psychology.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'gemini');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'MarketPsychologist', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'MarketPsychologist', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runMacroExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -441,8 +505,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Analyze macro trends, funding rates, and order book pressure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'groq');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'MacroOrderBook', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'MacroOrderBook', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runOnChainExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -456,8 +519,7 @@ This IS on-chain data. Interpret whale flow anomaly, smart money patterns.
 A large delta_pct positive = institutional accumulation. Negative = distribution.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'anthropic');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'OnChainSleuth', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'OnChainSleuth', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runDeepMemoryExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -476,8 +538,7 @@ ${memCtx}
 Based on past trade outcomes with similar whale patterns, what is your verdict?
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'gemini');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'DeepMemory', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'DeepMemory', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 async function runContrarianExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
@@ -491,8 +552,7 @@ Your job: argue the OPPOSITE of what most experts would say.
 Identify hidden risks, false breakouts, whale traps, liquidity grabs.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
   const raw = await generateLiveText(prompt, 'groq');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as { verdict: ExpertResult['verdict']; confidence: number; reasoning: string };
-  return { expert: 'Contrarian', ...parsed, durationMs: Date.now() - t0 };
+  return { expert: 'Contrarian', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
 const EXPERT_TASKS: Array<(ctx: OrchestratorContext) => Promise<ExpertResult>> = [
@@ -560,12 +620,7 @@ Issue a definitive verdict:
 Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasoning":"<2-3 sentences>","keyRisk":"<1 sentence>"}`;
 
   const raw = await generateLiveText(prompt, 'anthropic');
-  const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim()) as {
-    verdict: CeoVerdict;
-    confidence: number;
-    reasoning: string;
-    keyRisk: string;
-  };
+  const parsed = safeParseOverseerJson(raw);
   return { ...parsed, durationMs: Date.now() - t0 };
 }
 
