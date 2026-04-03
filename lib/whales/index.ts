@@ -16,8 +16,45 @@ import type { WhaleMovement, WhaleMovementsResult } from '@/lib/whales/types';
 /** Binance aggTrade size classified as whale-level. */
 const BINANCE_WHALE_THRESHOLD_USD = 100_000;
 
-/** CryptoQuant v1 base (all 2026 paths returning 404 — kept for completeness). */
-const CQ_BASE = 'https://api.cryptoquant.com/v1';
+/**
+ * CryptoQuant v1 base. When CRYPTOQUANT_RELAY_URL is set, all CQ requests
+ * are routed through Server B (88.99.208.99) to bypass geo-blocks / 403s.
+ * Falls back to direct CQ endpoint when relay is not configured.
+ */
+const CQ_BASE =
+  (process.env.CRYPTOQUANT_RELAY_URL ?? '').trim() ||
+  'https://api.cryptoquant.com/v1';
+
+// ── Server B relay provider (Priority 0 — bypasses direct API auth issues) ─
+/**
+ * Routes whale data through the Server B HTTP relay (88.99.208.99).
+ * Expected relay contract: POST WHALE_PROXY_URL/whale-data?ticker=BTC
+ * Returns the same WhaleMovementsResult shape. Only active when
+ * WHALE_PROXY_URL is configured. Skipped silently when absent.
+ */
+async function fetchViaServerBRelay(
+  ticker: string
+): Promise<WhaleMovementsResult> {
+  const relayBase = (process.env.WHALE_PROXY_URL ?? '').trim();
+  if (!relayBase) throw new Error('WHALE_PROXY_URL not configured — Server B relay inactive');
+
+  const url = `${relayBase}/whale-data?ticker=${encodeURIComponent(ticker)}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+    headers: { 'X-Relay-Secret': process.env.ADMIN_SECRET ?? '' },
+  });
+
+  if (!res.ok) throw new Error(`Server B relay HTTP ${res.status}`);
+
+  const data = (await res.json()) as WhaleMovementsResult;
+  if (!data?.status) throw new Error('Server B relay returned malformed payload');
+
+  return {
+    ...data,
+    providerNote: `[Server B Relay] ${data.providerNote ?? 'OK'}`,
+  };
+}
 
 // ── CryptoQuant provider (legacy) ─────────────────────────────────────────
 async function fetchCryptoQuantMovements(
@@ -164,6 +201,22 @@ export async function getRecentWhaleMovementsOrchestrated(
   assetTicker: string
 ): Promise<WhaleMovementsResult> {
   const ticker = assetTicker.toUpperCase().replace(/USDT$/i, '');
+
+  // ── 0. Server B Relay (highest priority when WHALE_PROXY_URL is set) ────────
+  if ((process.env.WHALE_PROXY_URL ?? '').trim()) {
+    try {
+      const result = await fetchViaServerBRelay(ticker);
+      if (result.status === 'LIVE') {
+        console.log(`[whale-orchestrator] Server B relay active — data served for ${ticker}.`);
+        return result;
+      }
+    } catch (relayErr) {
+      const relayMsg = relayErr instanceof Error ? relayErr.message : String(relayErr);
+      console.warn(
+        `[whale-orchestrator] Server B relay failed: ${relayMsg} — falling through to CryptoQuant.`
+      );
+    }
+  }
 
   // ── 1. CryptoQuant ────────────────────────────────────────────────────────
   try {

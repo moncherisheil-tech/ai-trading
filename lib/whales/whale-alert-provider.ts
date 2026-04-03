@@ -21,7 +21,14 @@ export const WHALE_ALERT_MIN_VALUE_USD = 500_000;
 /** Look-back window for transaction fetch (seconds). */
 const LOOKBACK_SECONDS = 3_600; // 1 hour
 
-const WHALE_ALERT_BASE = 'https://api.whale-alert.io/v1';
+/**
+ * Whale Alert base URL. When WHALE_ALERT_RELAY_URL is set, all requests are
+ * routed through Server B (88.99.208.99) to bypass direct API key restrictions
+ * or geo-blocks. Falls back to the direct endpoint when relay is not configured.
+ */
+const WHALE_ALERT_BASE =
+  (process.env.WHALE_ALERT_RELAY_URL ?? '').trim() ||
+  'https://api.whale-alert.io/v1';
 
 /** Maps Whale Alert blockchain names to canonical asset tickers. */
 const BLOCKCHAIN_TICKER: Record<string, string> = {
