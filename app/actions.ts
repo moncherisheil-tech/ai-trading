@@ -910,52 +910,61 @@ async function adminApiRequest<T>(
   const maxAttempts = Math.max(1, Math.min(5, options?.retries ?? 1));
 
   const runOnce = async (): Promise<AdminActionResult<T>> => {
-    const headers = new Headers(init?.headers);
-    headers.set('authorization', `Bearer ${adminSecret}`);
+    // Wrap the entire request lifecycle so network errors (ECONNREFUSED,
+    // UND_ERR_SOCKET, DNS failures, AbortError) never propagate as unhandled
+    // exceptions from a Server Action — those become Next.js 500 responses and
+    // show up as browser-console traces pointing to the call-site component.
+    try {
+      const headers = new Headers(init?.headers);
+      headers.set('authorization', `Bearer ${adminSecret}`);
 
-    const jar = await cookies();
-    const cookieHeader = jar.toString();
-    if (cookieHeader) headers.set('cookie', cookieHeader);
+      const jar = await cookies();
+      const cookieHeader = jar.toString();
+      if (cookieHeader) headers.set('cookie', cookieHeader);
 
-    const res = await fetch(url, {
-      ...init,
-      cache: 'no-store',
-      headers,
-    });
+      const res = await fetch(url, {
+        ...init,
+        cache: 'no-store',
+        headers,
+      });
 
-    const rawText = await res.text().catch(() => '');
-    let payload: unknown = null;
-    if (rawText) {
-      try {
-        payload = JSON.parse(rawText) as unknown;
-      } catch {
-        payload = rawText;
-      }
-    }
-
-    if (!res.ok) {
-      if (res.status === 401) return { success: false, error: 'UNAUTHORIZED' };
-      const derived = extractBackendError(payload);
-      if (derived) return { success: false, error: derived };
-      return { success: false, error: `Request failed (${res.status}).` };
-    }
-
-    const derived = extractBackendError(payload);
-    if (options?.treatPayloadFailureFlagsAsFailure === false) {
-      return { success: true, data: payload as T };
-    }
-    if (derived) {
-      if (payload && typeof payload === 'object') {
-        const p = payload as Record<string, unknown>;
-        const successFlag = 'success' in p ? p.success : undefined;
-        const okFlag = 'ok' in p ? p.ok : undefined;
-        if (successFlag === false || okFlag === false || ('error' in p && typeof p.error === 'string' && (p.error as string).trim().length > 0)) {
-          return { success: false, error: derived };
+      const rawText = await res.text().catch(() => '');
+      let payload: unknown = null;
+      if (rawText) {
+        try {
+          payload = JSON.parse(rawText) as unknown;
+        } catch {
+          payload = rawText;
         }
       }
-    }
 
-    return { success: true, data: payload as T };
+      if (!res.ok) {
+        if (res.status === 401) return { success: false, error: 'UNAUTHORIZED' };
+        const derived = extractBackendError(payload);
+        if (derived) return { success: false, error: derived };
+        return { success: false, error: `Request failed (${res.status}).` };
+      }
+
+      const derived = extractBackendError(payload);
+      if (options?.treatPayloadFailureFlagsAsFailure === false) {
+        return { success: true, data: payload as T };
+      }
+      if (derived) {
+        if (payload && typeof payload === 'object') {
+          const p = payload as Record<string, unknown>;
+          const successFlag = 'success' in p ? p.success : undefined;
+          const okFlag = 'ok' in p ? p.ok : undefined;
+          if (successFlag === false || okFlag === false || ('error' in p && typeof p.error === 'string' && (p.error as string).trim().length > 0)) {
+            return { success: false, error: derived };
+          }
+        }
+      }
+
+      return { success: true, data: payload as T };
+    } catch (networkErr) {
+      const msg = networkErr instanceof Error ? networkErr.message : String(networkErr);
+      return { success: false, error: `שגיאת רשת: ${msg}` };
+    }
   };
 
   let lastErr = 'Request failed.';
@@ -1290,7 +1299,11 @@ export async function runOpsSandboxAction(): Promise<AdminActionResult<unknown>>
 }
 
 export async function getOpsDiagnosticsAction(): Promise<AdminActionResult<unknown>> {
-  return adminApiRequest<unknown>('/api/ops/diagnostics', { method: 'GET' });
+  try {
+    return await adminApiRequest<unknown>('/api/ops/diagnostics', { method: 'GET' });
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : 'שגיאת רשת — האבחון אינו זמין' };
+  }
 }
 
 export async function runOpsAuditCheckAction(): Promise<AdminActionResult<unknown>> {

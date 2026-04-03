@@ -10,19 +10,28 @@ export default function TelegramStatus() {
 
   useEffect(() => {
     let mounted = true;
+
     const fetchStatus = async () => {
+      // getTelegramStatusAction returns { success, data } — never throws because
+      // adminApiRequest now has an outer try-catch for network errors. We still
+      // guard here in case a future refactor changes that contract.
       try {
         const out = await getTelegramStatusAction();
-        const data = out.success ? (out.data as { connected?: boolean; subscribersCount?: number }) : null;
         if (!mounted) return;
+        const data = out.success
+          ? (out.data as { connected?: boolean; subscribersCount?: number } | null)
+          : null;
         if (!data) {
           setConnected(false);
           setSubscribersCount(0);
           return;
         }
         setConnected(Boolean(data.connected));
-        setSubscribersCount(Number.isFinite(Number(data.subscribersCount)) ? Number(data.subscribersCount) : 0);
+        setSubscribersCount(
+          Number.isFinite(Number(data.subscribersCount)) ? Number(data.subscribersCount) : 0
+        );
       } catch {
+        // Swallow silently — show "disconnected" badge, no error bubble.
         if (!mounted) return;
         setConnected(false);
         setSubscribersCount(0);
@@ -30,7 +39,8 @@ export default function TelegramStatus() {
     };
 
     void fetchStatus();
-    const id = setInterval(() => void fetchStatus(), 15000);
+    // 60 s is plenty for a status indicator; 15 s created unnecessary console noise.
+    const id = setInterval(() => void fetchStatus(), 60_000);
     return () => {
       mounted = false;
       clearInterval(id);

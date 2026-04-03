@@ -75,6 +75,19 @@ async function pingRedis(): Promise<RedisPingResult> {
 }
 
 export async function GET(): Promise<NextResponse> {
+  try {
+    return await getImpl();
+  } catch (fatal) {
+    const msg = fatal instanceof Error ? fatal.message : String(fatal);
+    console.error('[ops/diagnostics] Unhandled error in GET handler:', msg);
+    return NextResponse.json(
+      { error: 'Internal server error — diagnostics unavailable.', detail: msg },
+      { status: 500 }
+    );
+  }
+}
+
+async function getImpl(): Promise<NextResponse> {
   if (isSessionEnabled()) {
     const cookieStore = await cookies();
     const token = cookieStore.get(AUTH_COOKIE_NAME)?.value ?? '';
@@ -392,7 +405,7 @@ export async function GET(): Promise<NextResponse> {
       symbol: r.symbol,
       marketRegime: r.marketRegime,
       abstractLesson: r.abstractLesson,
-      createdAt: r.createdAt.toISOString(),
+      createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
     }));
   }
 
