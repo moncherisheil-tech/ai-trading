@@ -670,7 +670,7 @@ export async function sendAlphaSignalIntelAlert(
   const originEscaped = escapeHtml(params.signalOrigin.trim());
 
   const confBar = (() => {
-    const filled = Math.round(params.confidencePct / 10);
+    const filled = Math.min(10, Math.max(0, Math.round(params.confidencePct / 10)));
     return '█'.repeat(filled) + '░'.repeat(10 - filled);
   })();
 

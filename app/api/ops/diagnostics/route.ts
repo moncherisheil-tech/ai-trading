@@ -208,9 +208,13 @@ async function getImpl(): Promise<NextResponse> {
     // 2. Redis ping + worker heartbeat — hard 3 s cap (88.99.208.99); IORedis has its
     //    own connectTimeout but we enforce an outer deadline for the full round-trip.
     withTimeout(pingRedis(), REDIS_PROBE_TIMEOUT_MS, 'redis ping'),
-    // 3. Pinecone connection verification (skipped when not configured)
+    // 3. Pinecone connection verification (skipped when not configured) — hard 3 s cap
     pinecone === 'ok'
-      ? import('@/lib/vector-db').then((m) => m.verifyPineconeConnectionStrict())
+      ? withTimeout(
+          import('@/lib/vector-db').then((m) => m.verifyPineconeConnectionStrict()),
+          DB_PROBE_TIMEOUT_MS,
+          'pinecone verifyPineconeConnectionStrict'
+        )
       : Promise.resolve(null),
     // 4. Latest consensus record
     withTimeout(getDbAsync(), DB_PROBE_TIMEOUT_MS, 'getDbAsync (consensus)'),
