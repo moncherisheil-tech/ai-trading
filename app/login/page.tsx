@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   MessageSquare,
   RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 
 // Only allow /ops paths as redirect targets to prevent open-redirect attacks.
@@ -249,12 +250,13 @@ function LoginForm() {
               </div>
 
               {error && (
-                <p
+                <div
                   role="alert"
-                  className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-300"
+                  className="flex items-start gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 shadow-[0_0_20px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/20"
                 >
-                  {error}
-                </p>
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" aria-hidden />
+                  <p className="text-sm font-medium text-rose-300">{error}</p>
+                </div>
               )}
 
               <button
@@ -307,12 +309,13 @@ function LoginForm() {
               </div>
 
               {error && (
-                <p
+                <div
                   role="alert"
-                  className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-300"
+                  className="flex items-start gap-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 shadow-[0_0_20px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/20"
                 >
-                  {error}
-                </p>
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-400" aria-hidden />
+                  <p className="text-sm font-medium text-rose-300">{error}</p>
+                </div>
               )}
 
               <button
