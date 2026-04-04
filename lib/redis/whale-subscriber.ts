@@ -30,9 +30,14 @@ export interface WhaleAlert {
 const CHANNEL = 'quant:alerts';
 
 function getWhaleRedisUrl(): string {
-  const rawUrl =
-    process.env.WHALE_REDIS_URL ||
-    'redis://default:QuantumMonCheri2026!@88.99.208.99:6379';
+  const rawUrl = process.env.WHALE_REDIS_URL;
+  if (!rawUrl || rawUrl.trim() === '') {
+    throw new Error(
+      '[WhaleSubscriber] WHALE_REDIS_URL is not set. ' +
+      'Add it to your .env file before starting the server. ' +
+      'Example: WHALE_REDIS_URL=redis://default:<password>@<host>:6379'
+    );
+  }
   return rawUrl.replace(/^["']|["']$/g, '').trim();
 }
 
@@ -85,7 +90,7 @@ export class WhaleSubscriber {
     });
 
     this.client.on('connect', () =>
-      console.log('[WhaleSubscriber] TCP connected → redis://***@88.99.208.99:6379')
+      console.log('[WhaleSubscriber] TCP connected → WHALE_REDIS_URL')
     );
 
     this.client.on('ready', () => {

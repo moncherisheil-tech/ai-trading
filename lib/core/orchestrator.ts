@@ -464,7 +464,7 @@ Episodic memory context: ${ctx.episodicMemory.slice(0, 2).join(' | ') || 'none'}
 
 Analyze purely from a technical price-action perspective.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'groq');
+  const raw = await generateLiveText({ prompt, provider: 'groq' });
   return { expert: 'Technician', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -478,7 +478,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Analyze from a risk/reward and position-sizing perspective.
 Consider volatility, liquidity, and downside exposure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'gemini');
+  const raw = await generateLiveText({ prompt, provider: 'gemini' });
   return { expert: 'RiskManager', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -491,7 +491,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 
 Analyze market sentiment, fear/greed, and crowd psychology.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'gemini');
+  const raw = await generateLiveText({ prompt, provider: 'gemini' });
   return { expert: 'MarketPsychologist', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -504,7 +504,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 
 Analyze macro trends, funding rates, and order book pressure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'groq');
+  const raw = await generateLiveText({ prompt, provider: 'groq' });
   return { expert: 'MacroOrderBook', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -518,7 +518,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 This IS on-chain data. Interpret whale flow anomaly, smart money patterns.
 A large delta_pct positive = institutional accumulation. Negative = distribution.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'anthropic');
+  const raw = await generateLiveText({ prompt, provider: 'anthropic' });
   return { expert: 'OnChainSleuth', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -537,7 +537,7 @@ ${memCtx}
 
 Based on past trade outcomes with similar whale patterns, what is your verdict?
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'gemini');
+  const raw = await generateLiveText({ prompt, provider: 'gemini' });
   return { expert: 'DeepMemory', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -551,7 +551,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Your job: argue the OPPOSITE of what most experts would say.
 Identify hidden risks, false breakouts, whale traps, liquidity grabs.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText(prompt, 'groq');
+  const raw = await generateLiveText({ prompt, provider: 'groq' });
   return { expert: 'Contrarian', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -619,7 +619,16 @@ Issue a definitive verdict:
 
 Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasoning":"<2-3 sentences>","keyRisk":"<1 sentence>"}`;
 
-  const raw = await generateLiveText(prompt, 'anthropic');
+  let raw: string;
+  try {
+    raw = await generateLiveText({ prompt, provider: 'anthropic' });
+  } catch (anthropicErr) {
+    const errMsg = anthropicErr instanceof Error ? anthropicErr.message : String(anthropicErr);
+    console.warn(
+      `[Orchestrator] CEO Anthropic unavailable — Gemini promoted to Acting CEO: ${errMsg}`
+    );
+    raw = await generateLiveText({ prompt, provider: 'gemini' });
+  }
   const parsed = safeParseOverseerJson(raw);
   return { ...parsed, durationMs: Date.now() - t0 };
 }
@@ -642,7 +651,7 @@ Execution: ${executionResult ? (executionResult.success ? 'SUCCESS' : `FAILED: $
 Key risk identified: ${ceoDecision.keyRisk}
 
 In 2-3 sentences, what should the system learn from this signal processing cycle?`;
-    const lesson = await generateLiveText(prompt, 'groq');
+    const lesson = await generateLiveText({ prompt, provider: 'groq' });
 
     const { storePostMortem } = await import('@/lib/vector-db');
     await storePostMortem({
