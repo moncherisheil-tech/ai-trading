@@ -133,5 +133,30 @@ if (APP_CONFIG.proxyBinanceUrl) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Boot-time environment validation — fail fast rather than fail silent.
+// The server MUST NOT start if critical secrets are absent.
+// ---------------------------------------------------------------------------
+const REQUIRED_ENV_VARS: Array<{ key: string; description: string }> = [
+  { key: 'APP_SESSION_SECRET',  description: 'HMAC signing key for session cookies' },
+  { key: 'DATABASE_URL',        description: 'PostgreSQL connection string' },
+  { key: 'ADMIN_SECRET',        description: 'Bearer token for administrative API routes' },
+  { key: 'BINANCE_API_KEY',     description: 'Binance exchange API key' },
+];
+
+if (process.env.NODE_ENV !== 'test') {
+  const missing = REQUIRED_ENV_VARS.filter(({ key }) => !process.env[key]?.trim());
+  if (missing.length > 0) {
+    const lines = missing.map(({ key, description }) => `  • ${key}  — ${description}`).join('\n');
+    throw new Error(
+      `\n\n╔══════════════════════════════════════════════════════╗\n` +
+      `║  FATAL: Required environment variables are missing  ║\n` +
+      `╚══════════════════════════════════════════════════════╝\n\n` +
+      `${lines}\n\n` +
+      `Copy .env.example to .env and populate all required values.\n`
+    );
+  }
+}
+
 /** סימבולי Binance (עם USDT) לניתוח ולבדיקות. */
 export const TARGET_SYMBOLS = CRYPTO_SYMBOLS.map((b) => `${b}USDT`) as readonly string[];

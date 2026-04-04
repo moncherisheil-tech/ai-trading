@@ -22,9 +22,6 @@ const PUBLIC_API_PREFIXES: string[] = [
   '/api/ops/absolute-scan', // zero-trust scanner probe (Bearer token auth inside route)
 ];
 
-// Emergency fallback — must mirror lib/session.ts EMERGENCY_SECRET.
-const EMERGENCY_SECRET = 'mon-cheri-emergency-secret-2026';
-
 // ---------------------------------------------------------------------------
 // Cookie verification — HMAC-SHA256 signed token.
 // Supports secret rotation via APP_SESSION_SECRET_PREVIOUS.
@@ -88,12 +85,16 @@ async function verifyAuthCookie(request: NextRequest): Promise<boolean> {
     return false;
   }
 
-  // Build secret list — include emergency fallback so logins survive missing env var.
+  // Build secret list. Requires APP_SESSION_SECRET to be set — no hardcoded fallback.
   const activeSecrets = [
     process.env.APP_SESSION_SECRET          ?? '',
     process.env.APP_SESSION_SECRET_PREVIOUS ?? '',
-    EMERGENCY_SECRET,
   ].filter((s, i, arr) => Boolean(s) && arr.indexOf(s) === i); // deduplicate
+
+  if (activeSecrets.length === 0) {
+    console.error('[middleware] FATAL: APP_SESSION_SECRET is not configured — denying all requests.');
+    return false;
+  }
 
   const encoder    = new TextEncoder();
   const payloadRaw = encoder.encode(payloadB64);
@@ -184,9 +185,9 @@ export async function middleware(request: NextRequest) {
 
     return NextResponse.next();
   } catch (err) {
-    // Never let an unhandled middleware exception surface as a 500 to the client.
-    console.error('[middleware] Unhandled exception — allowing request through:', err);
-    return NextResponse.next();
+    // Fail-closed: any unhandled exception during auth must deny the request.
+    console.error('[middleware] Unhandled exception — denying request (fail-closed):', err);
+    return deny401();
   }
 }
 

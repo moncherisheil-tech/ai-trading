@@ -7,27 +7,43 @@
  *   The Signer lives in the internal signal-generation service (lib/trading/execution-auth.ts).
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { validateAdminOrCronAuth } from '@/lib/cron-auth';
 import { verifyExecutionHandshake } from '@/lib/trading/execution-auth';
 
-type ExecuteSignalBody = {
-  symbol?: string;
-  side?: 'BUY' | 'SELL';
-  confidence?: number;
-  priority?: 'atomic' | 'standard';
-  idempotencyKey?: string;
-  hawkEye?: {
-    highVelocityPriority?: boolean;
-    liquidityGapDetected?: boolean;
-    gapStrengthPct?: number;
-  };
-  /** CEO tactical override — bypasses AI risk sizing for this specific execution. */
-  manualOverride?: {
-    positionSizeUsd?: number;
-    noStopLoss?: boolean;
-    stopLossPct?: number;
-  };
-};
+// ---------------------------------------------------------------------------
+// Runtime schema — validates every byte of the incoming signal payload before
+// any execution logic runs. TypeScript types alone provide zero runtime safety.
+// ---------------------------------------------------------------------------
+const ExecuteSignalSchema = z.object({
+  symbol: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9]{2,20}(USDT)?$/, 'Invalid symbol format')
+    .max(25),
+  side: z.enum(['BUY', 'SELL']),
+  confidence: z.number().finite().min(0).max(100),
+  priority: z.enum(['atomic', 'standard']).optional().default('standard'),
+  idempotencyKey: z.string().max(128).optional(),
+  hawkEye: z
+    .object({
+      highVelocityPriority: z.boolean().optional(),
+      liquidityGapDetected: z.boolean().optional(),
+      gapStrengthPct: z.number().finite().min(0).max(100).optional(),
+    })
+    .optional(),
+  manualOverride: z
+    .object({
+      // Hard-capped at $50 — mirrors the Protocol Omega engine constant.
+      positionSizeUsd: z.number().finite().positive().max(50).optional(),
+      noStopLoss: z.boolean().optional(),
+      stopLossPct: z.number().finite().min(0).max(100).optional(),
+    })
+    .optional(),
+});
+
+type ExecuteSignalBody = z.infer<typeof ExecuteSignalSchema>;
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -52,30 +68,29 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (!handshake.ok) {
       return NextResponse.json({ success: false, error: handshake.reason ?? 'Invalid handshake' }, { status: 401 });
     }
-    const body = JSON.parse(bodyRaw) as ExecuteSignalBody;
+    let body: ExecuteSignalBody;
+    try {
+      const parsed = JSON.parse(bodyRaw);
+      const result = ExecuteSignalSchema.safeParse(parsed);
+      if (!result.success) {
+        return NextResponse.json(
+          { success: false, error: 'Payload validation failed.', details: result.error.flatten().fieldErrors },
+          { status: 400 }
+        );
+      }
+      body = result.data;
+    } catch {
+      return NextResponse.json({ success: false, error: 'Invalid JSON payload.' }, { status: 400 });
+    }
+
     const side = body.side;
-    const confidence = Number(body.confidence);
-    const symbol = normalizeSymbol(String(body.symbol ?? ''));
-    const priority = body.priority === 'atomic' ? 'atomic' : 'standard';
-    const idempotencyKey = typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim()
-      ? body.idempotencyKey.trim()
-      : `manual-${symbol}-${side}-${Math.round(confidence)}-${Math.floor(Date.now() / 15000)}`;
+    const confidence = body.confidence;
+    const symbol = normalizeSymbol(body.symbol);
+    const priority = body.priority ?? 'standard';
+    const idempotencyKey = body.idempotencyKey?.trim()
+      ?? `manual-${symbol}-${side}-${Math.round(confidence)}-${Math.floor(Date.now() / 15000)}`;
     const hawkEye = body.hawkEye ?? {};
     const manualOverride = body.manualOverride ?? undefined;
-
-    if (!symbol || !['BUY', 'SELL'].includes(String(side))) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid payload. Expected symbol and side BUY/SELL.' },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 100) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid confidence. Expected numeric value between 0 and 100.' },
-        { status: 400 }
-      );
-    }
 
     const { executeAutonomousConsensusSignal } = await import('@/lib/trading/execution-engine');
     const result = await executeAutonomousConsensusSignal({

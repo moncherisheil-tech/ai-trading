@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHttpRedisClient } from '@/lib/queue/redis-client';
 import { createSessionToken } from '@/lib/session';
-import { shouldUseSecureCookies } from '@/lib/config';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
+import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
+import { allowRequest } from '@/lib/rate-limit';
+import { getRequestIp } from '@/lib/security';
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/verify-otp
@@ -17,6 +19,15 @@ const OTP_KEY_PREFIX  = 'auth:otp:'; // must match request-otp
 const SESSION_MAX_AGE = 60 * 60 * 24; // 24 hours
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Rate limit per IP: 5 OTP guesses per minute — caps brute-force of the 6-digit code space.
+  const ip = getRequestIp(request);
+  const rlKey = `auth:verify-otp:${ip}`;
+  const distributed = await allowDistributedRequest(rlKey, 5, 60_000);
+  const allowed = distributed !== null ? distributed : allowRequest(rlKey, 5, 60_000);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Too many attempts. Please wait before trying again.' }, { status: 429 });
+  }
+
   try {
     const body  = await request.json().catch(() => ({})) as Record<string, unknown>;
     const otp   = typeof body.otp   === 'string' ? body.otp.trim()   : '';
@@ -64,8 +75,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     response.cookies.set(AUTH_COOKIE_NAME, token, {
       httpOnly: true,
-      secure:   shouldUseSecureCookies(),
-      sameSite: 'lax',
+      secure:   true,
+      sameSite: 'strict',
       path:     '/',
       maxAge:   SESSION_MAX_AGE,
     });

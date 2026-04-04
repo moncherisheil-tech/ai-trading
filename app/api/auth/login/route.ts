@@ -1,12 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSessionToken, isSessionEnabled, type SessionRole } from '@/lib/session';
-import { isAllowedIp, verifyCsrf } from '@/lib/security';
-import { shouldUseSecureCookies } from '@/lib/config';
+import { isAllowedIp, verifyCsrf, getRequestIp } from '@/lib/security';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
+import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
+import { allowRequest } from '@/lib/rate-limit';
 
 export async function POST(request: NextRequest) {
   if (!isAllowedIp(request)) {
     return NextResponse.json({ success: false, error: 'IP is not allowed.' }, { status: 403 });
+  }
+
+  // Rate limit: 5 login attempts per IP per minute.
+  const ip = getRequestIp(request);
+  const rlKey = `auth:login:${ip}`;
+  const distributed = await allowDistributedRequest(rlKey, 5, 60_000);
+  const allowed = distributed !== null ? distributed : allowRequest(rlKey, 5, 60_000);
+  if (!allowed) {
+    return NextResponse.json({ success: false, error: 'Too many attempts. Please wait before trying again.' }, { status: 429 });
   }
 
   if (!isSessionEnabled()) {
@@ -31,13 +41,12 @@ export async function POST(request: NextRequest) {
   }
 
   const token = createSessionToken(matched.role);
-  const secureCookies = shouldUseSecureCookies();
 
   const res = NextResponse.json({ success: true, role: matched.role });
   res.cookies.set(AUTH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: secureCookies,
-    sameSite: 'lax',
+    secure: true,
+    sameSite: 'strict',
     path: '/',
     maxAge: 60 * 60 * 12,
   });

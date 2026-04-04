@@ -487,6 +487,17 @@ export async function GET(): Promise<NextResponse> {
  * Always returns 200 OK so Telegram does not retry; no cookies/session/CSRF.
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Verify Telegram origin via the webhook secret token.
+  // Register it with Telegram via setWebhook?secret_token=<TELEGRAM_WEBHOOK_SECRET>.
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const incomingSecret = request.headers.get('x-telegram-bot-api-secret-token');
+    if (!incomingSecret || incomingSecret !== webhookSecret) {
+      // Always return 200 to prevent Telegram retry storms; silently drop the request.
+      return NextResponse.json({ ok: false }, { status: 200 });
+    }
+  }
+
   const token = getToken();
   if (!token) {
     return NextResponse.json({ ok: false, error: 'TELEGRAM_BOT_TOKEN not set' }, { status: 200 });

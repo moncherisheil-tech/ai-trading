@@ -777,7 +777,7 @@ export default function AlphaSignalsDashboard() {
             </div>
 
             {/* ── Tactical Override Inputs ── */}
-            <div className="px-6 py-5 space-y-4">
+            <div className="overflow-y-auto max-h-[calc(100dvh-14rem)] px-6 py-5 space-y-4">
               <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">פרמטרי ביצוע ידניים — CEO Override</p>
 
               {/* Position Size */}

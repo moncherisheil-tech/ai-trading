@@ -463,11 +463,16 @@ CRITICAL: Return ONLY the raw JSON object above. No markdown fences (\`\`\`json)
 }
 
 async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
-  const overseerTemp = resolveLlmTemperature(await getAppSettings());
-  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_CANONICAL_PRO_MODEL_ID);
-  const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
-  const prompt = `System instruction: You are a CEO-level trading overseer (מנכ"ל). Do not do raw analysis. Only synthesize the 6 expert JSON outputs below. Output ONLY valid JSON — no markdown, no text before or after.
+  // All setup (key retrieval, model instantiation, API call) is inside the try-catch.
+  // Previously, getAppSettings() and getGeminiApiKey() were called OUTSIDE try-catch,
+  // meaning a DB outage or missing key would throw from runOverseer itself and propagate
+  // to runBoardOfExperts, discarding all 6 completed expert verdicts unrecoverably.
+  try {
+    const overseerTemp = resolveLlmTemperature(await getAppSettings());
+    const genAI = new GoogleGenerativeAI(getGeminiApiKey());
+    const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_CANONICAL_PRO_MODEL_ID);
+    const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
+    const prompt = `System instruction: You are a CEO-level trading overseer (מנכ"ל). Do not do raw analysis. Only synthesize the 6 expert JSON outputs below. Output ONLY valid JSON — no markdown, no text before or after.
 
 Experts JSON:
 ${JSON.stringify(experts, null, 2)}
@@ -490,7 +495,6 @@ Output JSON exactly (no extra keys, no omitted keys):
   "keyRisk": "primary risk the trader must monitor right now",
   "catalysts": ["catalyst 1", "catalyst 2"]
 }`;
-  try {
     const result = await withGeminiRateLimitRetry(() =>
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],

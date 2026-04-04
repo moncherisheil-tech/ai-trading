@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings, setAppSettings } from '@/lib/db/app-settings';
 import { evaluateGoLiveSafety } from '@/lib/go-live-safety';
+import { verifySessionToken, hasRequiredRole } from '@/lib/session';
+import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -23,6 +25,16 @@ export async function GET(): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // RBAC: only admin role may mutate execution settings or arm LIVE mode.
+  const cookieToken = request.cookies.get(AUTH_COOKIE_NAME)?.value;
+  if (!cookieToken) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
+  }
+  const session = verifySessionToken(cookieToken);
+  if (!session || !hasRequiredRole(session.role, 'admin')) {
+    return NextResponse.json({ ok: false, error: 'Admin role required.' }, { status: 403 });
+  }
+
   let body: {
     masterSwitchEnabled?: boolean;
     mode?: 'PAPER' | 'LIVE';

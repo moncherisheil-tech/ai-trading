@@ -7,9 +7,6 @@ type SessionPayload = {
   exp: number;
 };
 
-// Emergency fallback — only activates when APP_SESSION_SECRET is not set.
-const EMERGENCY_SECRET = 'mon-cheri-emergency-secret-2026';
-
 function toBase64Url(input: string): string {
   return Buffer.from(input, 'utf-8').toString('base64url');
 }
@@ -21,8 +18,7 @@ function sign(payloadB64: string, secret: string): string {
 function getActiveSecrets(): string[] {
   const current  = process.env.APP_SESSION_SECRET          || '';
   const previous = process.env.APP_SESSION_SECRET_PREVIOUS || '';
-  const secrets  = [current, previous].filter(Boolean);
-  return secrets.length > 0 ? secrets : [EMERGENCY_SECRET];
+  return [current, previous].filter(Boolean);
 }
 
 export function isSessionEnabled(): boolean {
@@ -30,9 +26,9 @@ export function isSessionEnabled(): boolean {
 }
 
 export function createSessionToken(role: SessionRole, ttlSeconds = 60 * 60 * 12): string {
-  const secret = process.env.APP_SESSION_SECRET ?? EMERGENCY_SECRET;
-  if (!process.env.APP_SESSION_SECRET) {
-    console.warn('[session] APP_SESSION_SECRET is missing — using emergency fallback secret.');
+  const secret = process.env.APP_SESSION_SECRET;
+  if (!secret) {
+    throw new Error('[session] FATAL: APP_SESSION_SECRET is not set. Cannot issue session tokens.');
   }
 
   const payload: SessionPayload = {

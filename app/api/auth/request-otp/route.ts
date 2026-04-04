@@ -1,6 +1,9 @@
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getHttpRedisClient } from '@/lib/queue/redis-client';
+import { allowDistributedRequest } from '@/lib/rate-limit-distributed';
+import { allowRequest } from '@/lib/rate-limit';
+import { getRequestIp } from '@/lib/security';
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/request-otp
@@ -103,6 +106,15 @@ async function dispatchTelegramOtp(otp: string): Promise<void> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // Rate limit: 5 attempts per IP per minute — brute-force / enumeration protection.
+  const ip = getRequestIp(request);
+  const rlKey = `auth:request-otp:${ip}`;
+  const distributed = await allowDistributedRequest(rlKey, 5, 60_000);
+  const allowed = distributed !== null ? distributed : allowRequest(rlKey, 5, 60_000);
+  if (!allowed) {
+    return NextResponse.json({ error: 'Too many attempts. Please wait before trying again.' }, { status: 429 });
+  }
+
   try {
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     // Trim to eliminate hidden leading/trailing whitespace from copy-paste or
