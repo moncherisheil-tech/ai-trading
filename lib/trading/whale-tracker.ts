@@ -1,19 +1,22 @@
 /**
- * Public entry point for whale-tracking data.
+ * Public entry point for per-symbol whale-data enrichment.
  *
- * All analysis logic has been moved to lib/whales/ for clean separation:
- *   lib/whales/types.ts               — shared interfaces
- *   lib/whales/whale-alert-provider.ts — Whale Alert API (new primary)
- *   lib/whales/index.ts               — provider priority chain
+ * ── SOVEREIGN ALERT PIPELINE ─────────────────────────────────────────────
+ * Real-time whale alerts flow exclusively through:
+ *   Redis Pub/Sub (88.99.208.99) → lib/redis/whale-subscriber.ts
+ *     → BullMQ "quantum-core-queue" → lib/core/orchestrator.ts
+ * No HTTP fallbacks. No external whale API keys. Event-driven only.
  *
- * This file re-exports types and the main function so every existing caller
- * (analysis-core.ts, consensus-engine.ts, leviathan.ts, etc.) continues to
- * work with zero import-path changes.
+ * ── THIS MODULE ───────────────────────────────────────────────────────────
+ * Provides supplementary per-symbol whale context (Binance aggTrades,
+ * public endpoint — no API key required) for lib/analysis-core.ts and
+ * lib/alpha-engine.ts.  Results are used to enrich AI analysis prompts;
+ * they do NOT drive trade execution.
  *
- * Provider priority:
- *   1. CryptoQuant  — attempted first; fast-fails on 2026 404 paths
- *   2. Whale Alert  — real-time on-chain txns ≥$500k (BTC / ETH + more)
- *   3. Binance      — public aggTrades proxy, no API key required
+ * Removed providers (Operation "Clean Slate"):
+ *   ✗  Server B HTTP Relay  (WHALE_PROXY_URL)
+ *   ✗  CryptoQuant API      (CRYPTOQUANT_API_KEY)
+ *   ✗  Whale Alert API      (WHALE_ALERT_API_KEY)
  */
 
 export type {
