@@ -594,6 +594,140 @@ export async function sendSignalOfGoldAlert(params: SignalOfGoldParams): Promise
 
 export { GEM_CALLBACK_PREFIX_CONFIRM, GEM_CALLBACK_PREFIX_REJECT, GEM_CALLBACK_DEEP, GEM_CALLBACK_IGNORE };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTERPRISE ALPHA SIGNAL INTELLIGENCE ALERT (Wall-Street Grade)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type AlphaSignalIntelAlertParams = {
+  /** e.g. "BTCUSDT" */
+  symbol: string;
+  /** Direction of the signal */
+  direction: 'Long' | 'Short';
+  /** Human-readable origin: "Whale Movement", "Tech Breakout", "On-Chain Accumulation", etc. */
+  signalOrigin: string;
+  /** CEO Overseer final verdict */
+  ceoVerdict: 'TRADE' | 'HOLD';
+  /** Confidence from MoE (0–100) */
+  confidencePct: number;
+  /** Suggested capital to allocate in USD */
+  suggestedCapitalUsd: number;
+  /** Exact entry price */
+  entryPrice: number;
+  /** Stop-loss absolute price (null if no SL) */
+  stopLossPrice?: number | null;
+  /** Stop-loss % from entry */
+  stopLossPct?: number | null;
+  /** Take-profit absolute price */
+  takeProfitPrice?: number | null;
+  /** Take-profit % from entry */
+  takeProfitPct?: number | null;
+  /** Timeframe label e.g. "Daily", "Hourly" */
+  timeframe?: string;
+  /** One-line summary of what the 7 MoE experts agreed on */
+  moeConsensusSummary: string;
+  /** Whale confirmation flag */
+  whaleConfirmed?: boolean;
+  /** R:R ratio (e.g. 2.5 = 1:2.5) */
+  rrRatio?: number | null;
+};
+
+/**
+ * Enterprise-grade Alpha Signal Intelligence Alert for Telegram.
+ * HTML parse mode with full institutional-grade signal data:
+ * signal origin, CEO verdict, capital, entry, SL/TP, and 7-expert MoE consensus.
+ */
+export async function sendAlphaSignalIntelAlert(
+  params: AlphaSignalIntelAlertParams
+): Promise<TelegramSendResult> {
+  const token = getToken();
+  if (!token) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+  const chatIds = await getBroadcastChatIds();
+  if (chatIds.length === 0) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
+
+  const base = params.symbol.replace(/USDT$/i, '');
+  const dirIcon = params.direction === 'Long' ? '🟢' : '🔴';
+  const dirLabel = params.direction === 'Long' ? 'LONG ▲' : 'SHORT ▼';
+  const verdictIcon = params.ceoVerdict === 'TRADE' ? '✅' : '🔶';
+  const whaleIcon = params.whaleConfirmed ? '🐋 מאושר' : '—';
+  const tf = params.timeframe ?? '—';
+
+  const slLine =
+    params.stopLossPrice != null
+      ? `<code>${formatPrice(params.stopLossPrice)}</code>${params.stopLossPct != null ? ` <i>(${Math.abs(params.stopLossPct).toFixed(2)}%)</i>` : ''}`
+      : '<i>ללא סטופ לוס</i>';
+
+  const tpLine =
+    params.takeProfitPrice != null
+      ? `<code>${formatPrice(params.takeProfitPrice)}</code>${params.takeProfitPct != null ? ` <i>(+${Math.abs(params.takeProfitPct).toFixed(2)}%)</i>` : ''}`
+      : '<i>—</i>';
+
+  const rrLine =
+    params.rrRatio != null && params.rrRatio > 0
+      ? `<code>1 : ${params.rrRatio.toFixed(2)}</code>`
+      : '<i>—</i>';
+
+  const consensusTrimmed = escapeHtml((params.moeConsensusSummary ?? '').trim().slice(0, 380));
+  const originEscaped = escapeHtml(params.signalOrigin.trim());
+
+  const confBar = (() => {
+    const filled = Math.round(params.confidencePct / 10);
+    return '█'.repeat(filled) + '░'.repeat(10 - filled);
+  })();
+
+  const text = [
+    `${dirIcon} <b>ALPHA SIGNAL — QUANTUM MON CHERI</b>`,
+    '',
+    `<b>נכס</b>: <code>${escapeHtml(base)}/USDT</code>  |  <b>אופק</b>: <code>${escapeHtml(tf)}</code>`,
+    `<b>כיוון</b>: <b>${dirLabel}</b>`,
+    '',
+    `🚨 <b>מקור הסיגנל</b>: ${originEscaped}`,
+    `${verdictIcon} <b>פסיקת CEO Overseer</b>: <b>${params.ceoVerdict}</b>`,
+    '',
+    `💰 <b>הון מוצע</b>: <code>$${formatPrice(params.suggestedCapitalUsd)}</code>`,
+    `📍 <b>מחיר כניסה</b>: <code>$${formatPrice(params.entryPrice)}</code>`,
+    '',
+    `🛡️ <b>פרמטרי סיכון</b>`,
+    `  ├ Stop Loss: ${slLine}`,
+    `  ├ Take Profit: ${tpLine}`,
+    `  └ R:R Ratio: ${rrLine}`,
+    '',
+    `🐋 <b>אישור לווייתן</b>: ${whaleIcon}`,
+    '',
+    `📊 <b>קונצנזוס MoE — 7 מומחים</b>`,
+    `<i>${consensusTrimmed || '—'}</i>`,
+    '',
+    `<b>ביטחון</b>: <code>${params.confidencePct.toFixed(1)}%</code>  <code>${confBar}</code>`,
+  ]
+    .filter((l) => l !== null)
+    .join('\n');
+
+  const tradingViewUrl = getTradingViewChartUrl(params.symbol);
+  const strategyUrl = `${getBaseUrl()}/settings`;
+  const reply_markup: TelegramReplyMarkup = {
+    inline_keyboard: [
+      [
+        { text: '📊 TradingView', url: tradingViewUrl },
+        { text: '⚙️ הגדרות אסטרטגיה', url: strategyUrl },
+      ],
+    ],
+  };
+
+  let lastResult: TelegramSendResult = { ok: false, error: 'NO_RECIPIENTS', statusCode: 0 };
+  for (const chatId of chatIds) {
+    const result = await sendTelegramRaw({
+      token,
+      chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: true,
+      reply_markup,
+    });
+    lastResult = result;
+    if (!result.ok && result.statusCode === 400) break;
+  }
+  return lastResult;
+}
+
 /**
  * Predefined test message payloads for admin verification.
  */

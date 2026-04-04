@@ -25,6 +25,12 @@ type ExecutePayload = {
   };
 };
 
+type ManualOverride = {
+  positionSizeUsd: number;
+  noStopLoss: boolean;
+  stopLossPct: number;
+};
+
 const INSTITUTIONAL_USDT_PAIRS = [
   'BTCUSDT',
   'ETHUSDT',
@@ -333,6 +339,11 @@ export default function AlphaSignalsDashboard() {
     row: AlphaSignalDTO;
     side: 'BUY' | 'SELL';
   } | null>(null);
+  const [manualOverride, setManualOverride] = useState<ManualOverride>({
+    positionSizeUsd: 50,
+    noStopLoss: false,
+    stopLossPct: 3,
+  });
   const [submittingExecution, setSubmittingExecution] = useState(false);
   const [execKey, setExecKey] = useState<Record<string, 'idle' | 'processing' | 'executed' | 'blocked'>>({});
   const [drawerRow, setDrawerRow] = useState<AlphaSignalDTO | null>(null);
@@ -405,6 +416,18 @@ export default function AlphaSignalsDashboard() {
         toast?.success('בוצע כבר — TWAP פעיל.');
         return;
       }
+      // Seed override defaults from AI signal parameters
+      const entry = row.entryPrice ?? 0;
+      const stop = row.stopLoss ?? 0;
+      const aiStopLossPct =
+        entry > 0 && stop > 0
+          ? Math.abs(((side === 'BUY' ? stop - entry : entry - stop) / entry) * 100)
+          : 3;
+      setManualOverride({
+        positionSizeUsd: 50,
+        noStopLoss: stop <= 0,
+        stopLossPct: Math.max(0.5, parseFloat(aiStopLossPct.toFixed(2))),
+      });
       window.scrollTo({ top: 0, behavior: 'smooth' });
       setPendingExecution({ row, side });
     },
@@ -429,6 +452,11 @@ export default function AlphaSignalsDashboard() {
         confidence: row.winProbability,
         priority: 'standard',
         idempotencyKey: `alpha-${row.id}-${Math.floor(Date.now() / 20000)}`,
+        manualOverride: {
+          positionSizeUsd: Math.max(1, manualOverride.positionSizeUsd),
+          noStopLoss: manualOverride.noStopLoss,
+          stopLossPct: manualOverride.noStopLoss ? 0 : Math.max(0.1, manualOverride.stopLossPct),
+        },
       });
       if (!out.success) {
         setExecKey((prev) => ({ ...prev, [k]: 'idle' }));
@@ -454,7 +482,7 @@ export default function AlphaSignalsDashboard() {
       setSubmittingExecution(false);
       setPendingExecution(null);
     }
-  }, [pendingExecution, toast]);
+  }, [pendingExecution, manualOverride, toast]);
 
   return (
     <section
@@ -704,7 +732,7 @@ export default function AlphaSignalsDashboard() {
       {pendingExecution && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 z-[9999] bg-black/75 backdrop-blur-md"
+            className="absolute inset-0 z-[9999] bg-black/80 backdrop-blur-md"
             onClick={closeModal}
             aria-hidden
           />
@@ -712,30 +740,172 @@ export default function AlphaSignalsDashboard() {
             dir="rtl"
             role="dialog"
             aria-modal="true"
-            className="relative z-[10000] w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-xl"
+            className="relative z-[10000] w-full max-w-lg rounded-3xl border border-slate-600/80 bg-slate-900 shadow-[0_0_60px_rgba(6,182,212,0.12)] overflow-hidden"
           >
-            <div className="mb-4 flex items-start justify-between gap-2">
-              <h3 className="text-lg font-semibold text-white">אישור ביצוע</h3>
+            {/* ── Header ── */}
+            <div className={`flex items-start justify-between gap-2 px-6 pt-5 pb-4 border-b border-slate-800 ${
+              pendingExecution.side === 'BUY'
+                ? 'bg-gradient-to-r from-emerald-950/40 to-slate-900'
+                : 'bg-gradient-to-r from-rose-950/40 to-slate-900'
+            }`}>
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-cyan-400" />
+                  שליטה טקטית — ביצוע ידני
+                </h3>
+                <p className="mt-1 text-xs text-zinc-400">
+                  <span className={`font-bold ${pendingExecution.side === 'BUY' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                    {pendingExecution.side === 'BUY' ? '▲ קנייה' : '▼ מכירה'}
+                  </span>
+                  {' '}·{' '}
+                  <span className="font-mono text-zinc-200">{pendingExecution.row.symbol}</span>
+                  {' '}· אופק {timeframeLabel(pendingExecution.row.timeframe)}
+                  {' '}· ביטחון MoE{' '}
+                  <span className={`font-bold ${pendingExecution.row.winProbability >= 80 ? 'text-emerald-300' : pendingExecution.row.winProbability >= 65 ? 'text-amber-300' : 'text-rose-300'}`}>
+                    {pendingExecution.row.winProbability}%
+                  </span>
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={closeModal}
-                className="rounded-lg border border-slate-700 p-1.5 text-zinc-300 hover:bg-slate-800"
+                className="mt-0.5 flex-shrink-0 rounded-lg border border-slate-700 p-1.5 text-zinc-300 hover:bg-slate-800"
                 aria-label="סגור"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-sm text-zinc-300">
-              לאשר {pendingExecution.side === 'BUY' ? 'קנייה' : 'מכירה'} עבור{' '}
-              <span className="font-semibold">{pendingExecution.row.symbol}</span> — אופק{' '}
-              {timeframeLabel(pendingExecution.row.timeframe)} — ביטחון {pendingExecution.row.winProbability}%.
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
+
+            {/* ── Tactical Override Inputs ── */}
+            <div className="px-6 py-5 space-y-4">
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">פרמטרי ביצוע ידניים — CEO Override</p>
+
+              {/* Position Size */}
+              <div className="space-y-1.5">
+                <label className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+                  <span>גודל פוזיציה (USD)</span>
+                  <span className="text-zinc-500 font-normal">המלצת AI: $50</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-400">$</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={manualOverride.positionSizeUsd}
+                    onChange={(e) =>
+                      setManualOverride((prev) => ({
+                        ...prev,
+                        positionSizeUsd: Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                      }))
+                    }
+                    className="w-full rounded-xl border border-slate-600 bg-slate-800 py-2.5 pr-8 pl-3 text-sm font-mono text-white focus:border-cyan-500/60 focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-1.5">
+                  {[10, 25, 50].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setManualOverride((prev) => ({ ...prev, positionSizeUsd: v }))}
+                      className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-colors ${
+                        manualOverride.positionSizeUsd === v
+                          ? 'border-cyan-500/60 bg-cyan-950/50 text-cyan-200'
+                          : 'border-slate-700 text-zinc-400 hover:border-slate-500'
+                      }`}
+                    >
+                      ${v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Stop Loss */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-zinc-300">סטופ לוס (%)</label>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-400">
+                    <span>ללא סטופ לוס</span>
+                    <div
+                      role="checkbox"
+                      aria-checked={manualOverride.noStopLoss}
+                      tabIndex={0}
+                      onClick={() =>
+                        setManualOverride((prev) => ({ ...prev, noStopLoss: !prev.noStopLoss }))
+                      }
+                      onKeyDown={(e) =>
+                        e.key === ' ' &&
+                        setManualOverride((prev) => ({ ...prev, noStopLoss: !prev.noStopLoss }))
+                      }
+                      className={`relative inline-flex h-5 w-9 cursor-pointer items-center rounded-full border transition-colors focus:outline-none ${
+                        manualOverride.noStopLoss
+                          ? 'border-rose-500/60 bg-rose-950/60'
+                          : 'border-slate-600 bg-slate-800'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 rounded-full transition-transform ${
+                          manualOverride.noStopLoss
+                            ? 'translate-x-[18px] bg-rose-400'
+                            : 'translate-x-[2px] bg-slate-500'
+                        }`}
+                      />
+                    </div>
+                  </label>
+                </div>
+                {!manualOverride.noStopLoss && (
+                  <div className="relative">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-400">%</span>
+                    <input
+                      type="number"
+                      min={0.1}
+                      max={20}
+                      step={0.1}
+                      value={manualOverride.stopLossPct}
+                      onChange={(e) =>
+                        setManualOverride((prev) => ({
+                          ...prev,
+                          stopLossPct: Math.max(0.1, Math.min(20, Number(e.target.value) || 3)),
+                        }))
+                      }
+                      className="w-full rounded-xl border border-slate-600 bg-slate-800 py-2.5 pr-8 pl-3 text-sm font-mono text-white focus:border-cyan-500/60 focus:outline-none"
+                    />
+                  </div>
+                )}
+                {manualOverride.noStopLoss && (
+                  <p className="rounded-lg border border-rose-500/20 bg-rose-950/20 px-3 py-2 text-xs text-rose-300/80">
+                    ⚠️ ביצוע ללא סטופ לוס — סיכון בלתי מוגבל. האחריות על המנכ&quot;ל בלבד.
+                  </p>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-3 text-xs space-y-1">
+                <div className="flex justify-between text-zinc-400">
+                  <span>הון מוקצה</span>
+                  <span className="font-mono font-semibold text-white">${manualOverride.positionSizeUsd}</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>סטופ לוס</span>
+                  <span className={`font-mono font-semibold ${manualOverride.noStopLoss ? 'text-rose-300' : 'text-amber-300'}`}>
+                    {manualOverride.noStopLoss ? 'ללא' : `${manualOverride.stopLossPct.toFixed(1)}%`}
+                  </span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>מצב ביצוע</span>
+                  <span className="font-semibold text-cyan-300">CEO Override · TWAP</span>
+                </div>
+              </div>
+            </div>
+
+            {/* ── Actions ── */}
+            <div className="flex justify-end gap-2 border-t border-slate-800 px-6 pb-5 pt-4">
               <button
                 type="button"
                 onClick={closeModal}
                 disabled={submittingExecution}
-                className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-semibold text-zinc-200"
+                className="rounded-xl border border-slate-600 px-4 py-2 text-sm font-semibold text-zinc-200 hover:bg-slate-800 disabled:opacity-50"
               >
                 ביטול
               </button>
@@ -743,10 +913,14 @@ export default function AlphaSignalsDashboard() {
                 type="button"
                 onClick={() => void confirmExecute()}
                 disabled={submittingExecution}
-                className="inline-flex items-center gap-2 rounded-xl border border-cyan-500/50 bg-slate-800 px-4 py-2 text-sm font-bold text-white"
+                className={`inline-flex items-center gap-2 rounded-xl border px-5 py-2 text-sm font-bold text-white shadow-lg transition-all disabled:opacity-50 ${
+                  pendingExecution.side === 'BUY'
+                    ? 'border-emerald-500/50 bg-emerald-950/60 shadow-emerald-500/20 hover:bg-emerald-900/60'
+                    : 'border-rose-500/50 bg-rose-950/60 shadow-rose-500/20 hover:bg-rose-900/60'
+                }`}
               >
                 {submittingExecution ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-                אשר ושגר
+                {submittingExecution ? 'שולח פקודה...' : 'שגר פקודה'}
               </button>
             </div>
           </div>

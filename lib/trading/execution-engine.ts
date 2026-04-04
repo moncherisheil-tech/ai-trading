@@ -58,6 +58,18 @@ export interface AutonomousExecutionInput {
     overseerReasoningPath?: string;
     expertBreakdown?: Record<string, unknown>;
   };
+  /**
+   * CEO tactical override — when present, these parameters take precedence over AI-generated
+   * risk sizing for this specific trade. The manual override is logged in the execution event.
+   */
+  manualOverride?: {
+    /** Force exact position size in USD (capped at MAX_TRADE_SIZE_USD). */
+    positionSizeUsd?: number;
+    /** Skip stop-loss entirely — operator accepts unlimited downside. */
+    noStopLoss?: boolean;
+    /** Override stop-loss percentage (e.g. 3.5 = 3.5%). Ignored when noStopLoss=true. */
+    stopLossPct?: number;
+  };
 }
 
 export interface AutonomousExecutionResult {
@@ -463,12 +475,17 @@ export async function executeAutonomousConsensusSignal(
         overseerConfidencePct: input.finalConfidence,
         historicalWinRatePct: summary.winRatePct,
       });
-      const amountUsd = Math.max(
+      const aiAmountUsd = Math.max(
         0,
         round2(
           Math.min(desiredAmountUsd, sizing.positionSizeUsd, kelly.positionUsd, availableGlobalUsd, availableSingleAssetUsd, MAX_TRADE_SIZE_USD)
         )
       );
+      // CEO tactical override: use manual position size when explicitly provided, capped at hard limit.
+      const amountUsd =
+        input.manualOverride?.positionSizeUsd != null && input.manualOverride.positionSizeUsd > 0
+          ? Math.min(round2(input.manualOverride.positionSizeUsd), MAX_TRADE_SIZE_USD)
+          : aiAmountUsd;
 
       if (amountUsd <= 0) {
         const reason = `Risk limit blocked BUY: desired ${desiredAmountUsd.toFixed(
@@ -521,15 +538,28 @@ export async function executeAutonomousConsensusSignal(
       const neuroplasticity = await fetchCurrentNeuroPlasticity();
       const slMultiplier = neuroplasticity.robotSlBufferPct / 2.0;
       const tpMultiplier = neuroplasticity.robotTpAggressiveness;
-      const stopLossPct = round2(scalpPlan.stopLossPct * slMultiplier);
+      const aiStopLossPct = round2(scalpPlan.stopLossPct * slMultiplier);
       const targetProfitPct = round2(scalpPlan.targetProfitPct * tpMultiplier);
-      const stopLossPx = entryPrice * (1 + stopLossPct / 100);
-      assertTradeRiskWithinLimit({
-        accountBalance: virtualEquityUsd,
-        positionSizeUsd: amountUsd,
-        entryPrice,
-        stopLoss: stopLossPx,
-      });
+
+      // CEO tactical override: respect manual SL parameter or skip SL entirely.
+      const ceoNoStopLoss = input.manualOverride?.noStopLoss === true;
+      const stopLossPct = ceoNoStopLoss
+        ? 0
+        : input.manualOverride?.stopLossPct != null && input.manualOverride.stopLossPct > 0
+          ? round2(input.manualOverride.stopLossPct)
+          : aiStopLossPct;
+
+      // stopLossPx: for a BUY, SL is below entry; sign convention: negative % = price below entry.
+      const stopLossPx = ceoNoStopLoss ? 0 : entryPrice * (1 - Math.abs(stopLossPct) / 100);
+
+      if (!ceoNoStopLoss && stopLossPx > 0) {
+        assertTradeRiskWithinLimit({
+          accountBalance: virtualEquityUsd,
+          positionSizeUsd: amountUsd,
+          entryPrice,
+          stopLoss: stopLossPx,
+        });
+      }
 
       const depth = await depthPrefetch;
       const vwapPrice = estimateVwapFromDepth(depth, livePrice ?? entryPrice);
@@ -553,6 +583,16 @@ export async function executeAutonomousConsensusSignal(
           twapMinutes: twapSched.durationMinutes,
           twapChunks: twapSched.chunks,
         },
+        ceoOverride: input.manualOverride
+          ? {
+              positionSizeUsd: amountUsd,
+              aiAmountUsd,
+              stopLossPct,
+              aiStopLossPct,
+              noStopLoss: ceoNoStopLoss,
+              overrideApplied: true,
+            }
+          : null,
       });
 
       /** Persist tactical state in JSONB `exec_state` so trailing-stop / sim logic keeps Kelly + tier after restart. */

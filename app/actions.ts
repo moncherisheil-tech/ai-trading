@@ -1257,6 +1257,12 @@ export async function executeTradingSignalAction(input: {
     liquidityGapDetected?: boolean;
     gapStrengthPct?: number;
   };
+  /** CEO tactical override — bypasses AI-generated risk sizing for this specific trade. */
+  manualOverride?: {
+    positionSizeUsd?: number;
+    noStopLoss?: boolean;
+    stopLossPct?: number;
+  };
 }): Promise<AdminActionResult<unknown>> {
   const gate = await assertQuantumAdminForWrites();
   if (!gate.ok) return { success: false, error: gate.error };

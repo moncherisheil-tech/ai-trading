@@ -21,6 +21,12 @@ type ExecuteSignalBody = {
     liquidityGapDetected?: boolean;
     gapStrengthPct?: number;
   };
+  /** CEO tactical override — bypasses AI risk sizing for this specific execution. */
+  manualOverride?: {
+    positionSizeUsd?: number;
+    noStopLoss?: boolean;
+    stopLossPct?: number;
+  };
 };
 
 export const dynamic = 'force-dynamic';
@@ -55,6 +61,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? body.idempotencyKey.trim()
       : `manual-${symbol}-${side}-${Math.round(confidence)}-${Math.floor(Date.now() / 15000)}`;
     const hawkEye = body.hawkEye ?? {};
+    const manualOverride = body.manualOverride ?? undefined;
 
     if (!symbol || !['BUY', 'SELL'].includes(String(side))) {
       return NextResponse.json(
@@ -79,15 +86,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       predictedDirection: side === 'BUY' ? 'Bullish' : 'Bearish',
       finalConfidence: confidence,
       consensusApproved: true,
+      manualOverride,
       consensusReasoning: {
-        overseerSummary: `Manual override approved by operator (${side}) via Alpha Signals dashboard${priority === 'atomic' ? ' · ATOMIC PRIORITY' : ''}.`,
-        overseerReasoningPath: 'human_in_the_loop_override',
+        overseerSummary: `CEO tactical override approved (${side}) via Alpha Signals dashboard${priority === 'atomic' ? ' · ATOMIC PRIORITY' : ''}${manualOverride?.positionSizeUsd != null ? ` · Size=$${manualOverride.positionSizeUsd}` : ''}${manualOverride?.noStopLoss ? ' · NO-SL' : manualOverride?.stopLossPct != null ? ` · SL=${manualOverride.stopLossPct}%` : ''}.`,
+        overseerReasoningPath: 'ceo_human_in_the_loop_override',
         expertBreakdown: {
           source: 'manual_alpha_signal',
           side,
           confidence,
           priority,
           hawkEye,
+          manualOverride: manualOverride ?? null,
         },
       },
     });

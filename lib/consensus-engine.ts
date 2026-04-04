@@ -867,7 +867,7 @@ async function runExpertTechnician(
   const sweeps = input.liquidity_sweep_context ?? 'לא צוין';
   const techCtx = input.technical_context ?? 'לא צוין';
   const liquidityBlock = buildTechnicalLiquidityAugmentation();
-  const prompt = `You are the Technical Expert in a hedge-fund grade MoE. Your domain: Liquidity Sweeps, Fair Value Gaps (FVG), and Order Block Mitigation. Output in professional Hebrew; no generic chatbot language.
+  const prompt = `You are the Head Technical Analyst at a tier-1 quantitative hedge fund. Your mandate is singular: identify setups with minimum 2:1 Risk-to-Reward ratio. Think like a prop desk trader who gets fired for taking bad R:R trades. Output in professional Hebrew only; no chatbot language, no hedging phrases.
 
 ${NO_MISSING_EMA_BB_RULE}
 
@@ -876,8 +876,14 @@ ${liquidityBlock}
 Input: Symbol ${input.symbol}, price ${input.current_price}, RSI(14)=${input.rsi_14}, MACD_signal=${input.macd_signal ?? 'N/A'}, Volume profile: ${input.volume_profile_summary}. HVN (S/R): ${input.hvn_levels.join(', ') || 'none'}. Momentum vs EMA: ${input.asset_momentum ?? 'N/A'}. Technical context: ${techCtx}. Open Interest: ${oi}. Funding: ${funding}. Liquidity context: ${sweeps}. Order book depth: ${input.order_book_summary ?? 'לא צוין'}. Microstructure (CVD/entropy/Kalman): ${input.microstructure_signal ?? 'לא צוין'}.
 ${input.deep_memory_context}
 
-Mandate: (1) TREND (EMA200) is the top priority: use technical_context for EMA200. If Price > EMA200, the regime is bullish — Bearish predictions require MUCH higher conviction and MULTIPLE exhaustion signals (e.g. clear distribution, failed breakout, reversal structure); do not flip Bearish solely on RSI overbought or single indicator. (2) Liquidity Sweeps — identify whether recent price action has swept equal highs/lows or swept liquidity below support / above resistance before reversal (stop-hunt); score higher when sweep is complete and structure supports continuation. (3) Fair Value Gaps (FVG) — note any unfilled FVGs (bullish/bearish) and whether price is respecting or filling them; use for entry zones. (4) Order Block Mitigation — assess if order blocks (last bullish/bearish candle before a move) are mitigated or still in play; precise entry zones around OB + FVG. (5) HVN and volume profile define institutional levels; align entries with OB mitigation and FVG fill. (6) OI and funding: divergence vs price = caution; confirmation = higher score.
-Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verdict, FVG/OB context, entry zone). JSON only: tech_score, tech_logic.`;
+MANDATORY DIRECTIVES — HEDGE FUND STANDARDS:
+(1) R:R FIRST — Every analysis MUST begin by computing the R:R ratio for both long and short scenarios. Score 0–40 if best R:R < 1.5:1. Score 40–70 if R:R = 1.5:1–2:1. Score 70–100 if R:R > 2:1 with structure confirmation. Never score above 70 without a valid 2:1+ R:R setup.
+(2) LIQUIDITY GRAB DETECTION — This is your primary signal. Identify if recent candles swept liquidity pools (equal highs/lows, stop clusters below obvious S/R). A confirmed liquidity grab followed by a structural shift (CHoCH/BOS) is a 5-star setup. Score +20 for confirmed sweep + reversal structure. Penalize -20 if entry is chasing price mid-range with no liquidity grab.
+(3) WHALE FOOTPRINT — Check order book depth for large institutional resting orders. Thin asks above / thick bids below = institutional accumulation. Spoofed walls (size disappears as price tests) = trap, score -15.
+(4) TREND (EMA200) — If Price > EMA200, regime is bullish. Bearish predictions require multiple exhaustion signals + confirmed liquidity sweep. Do NOT flip bearish on RSI alone.
+(5) FVG + ORDER BLOCK PRECISION — Entry zones must align with OB mitigation + FVG fill. Entries without structural confluence score max 50.
+(6) OI divergence from price = crowded trade risk, deduct -10 from score.
+Output: tech_score (0-100) and tech_logic (Hebrew, 2–3 sentences MAX: R:R verdict, liquidity grab assessment, entry zone). JSON only: tech_score, tech_logic.`;
   const groqKey = getGroqApiKey();
 
   // Gemini fallback — shared by the direct path (no groqKey) and the CB fallback.
@@ -912,7 +918,7 @@ Output: tech_score (0-100) and tech_logic (Hebrew, concise: liquidity sweep verd
               {
                 role: 'system',
                 content:
-                  'You are Expert 1 (Technician): LOB microstructure, FVG, order blocks. Output ONLY raw JSON. Keys: tech_score (0-100 number), tech_logic (Hebrew string, concise).',
+                  'You are Expert 1 — Head Technical Analyst at a tier-1 quant hedge fund. Mandate: identify liquidity grabs, 2:1+ R:R setups, whale footprints, FVG/OB confluence. Think ruthless prop desk. Output ONLY raw JSON. Keys: tech_score (0-100 number), tech_logic (Hebrew string, 2-3 sentences max).',
               },
               { role: 'user', content: prompt },
             ],
@@ -970,7 +976,7 @@ async function runExpertRisk(
   const rrMin = riskToleranceLevel ? RISK_RR_BY_LEVEL[riskToleranceLevel] ?? '1:3' : '1:3';
   const atrPct = input.atr_pct_of_price?.toFixed(2) ?? '?';
   const institutional = input.institutional_whale_context ?? 'לא צוין';
-  const prompt = `אתה Institutional Crypto Quantitative Analyst — מנהל סיכונים ומרקט-מייקינג מוסדי (Risk/MM Expert). תפקידך: ניהול סיכונים, הקצאת גודל פוזיציה ושרידות התיק בלבד (לא צ'אט כללי). השתמש בשפה מקצועית קריפטו-נייטיבית בעברית.
+  const prompt = `אתה CRO (Chief Risk Officer) של קרן גידור קריפטו מנהלת $500M. תפקידך הבלעדי: להרוג עסקאות גרועות לפני שהן מרוקנות את הקרן. אתה לא מנהל סיכונים "נחמד" — אתה שומר הסף האכזרי של ה-P&L. דרישות ברזל: R:R מינימום ${rrMin}. כל עסקה ללא SL ברור = VETO מיידי. עסקאות Retail FOMO = דחייה אוטומטית. אתה מזהה טביעת הרגל של לווייתנים (whale footprint) ומבדיל בין צבירה מוסדית לניפוח קמעונאי. פלט בעברית מקצועית בלבד.
 
 ${NO_MISSING_EMA_BB_RULE}
 
@@ -979,8 +985,15 @@ Microstructure (CVD / entropy / Kalman): ${input.microstructure_signal ?? 'לא 
 Leviathan (CryptoQuant + CoinMarketCap): ${institutional}
 ${input.deep_memory_context}
 
-כללים: (1) Volatility — נתח תנודתיות באמצעות ATR וסטיית תקן (סטיית תקן משתמעת/היסטורית אם עולה מן ההקשר): ATR% גבוה או סטיית תקן קיצונית → הקטן גודל פוזיציה וציון. (2) Position Sizing — חשב גודל פוזיציה נאות ביחס להון על בסיס Kelly Criterion משוער (Full/half Kelly): אם ה־Kelly fraction מרמז על הקצאה <1% מההון, ציין זאת במפורש והורד ציון. (3) יחס סיכון/תגמול (R:R) מינימלי חובה ${rrMin}; אם R:R נמוך — risk_score ≤ 40 ו"דחייה: R:R מתחת ל־${rrMin}". (4) Drawdown Protection — הערך איך SL מוגדר ביחס ל־max drawdown סביר לתיק; מבנה שיכול לגרור גרירת סטופס סדרתית או drawdown חד → ציון נמוך. (5) Slippage ו-Spread — חשב רווחיות לאחר החלקה ועמלות; נזילות רדודה/ספר לא רציף = risk_score נמוך. (6) Hard Stop Loss ברור חובה; ללא SL או SL רחוק מדי ⇢ הורד ציון. (7) ציון 100 רק כאשר R:R≥${rrMin}, SL/TP מתואמים לתנודתיות, וגודל הפוזיציה עקבי עם Kelly ועם מגבלת drawdown.
-החזר risk_score (0-100) והסבר ב־risk_logic בעברית (Volatility/ATR/סטיית תקן, Kelly position sizing, R:R, Drawdown protection, Slippage/Spread, Hard Stop). החזר JSON בלבד: risk_score, risk_logic.`;
+DIRECTIVES — לא לפשר על אלה:
+(1) R:R GATE — R:R מינימום ${rrMin} הוא קו אדום. מתחת לזה: risk_score ≤ 35 + "VETO: R:R מתחת ל-${rrMin}". ציון 70+ רק עם R:R ≥ 2:1 וביטחון גבוה. ציון 90+ רק עם R:R ≥ 3:1.
+(2) WHALE FOOTPRINT — זהה האם הפוזיציה מתואמת עם לווייתנים (outflow מבורסות + צבירה ב-cold wallets = bullish institutional). אם ה-Leviathan feed מראה inflow לבורסות = distribution risk, הורד ציון 15.
+(3) Position Sizing (Kelly) — אם Kelly fraction < 1% מהתיק, ציין "Kelly מרמז על exposure זניח" והורד ציון. מקסימום 2% risk per trade.
+(4) RETAIL FOMO TRAP — OI עולה חד עם מחיר + Funding Rate גבוה = עמדה קהל עמוסה = crowded long. הורד ציון 20 + "Crowded long risk: לווייתנים ימכרו לקהל".
+(5) Drawdown Protection — SL חייב להיות מוגדר ביחס ל-ATR. SL מעל 3×ATR = רחוק מדי, הורד ציון.
+(6) Hard SL חובה מוחלטת; ללא SL = VETO (risk_score ≤ 20).
+(7) Slippage/Spread — חשב רווחיות נטו לאחר החלקה ועמלות; נזילות רדודה = risk_score נמוך.
+החזר risk_score (0-100) ו-risk_logic בעברית (2-3 משפטים: R:R verdict, whale footprint, Kelly sizing, ומה הסיכון העיקרי). JSON בלבד: risk_score, risk_logic.`;
   const out = await callGeminiJson<Omit<ExpertRiskOutput, 'is_fallback'>>(
     prompt,
     ['risk_score', 'risk_logic'],
@@ -1210,7 +1223,7 @@ Output ONLY a raw JSON object. No markdown, no intro. Keys exactly: macro_score 
           {
             role: 'system',
             content:
-              'You are the Macro Expert: DXY correlation, yield curves, FED pivot expectations. Professional Hebrew. Output ONLY a raw JSON object. No markdown, no intro. Keys: macro_score (0-100), macro_logic (string).',
+              'You are the Global Macro Strategist at a quant hedge fund: DXY correlation, yield curves, liquidity cycles, FED pivot expectations, whale-driven macro flows. Think like a Bridgewater analyst. Professional Hebrew only. Output ONLY a raw JSON object. No markdown, no intro. Keys: macro_score (0-100), macro_logic (string, 2-3 sentences max).',
           },
           { role: 'user', content: userPrompt },
         ],
@@ -1346,15 +1359,20 @@ async function runExpertOnChain(
 ): Promise<ExpertOnChainOutput> {
   const onChainData = await fetchOnChainData(input.symbol);
   const institutional = input.institutional_whale_context ?? 'לא צוין';
-  const prompt = `You are the On-Chain Expert in a hedge-fund grade MoE. Domain: Exchange Inflow/Outflow and Whales' Smart Money movements. Output in professional Hebrew; no generic chatbot language.
+  const prompt = `You are the Head On-Chain Intelligence Analyst at a crypto hedge fund — think Nansen Alpha Desk meets Glassnode Alerts. Your mandate: track the whale footprint with surgical precision. Output in professional Hebrew only; no generic language.
 
 Input: Symbol ${input.symbol}, price ${input.current_price}.
 On-chain (live external JSON proxies): Whale movements — ${onChainData.whaleMovements}. Exchange Inflows/Outflows — ${onChainData.exchangeInflowsOutflows}.
 Leviathan institutional feed (CryptoQuant + CoinMarketCap): ${institutional}
 ${input.deep_memory_context}
 
-Mandate: (1) Exchange Inflow/Outflow — Exchange Inflow = coins moving TO exchanges (potential sell pressure); Exchange Outflow = coins moving FROM exchanges (cold storage / accumulation, often bullish). Net outflow = accumulation signal; net inflow = distribution risk. (2) Whales' Smart Money — large holders accumulating (buying into weakness, moving to cold) vs distributing (sending to exchanges); cluster moves and timing relative to price. (3) Combine: outflow + whale accumulation = bullish; inflow + whale distribution = bearish. (4) If onchain_metric_shift is provided, integrate it.
-Output: onchain_score (0-100) and onchain_logic (Hebrew, concise: inflow/outflow verdict, smart money read). JSON only: onchain_score, onchain_logic.`;
+MANDATORY DIRECTIVES — WHALE FOOTPRINT ANALYSIS:
+(1) EXCHANGE FLOW INTERPRETATION — Inflow to exchanges = potential distribution (sell pressure, score -15 if significant). Outflow from exchanges = accumulation signal, cold storage (score +15 if significant net outflow). Net flat = neutral. Distinguish between OTC desk routing vs retail panic moves.
+(2) WHALE WALLET BEHAVIOR — Large holder accumulation: buying into dips, moving coins off exchanges (BULLISH — +20 score). Large holder distribution: sending to exchanges in clusters, especially at local highs (BEARISH — -20 score). Identify if whale moves PRECEDE price moves (leading signal) vs lag them.
+(3) SMART MONEY vs RETAIL DIVERGENCE — If price is rising while whales are distributing = distribution top. If price is falling while whales are accumulating = capitulation bottom. This divergence is your highest-conviction signal — score accordingly (+25/-25).
+(4) LIQUIDITY HUNT CONTEXT — Cross-reference with exchange depth: are whales providing liquidity or consuming it? Whale sell walls above = resistance. Whale bid walls below = institutional floor (strong support signal).
+(5) TIMING RELATIVE TO PRICE — Whale moves at price highs after a long run = distribution. Whale moves at price lows during fear/panic = accumulation. Context matters — adjust score accordingly.
+Output: onchain_score (0-100) and onchain_logic (Hebrew, 2-3 sentences MAX: whale verdict, exchange flow direction, smart money signal, and your HIGH CONVICTION read). JSON only: onchain_score, onchain_logic.`;
   let anthropicKey: string | undefined;
   try {
     anthropicKey = getRequiredAnthropicApiKey();
@@ -1590,26 +1608,36 @@ async function runJudge(
     ? `POLARIZED_BOARD=true: שני מחנות מנוגדים (BUY חזק מול SELL חזק). חובה למלא debate_resolution בעברית: סיכום דיון — מה כל צד רואה, איזה ראיות דוחקות, ומה נתיב ההכרעה הסופית לפני ציון ביטחון.`
     : `POLARIZED_BOARD=false: השאר debate_resolution כמחרוזת ריקה "".`;
 
-  const prompt = `אתה Chief Investment Officer סקפטי (Supreme Inspector, Overseer/CIO) בחדר הדיונים — Institutional Crypto Quantitative Board. חובה: לסנתז (synthesize) ולהצליב (cross-reference) במפורש את כל שבעת התשובות (כולל ה-Contrarian) לפני קביעת התובנה הסופית.
+  const prompt = `אתה ה-CIO (Chief Investment Officer) הסקפטי ביותר בתעשייה — שילוב של Paul Tudor Jones, Ray Dalio ו-Michael Burry. אתה מנהל $2B AUM ואתה לא סולח על עסקאות גרועות. תפקידך: לסנתז את שבעת המומחים ולפסוק פסיקה סופית קרה ומחושבת — TRADE או HOLD. אין "אולי" ואין "יתכן" — רק TRADE עם R:R ≥ 2:1 מוכח, או HOLD.
 
 ${debateBlock}
 
-מצב אמון מומחים דינמי (Reinforcement Learning): Data Expert=${expertWeights.dataExpertWeight.toFixed(2)}, News Expert=${expertWeights.newsExpertWeight.toFixed(2)}, Macro Expert=${expertWeights.macroExpertWeight.toFixed(2)}. משקלים אלה משקפים ביצועים אחרונים של המומחים — כאשר המשקל גבוה יותר תן משקל גדול יותר לעמדת המומחה, וכאשר המשקל נמוך היה ספקן יותר.
+הנחיות ברזל — CEO MANDATES:
+(1) R:R SUPREMACY — אם אף מומחה לא הוכיח R:R ≥ 1.5:1, הפסיקה היא HOLD. תמיד ציין את ה-R:R המשוקלל בתובנה הסופית.
+(2) WHALE FOOTPRINT IS LAW — אם On-Chain מראה distribution whale + inflow לבורסות, זה VETO על LONG גם אם הטכני נראה יפה. הלווייתנים תמיד צודקים בסוף.
+(3) LIQUIDITY GRAB PRIORITY — אם Technician זיהה liquidity grab מאושר + reversal structure, זה ה-signal החזק ביותר. תן לו משקל כפול.
+(4) CONTRARIAN VETO — אם Contrarian מזהה bull_trap/bear_trap עם ביטחון > 70, חובה לסתור אותו לוגית. אם לא ניתן לסתור — HOLD.
+(5) CONSENSUS REQUIRED — פסיקת TRADE דורשת ≥ 4 מתוך 7 מומחים עם ציון > 60. פחות מזה = HOLD.
+(6) HEDGE FUND LANGUAGE — master_insight_he חייב לציין: verdict (TRADE/HOLD), R:R estimate, המשתנה הכי קריטי לעסקה, ואיפה אתה טועה.
+
+מצב אמון מומחים דינמי (Reinforcement Learning): Data Expert=${expertWeights.dataExpertWeight.toFixed(2)}, News Expert=${expertWeights.newsExpertWeight.toFixed(2)}, Macro Expert=${expertWeights.macroExpertWeight.toFixed(2)}.
 ${hitLine ? `שיעורי פגיעה אמפיריים (30 יום, DB פוסט-מורטם): ${hitLine}` : ''}
 
 שבעת המומחים:
 - 1.Technician: ציון ${tech.tech_score}, לוגיקה: ${tech.tech_logic}
-- 2.Risk: ציון ${risk.risk_score}, לוגיקה: ${risk.risk_logic}
+- 2.Risk (CRO): ציון ${risk.risk_score}, לוגיקה: ${risk.risk_logic}
 - 3.Psych: ציון ${psych.psych_score}, לוגיקה: ${psych.psych_logic}
 - 4.Macro: ציון ${macro.macro_score}, לוגיקה: ${macro.macro_logic}
-- 5.On-Chain: ציון ${onchain.onchain_score}, לוגיקה: ${onchain.onchain_logic}
+- 5.On-Chain (Whale Intelligence): ציון ${onchain.onchain_score}, לוגיקה: ${onchain.onchain_logic}
 - 6.Deep Memory: ציון ${deepMemory.deep_memory_score}, לוגיקה: ${deepMemory.deep_memory_logic}
 - 7.CONTRARIAN (adversarial): ביטחון ${contrarian.contrarian_confidence}, trap_type=${contrarian.trap_type}, מלכודה: ${contrarian.trap_hypothesis_he}, התקפה: ${contrarian.attack_on_consensus_he}
 
 אם ה-Contrarian מצביע על bull_trap/bear_trap עם ביטחון גבוה — חובה להשיב במפורש למתקפה (refutation) בעברית ב-contrarian_refutation_he, ולסמן contrarian_addressed=true רק אם סיכלת לוגית את טענותיו. אחרת contrarian_addressed=false.
 
-תפקידך: סינתזה סקפטית; Gem Score מחושב במערכת — אל תחשב בעצמך. master_insight_he עד 2 משפטים בעברית. reasoning_path משפט אחד. debate_resolution לפי POLARIZED_BOARD.
-חובה: JSON גולמי בדיוק: master_insight_he, reasoning_path, debate_resolution, contrarian_addressed (boolean), contrarian_refutation_he (string Hebrew, יכול להיות ריק אם אין סתירה חזקה).`;
+master_insight_he: 2 משפטים מקסימום בעברית — חייב לכלול: פסיקה (TRADE/HOLD), R:R estimate, ורכיב הסיכון המרכזי.
+reasoning_path: משפט אחד — מה הגורם המחליט.
+debate_resolution: לפי POLARIZED_BOARD.
+חובה: JSON גולמי בדיוק: master_insight_he, reasoning_path, debate_resolution, contrarian_addressed (boolean), contrarian_refutation_he (string Hebrew).`;
   const out = await callGeminiJson<{
     master_insight_he: string;
     reasoning_path: string;
