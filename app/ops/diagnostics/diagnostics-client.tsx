@@ -6,7 +6,7 @@
  * Deliberately separated from the Quantum War Room (active trading / MoE debate).
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import {
   Activity,
@@ -171,37 +171,136 @@ const EXPERT_MATRIX: Array<{
   { key: 'contrarianWeight',  label: 'Contrarian',        role: 'Expert 7',  provider: 'Gemini' },
 ];
 
+// ── All-OFFLINE fallback — used when the Server Action crashes completely ──────────────────────
+// The UI renders this instead of blowing up or showing a blank screen.
+// All connection indicators go RED; the user sees the system is down, not a JS crash.
+const OFFLINE_FALLBACK_DATA: DiagnosticsData = {
+  connections: { gemini: 'skip', groq: 'skip', anthropic: 'skip', pinecone: 'skip', postgres: 'fail', redis: 'fail' },
+  redisPing:   { latencyMs: 0, error: 'Server unreachable' },
+  workerHeartbeat: { alive: false, lastBeatAt: null, staleSinceMs: null },
+  agents: [],
+  systemIntegrity: { latestConsensusSaved: false, latestConsensusPredictionDate: null, latestConsensusSymbol: null },
+  deepMemorySync:  { lastPineconeUpsertAt: null, pineconeIndex: null, pineconeConfigured: false },
+  macroHealth:     { dxy: { status: 'fail', value: null, source: null, note: 'Server unreachable', updatedAt: null } },
+  neuroPlasticity: null,
+  episodicMemory:  [],
+  timestamp:       new Date().toISOString(),
+};
+
 // ── Main component ─────────────────────────────────────────────────────────────────────────────
 
 export default function EngineRoomPage() {
-  const [data, setData] = useState<DiagnosticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [auditResult, setAuditResult] = useState<AuditReport | null>(null);
+  const [data,         setData]         = useState<DiagnosticsData | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  // staleError: set when a poll fails but we have prior data — shown as a banner, not a blank screen
+  const [staleError,   setStaleError]   = useState<string | null>(null);
+  // hardError: set only on the very first load failure (no prior data to fall back to)
+  const [hardError,    setHardError]    = useState<string | null>(null);
+  const [auditResult,  setAuditResult]  = useState<AuditReport | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
 
+  // Ref tracks the latest data value so fetchDiagnostics can check it without
+  // needing `data` as a useCallback dependency (which would cause an infinite
+  // fetch loop: data change → new callback → useEffect re-fires immediately).
+  const dataRef = useRef<DiagnosticsData | null>(null);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  // PHASE 3 — NUCLEAR LOGGING: mounted signal
+  useEffect(() => {
+    console.log('[DIAG][1] Component mounted — EngineRoomPage hydrated on client');
+  }, []);
+
+  // Stable callback — never recreated, never triggers useEffect re-runs.
   const fetchDiagnostics = useCallback(async () => {
+    // PHASE 3 — NUCLEAR LOGGING: fetch start
+    console.log('[DIAG][2] Initiating Server Action — getOpsDiagnosticsAction()');
     setLoading(true);
-    setError(null);
     try {
-      const out = await getOpsDiagnosticsAction();
+      // If the Server Action itself throws at the framework level, treat it as
+      // a network failure and fall through to the offline handler below.
+      let out: Awaited<ReturnType<typeof getOpsDiagnosticsAction>>;
+      try {
+        out = await getOpsDiagnosticsAction();
+      } catch (innerErr) {
+        // PHASE 3 — NUCLEAR LOGGING: framework-level action throw
+        console.error('[DIAG][3-ERR] Server Action threw at framework level:', innerErr);
+        out = { success: false, error: 'שגיאת רשת — לא ניתן להגיע לשרת' };
+      }
+
+      // PHASE 3 — NUCLEAR LOGGING: raw response
+      console.log('[DIAG][3] Raw action response received — success:', out.success, '| error:', (out as { error?: string }).error ?? null, '| hasData:', 'data' in out && out.data != null);
+
       if (!out.success) {
-        if (out.error === 'UNAUTHORIZED') { setError('נדרשת הרשמה כמנהל.'); return; }
-        setError(out.error || 'שגיאה בטעינת אבחון');
+        if (out.error === 'UNAUTHORIZED') {
+          setHardError('נדרשת הרשמה כמנהל.');
+          return;
+        }
+        const msg = out.error || 'שגיאה בטעינת אבחון';
+        console.warn('[DIAG][4-WARN] Action returned failure — falling back. Message:', msg);
+        if (dataRef.current !== null) {
+          setStaleError(msg);
+        } else {
+          setData(OFFLINE_FALLBACK_DATA);
+          setHardError(msg);
+        }
         return;
       }
-      setData(out.data as DiagnosticsData);
+
+      // PHASE 3 — NUCLEAR LOGGING: successful data commit
+      const incoming = out.data as DiagnosticsData;
+      console.log('[DIAG][4] State updated — data keys:', incoming != null ? Object.keys(incoming) : 'NULL — CRITICAL!');
+
+      // PHASE 2 — BULLETPROOFING: if the action succeeded but returned no data,
+      // fall back to OFFLINE rather than committing null and crashing the render.
+      if (incoming == null) {
+        console.error('[DIAG][4-CRITICAL] Action reported success but data is null/undefined — using OFFLINE fallback');
+        setData(OFFLINE_FALLBACK_DATA);
+        setHardError('שגיאה פנימית: נתונים ריקים התקבלו מהשרת');
+        return;
+      }
+
+      // Fresh data — clear any stale-error banner.
+      setData(incoming);
+      setStaleError(null);
+      setHardError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאת רשת');
+      // Last-resort catch — should be unreachable given the inner guard above,
+      // but guarantees the component never crashes with an unhandled rejection.
+      const msg = e instanceof Error ? e.message : 'שגיאת רשת';
+      console.error('[DIAG][CATCH] Last-resort outer catch fired:', e);
+      if (dataRef.current !== null) {
+        setStaleError(msg);
+      } else {
+        setData(OFFLINE_FALLBACK_DATA);
+        setHardError(msg);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, []); // Empty deps — stable reference, no infinite loop.
 
   useEffect(() => {
-    fetchDiagnostics();
-    const t = setInterval(fetchDiagnostics, 60_000);
-    return () => clearInterval(t);
+    let isMounted = true;
+    let timerId: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      if (!isMounted) return;
+      try {
+        await fetchDiagnostics();
+      } finally {
+        if (isMounted) {
+          // Wait exactly 10 s AFTER the last request finished before firing again.
+          timerId = setTimeout(poll, 10_000);
+        }
+      }
+    };
+
+    poll();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timerId);
+    };
   }, [fetchDiagnostics]);
 
   const runAuditCheck = async () => {
@@ -227,41 +326,32 @@ export default function EngineRoomPage() {
     }
   };
 
+  // ── Loading splash — only on the very first render before any data arrives ──
   if (loading && !data) {
     return (
       <main className="min-h-screen bg-zinc-950 text-zinc-100 p-6" dir="rtl">
         <div className="max-w-5xl mx-auto flex flex-col items-center justify-center gap-4 py-20">
-          <div className="relative">
-            <Cpu className="w-12 h-12 text-amber-400 animate-pulse" />
-          </div>
+          <Cpu className="w-12 h-12 text-amber-400 animate-pulse" />
           <p className="text-zinc-400 text-sm tracking-wide">ENGINE ROOM — טוען נתוני מערכת...</p>
         </div>
       </main>
     );
   }
 
-  if (error && !data) {
-    return (
-      <main className="min-h-screen bg-zinc-950 text-zinc-100 p-6" dir="rtl">
-        <div className="max-w-5xl mx-auto py-8">
-          <div className="rounded-xl border border-red-500/30 bg-red-950/20 p-4 text-red-300 flex items-center gap-3">
-            <XCircle className="w-6 h-6 shrink-0" />
-            <span>{error}</span>
-          </div>
-          <button type="button" onClick={fetchDiagnostics}
-            className="mt-4 px-4 py-2 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-zinc-200 transition-colors">
-            נסה שוב
-          </button>
-        </div>
-      </main>
-    );
-  }
+  // PHASE 2 — BULLETPROOFING: replace `data!` non-null assertion with a true
+  // null-guard. If React's async batching ever serves a render tick where
+  // `loading` just flipped to false but `data` hasn't committed yet, the old
+  // `data!` assertion lied and the render crashed. This guard catches that gap.
+  const safeData = data ?? OFFLINE_FALLBACK_DATA;
+  console.log('[DIAG][5] Render — safeData timestamp:', safeData.timestamp, '| loading:', loading, '| hardError:', hardError);
 
   return (
     <DiagnosticsBody
-      data={data!}
+      data={safeData}
       loading={loading}
       fetchDiagnostics={fetchDiagnostics}
+      staleError={staleError}
+      hardError={hardError}
       auditResult={auditResult}
       auditLoading={auditLoading}
       runAuditCheck={runAuditCheck}
@@ -274,6 +364,8 @@ function DiagnosticsBody({
   data,
   loading,
   fetchDiagnostics,
+  staleError,
+  hardError,
   auditResult,
   auditLoading,
   runAuditCheck,
@@ -281,19 +373,23 @@ function DiagnosticsBody({
   data: DiagnosticsData;
   loading: boolean;
   fetchDiagnostics: () => void;
+  staleError: string | null;
+  hardError: string | null;
   auditResult: AuditReport | null;
   auditLoading: boolean;
   runAuditCheck: () => void | Promise<void>;
 }) {
   try {
-  const conn = data.connections;
-  const integrity = data.systemIntegrity;
-  const deepMemory = data.deepMemorySync;
-  const dxy = data.macroHealth?.dxy;
-  const np = data.neuroPlasticity;
-  const episodes = data.episodicMemory ?? [];
-  const redisPing = data.redisPing;
-  const workerHb = data.workerHeartbeat;
+  // PHASE 2 — BULLETPROOFING: every derived field uses a fallback so a partial
+  // payload from the Server Action can never crash the render tree.
+  const conn        = data.connections        ?? OFFLINE_FALLBACK_DATA.connections;
+  const integrity   = data.systemIntegrity    ?? OFFLINE_FALLBACK_DATA.systemIntegrity;
+  const deepMemory  = data.deepMemorySync     ?? OFFLINE_FALLBACK_DATA.deepMemorySync;
+  const dxy         = data.macroHealth?.dxy   ?? OFFLINE_FALLBACK_DATA.macroHealth.dxy;
+  const np          = data.neuroPlasticity    ?? null;
+  const episodes    = data.episodicMemory     ?? [];
+  const redisPing   = data.redisPing          ?? OFFLINE_FALLBACK_DATA.redisPing;
+  const workerHb    = data.workerHeartbeat    ?? OFFLINE_FALLBACK_DATA.workerHeartbeat;
 
   const infraConnections: Array<{ key: string; label: string; icon: typeof Server; extra?: string }> = [
     { key: 'postgres', label: 'Quantum Core DB (Postgres)', icon: Database },
@@ -330,6 +426,36 @@ function DiagnosticsBody({
             </Link>
           </div>
         </div>
+
+        {/* ── Hard-error banner (first load failed, showing OFFLINE fallback) ──────────────────── */}
+        {hardError && (
+          <div className="rounded-xl border border-rose-500/40 bg-rose-950/20 px-4 py-3 flex items-start gap-3 shadow-[0_0_20px_rgba(244,63,94,0.10)]">
+            <XCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-rose-300 font-semibold text-sm">שגיאה בטעינת אבחון — מציג סטטוס OFFLINE</p>
+              <p className="text-rose-400/70 text-xs mt-0.5 truncate">{hardError}</p>
+            </div>
+            <button type="button" onClick={fetchDiagnostics}
+              className="ml-auto shrink-0 text-xs text-rose-300 hover:text-rose-200 underline underline-offset-2">
+              נסה שוב
+            </button>
+          </div>
+        )}
+
+        {/* ── Stale-data banner (poll failed but prior data is still displayed) ────────────────── */}
+        {staleError && !hardError && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 px-4 py-2.5 flex items-center gap-3">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+            <p className="text-amber-300 text-xs flex-1">
+              <span className="font-semibold">עדכון אחרון נכשל — מוצגים נתונים ישנים.</span>{' '}
+              <span className="text-amber-400/70">{staleError}</span>
+            </p>
+            <button type="button" onClick={fetchDiagnostics}
+              className="shrink-0 text-xs text-amber-300 hover:text-amber-200 underline underline-offset-2">
+              רענן
+            </button>
+          </div>
+        )}
 
         {/* ── Infrastructure Health ───────────────────────────────────────────────────────────── */}
         <section className="rounded-xl border border-zinc-700/80 bg-zinc-900/60 overflow-hidden">

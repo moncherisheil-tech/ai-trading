@@ -12,6 +12,12 @@
  *   - timestamp
  *
  * Requires admin session when SESSION_SECRET is set.
+ *
+ * INDESTRUCTIBLE HEARTBEAT CONTRACT:
+ *   This route NEVER returns HTTP 5xx. Every failure mode — whether the German
+ *   servers at 178.104.75.47 / 88.99.208.99 are unreachable, a Prisma query
+ *   hangs, or the handler itself throws — is caught and reported as an OFFLINE
+ *   status inside the JSON payload with HTTP 200. The client only ever sees 200.
  */
 
 import { NextResponse } from 'next/server';
@@ -24,6 +30,49 @@ import { prisma } from '@/lib/prisma';
 import { AUTH_COOKIE_NAME } from '@/lib/auth-constants';
 
 export const dynamic = 'force-dynamic';
+
+// ─── Hard timeout wrapper ──────────────────────────────────────────────────────
+// Races any promise against a deadline. The rejected timeout error is caught by
+// Promise.allSettled so it never propagates to the outer handler.
+const DB_PROBE_TIMEOUT_MS    = 3_000;   // Postgres / Prisma queries
+const REDIS_PROBE_TIMEOUT_MS = 3_000;   // Redis connect + PING round-trip
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`[ops/diagnostics] ${label} timed out after ${ms}ms`)),
+        ms
+      )
+    ),
+  ]);
+}
+
+// ─── All-OFFLINE fallback payload ─────────────────────────────────────────────
+// Returned (with HTTP 200) when the handler itself crashes so the client always
+// receives a well-typed payload instead of an opaque 500.
+function buildOfflinePayload(reason: string) {
+  const OFFLINE_HB = { alive: false, lastBeatAt: null, staleSinceMs: null };
+  return {
+    connections: { gemini: 'skip', groq: 'skip', anthropic: 'skip', pinecone: 'skip', postgres: 'fail', redis: 'fail' } as const,
+    redisPing:   { latencyMs: 0, error: reason },
+    workerHeartbeat: OFFLINE_HB,
+    healthChecks: {
+      db:            { status: 'offline' as const, error: reason },
+      vectorStorage: { status: 'offline' as const, error: reason },
+    },
+    agents:          [],
+    systemIntegrity: { latestConsensusSaved: false, latestConsensusPredictionDate: null, latestConsensusSymbol: null },
+    deepMemorySync:  { lastPineconeUpsertAt: null, pineconeIndex: null, pineconeConfigured: false },
+    macroHealth:     { dxy: { status: 'fail' as const, value: null, source: null, note: reason, updatedAt: null } },
+    neuroPlasticity: null,
+    episodicMemory:  [],
+    timestamp:       new Date().toISOString(),
+    _degraded:       true,
+    _degradedReason: reason,
+  };
+}
 
 function hasEnv(key: string): boolean {
   const v = process.env[key];
@@ -78,12 +127,19 @@ export async function GET(): Promise<NextResponse> {
   try {
     return await getImpl();
   } catch (fatal) {
+    // GOLDEN RULE: this route NEVER returns 5xx.
+    // Any unhandled exception — including a crashed Prisma client, an import
+    // failure, or a type error in result processing — is caught here and
+    // reported as HTTP 200 with all connections marked OFFLINE. The frontend
+    // heartbeat polling will receive valid JSON on every poll, always.
     const msg = fatal instanceof Error ? fatal.message : String(fatal);
-    console.error('[ops/diagnostics] Unhandled error in GET handler:', msg);
-    return NextResponse.json(
-      { error: 'Internal server error — diagnostics unavailable.', detail: msg },
-      { status: 500 }
+    const stack = fatal instanceof Error ? fatal.stack : '';
+    console.error(
+      '[ops/diagnostics] ⚠️  Fatal handler error — returning degraded 200 payload:',
+      msg,
+      stack
     );
+    return NextResponse.json(buildOfflinePayload(`handler_error: ${msg}`), { status: 200 });
   }
 }
 
@@ -95,6 +151,18 @@ async function getImpl(): Promise<NextResponse> {
     if (!session || !hasRequiredRole(session.role, 'admin')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+  }
+
+  // Guard: if DATABASE_URL is absent, getPrisma() returns null and any
+  // property access on the prisma Proxy throws synchronously. Return the
+  // offline payload immediately rather than letting the throw propagate
+  // through the Promise.allSettled array construction.
+  const { getPrisma } = await import('@/lib/prisma');
+  if (!getPrisma()) {
+    return NextResponse.json(
+      buildOfflinePayload('DATABASE_URL not configured — Prisma client unavailable'),
+      { status: 200 }
+    );
   }
 
   const geminiKey  = hasEnv('GEMINI_API_KEY');
@@ -131,34 +199,51 @@ async function getImpl(): Promise<NextResponse> {
     neuroRes,
     episodicRes,
   ] = await Promise.allSettled([
-    // 1. Postgres liveness ping
-    prisma.$queryRaw`SELECT 1`,
-    // 2. Redis ping + worker heartbeat (new TCP connection — acceptable cost for diagnostics)
-    pingRedis(),
+    // 1. Postgres liveness ping — hard 3 s cap prevents cross-border hang (178.104.75.47)
+    withTimeout(
+      prisma.$queryRaw`SELECT 1`,
+      DB_PROBE_TIMEOUT_MS,
+      'postgres SELECT 1'
+    ),
+    // 2. Redis ping + worker heartbeat — hard 3 s cap (88.99.208.99); IORedis has its
+    //    own connectTimeout but we enforce an outer deadline for the full round-trip.
+    withTimeout(pingRedis(), REDIS_PROBE_TIMEOUT_MS, 'redis ping'),
     // 3. Pinecone connection verification (skipped when not configured)
     pinecone === 'ok'
       ? import('@/lib/vector-db').then((m) => m.verifyPineconeConnectionStrict())
       : Promise.resolve(null),
     // 4. Latest consensus record
-    getDbAsync(),
+    withTimeout(getDbAsync(), DB_PROBE_TIMEOUT_MS, 'getDbAsync (consensus)'),
     // 5. Board meeting logs — last entry timestamp
-    prisma.$queryRaw<{ timestamp: string }[]>`
-      SELECT timestamp::text AS timestamp FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1
-    `,
-    // 6. DXY macro — hard 5 s cap inside the race is preserved here
+    withTimeout(
+      prisma.$queryRaw<{ timestamp: string }[]>`
+        SELECT timestamp::text AS timestamp FROM board_meeting_logs ORDER BY timestamp DESC LIMIT 1
+      `,
+      DB_PROBE_TIMEOUT_MS,
+      'board_meeting_logs query'
+    ),
+    // 6. DXY macro — hard 5 s cap; inner race preserved for macro service itself
     Promise.race([
       fetchMacroContext(MACRO_LOAD_TIMEOUT_MS),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), MACRO_LOAD_TIMEOUT_MS)),
     ]),
-    // 7. NeuroPlasticity weights (id = 1)
-    prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } }),
-    // 8. Episodic memory — 10 most recent lessons
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (prisma as any).episodicMemory.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 10,
-      select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
-    }),
+    // 7. NeuroPlasticity weights (id = 1) — hard 3 s cap
+    withTimeout(
+      prisma.systemNeuroPlasticity.findUnique({ where: { id: 1 } }),
+      DB_PROBE_TIMEOUT_MS,
+      'systemNeuroPlasticity.findUnique'
+    ),
+    // 8. Episodic memory — 10 most recent lessons — hard 3 s cap
+    withTimeout(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (prisma as any).episodicMemory.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        select: { id: true, symbol: true, marketRegime: true, abstractLesson: true, createdAt: true },
+      }),
+      DB_PROBE_TIMEOUT_MS,
+      'episodicMemory.findMany'
+    ),
   ]);
 
   // ── Process results ───────────────────────────────────────────────────────────────────────────

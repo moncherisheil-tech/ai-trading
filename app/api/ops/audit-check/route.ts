@@ -63,12 +63,39 @@ function toErrorDetails(err: unknown): { message: string; type: string } {
   return { message: String(err), type: 'UnknownError' };
 }
 
+/** INDESTRUCTIBLE CONTRACT: this route NEVER returns HTTP 5xx. */
+const AUDIT_FAIL_PAYLOAD = (reason: string) => ({
+  ok: false,
+  error: { stage: 'handler', message: reason },
+  report: {
+    analysis: { passed: false, error: reason },
+    db: { passed: false, error: reason },
+    vectorStorage: { passed: false, error: reason },
+    timestamp: new Date().toISOString(),
+  },
+  summary: { analysis: 'FAIL', db: 'FAIL', vectorStorage: 'FAIL' },
+});
+
 export async function GET(): Promise<NextResponse> {
-  return runAudit();
+  try {
+    return await runAudit();
+  } catch (fatal) {
+    const msg = fatal instanceof Error ? fatal.message : String(fatal);
+    console.error('[ops/audit-check] Fatal unhandled error — returning degraded 200:', msg,
+      fatal instanceof Error ? fatal.stack : '');
+    return NextResponse.json(AUDIT_FAIL_PAYLOAD(`handler_error: ${msg}`), { status: 200 });
+  }
 }
 
 export async function POST(): Promise<NextResponse> {
-  return runAudit();
+  try {
+    return await runAudit();
+  } catch (fatal) {
+    const msg = fatal instanceof Error ? fatal.message : String(fatal);
+    console.error('[ops/audit-check] Fatal unhandled error — returning degraded 200:', msg,
+      fatal instanceof Error ? fatal.stack : '');
+    return NextResponse.json(AUDIT_FAIL_PAYLOAD(`handler_error: ${msg}`), { status: 200 });
+  }
 }
 
 async function runAudit(): Promise<NextResponse> {
