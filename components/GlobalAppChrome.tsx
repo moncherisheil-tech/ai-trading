@@ -8,6 +8,7 @@ import ConsultationChat from '@/components/ConsultationChat';
 import { SimulationProvider } from '@/context/SimulationContext';
 import { ToastProvider } from '@/context/ToastContext';
 import { MarketStateProvider } from '@/context/MarketStateContext';
+import { LiveExecutionStreamProvider } from '@/context/LiveExecutionStreamContext';
 import LiveTradingWarBanner from '@/components/LiveTradingWarBanner';
 
 const LOGIN_PATH = '/login';
@@ -26,23 +27,25 @@ export default function GlobalAppChrome({ children }: { children: React.ReactNod
 
   return (
     <MarketStateProvider>
-      <div className="min-h-screen w-full grid grid-cols-1 md:grid-cols-[1fr_280px]">
-        <LiveTradingWarBanner />
-        <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-[calc(var(--safe-area-top)+5rem)] md:pt-0">
-          <CryptoTicker />
-          <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-[calc(var(--safe-area-bottom)+5.5rem)] md:pb-0">
-            <ToastProvider>
-              <SimulationProvider>
-                <PageTransition>{children}</PageTransition>
-              </SimulationProvider>
-            </ToastProvider>
-            <ConsultationChat />
-          </main>
+      <LiveExecutionStreamProvider>
+        <div className="min-h-screen w-full grid grid-cols-1 md:grid-cols-[1fr_280px]">
+          <LiveTradingWarBanner />
+          <div className="sovereign-shell relative z-[1] block min-h-screen min-w-0 max-w-full pt-[calc(var(--safe-area-top)+5rem)] md:pt-0">
+            <CryptoTicker />
+            <main className="relative z-0 block min-h-screen min-w-0 max-w-full pb-[calc(var(--safe-area-bottom)+5.5rem)] md:pb-0">
+              <ToastProvider>
+                <SimulationProvider>
+                  <PageTransition>{children}</PageTransition>
+                </SimulationProvider>
+              </ToastProvider>
+              <ConsultationChat />
+            </main>
+          </div>
+          <div className="block">
+            <AppHeader />
+          </div>
         </div>
-        <div className="block">
-          <AppHeader />
-        </div>
-      </div>
+      </LiveExecutionStreamProvider>
     </MarketStateProvider>
   );
 }

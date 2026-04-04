@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useId, useMemo } from 'react';
 import { motion, type Variants } from 'motion/react';
-import { getExecutionDashboardSnapshotAction } from '@/app/actions';
 import { useMarketState } from '@/context/MarketStateContext';
 import { useCyberDecryptNumber } from '@/hooks/use-cyber-decrypt-value';
 import { useAIStatus } from '@/hooks/use-ai-status';
+import { useLiveExecutionStream } from '@/context/LiveExecutionStreamContext';
 
 const EXPERT_META = [
   { name: 'אנליסט טכני', alias: 'מהנדס השוק', neon: '#00E5FF' },
@@ -147,8 +147,37 @@ type BoardOfExpertsProps = {
 export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
   const { isDefcon1 } = useMarketState();
   const { status: aiStatus, loading: aiLoading } = useAIStatus();
-  const [consensusPulse, setConsensusPulse] = useState(false);
-  const [scores, setScores] = useState<(number | null)[]>(() => EXPERT_META.map(() => null));
+
+  // ── SSE stream replaces the 12-second polling interval ───────────────────
+  const { snap } = useLiveExecutionStream();
+
+  const toScore = (value: unknown): number | null => {
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const { scores, consensusPulse } = useMemo(() => {
+    if (!snap) {
+      return { scores: EXPERT_META.map(() => null) as (number | null)[], consensusPulse: false };
+    }
+    const latest = snap.recentExecutions?.[0];
+    const breakdown = (latest?.expertBreakdown ?? null) as Record<string, { score?: unknown }> | null;
+    const mappedScores: (number | null)[] = [
+      toScore(breakdown?.technician?.score),
+      toScore(breakdown?.deepMemory?.score),
+      toScore(breakdown?.marketPsychologist?.score),
+      toScore(breakdown?.onChainSleuth?.score),
+      toScore(breakdown?.riskManager?.score),
+      toScore(breakdown?.macroOrderBook?.score),
+      toScore(latest?.confidence),
+    ];
+    const threshold = typeof snap.minConfidenceToExecute === 'number' ? snap.minConfidenceToExecute : 75;
+    const latestConf = toScore(latest?.confidence);
+    return {
+      scores: mappedScores,
+      consensusPulse: latestConf != null && latestConf >= threshold,
+    };
+  }, [snap]);
 
   const experts: ExpertCardData[] = useMemo(
     () =>
@@ -159,59 +188,6 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
       })),
     [scores, aiLoading, aiStatus]
   );
-
-  useEffect(() => {
-    let mounted = true;
-    type ExecutionSnapshot = {
-      minConfidenceToExecute?: number;
-      recentExecutions?: Array<{
-        confidence?: number;
-        expertBreakdown?: {
-          technician?: { score?: number };
-          deepMemory?: { score?: number };
-          marketPsychologist?: { score?: number };
-          onChainSleuth?: { score?: number };
-          riskManager?: { score?: number };
-          macroOrderBook?: { score?: number };
-        } | null;
-      }>;
-    };
-    const toScore = (value: unknown): number | null => {
-      const n = typeof value === 'number' ? value : Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
-    const syncExecutionState = async () => {
-      try {
-        const payload = (await getExecutionDashboardSnapshotAction()) as ExecutionSnapshot;
-        if (!mounted || !payload) return;
-        const latest = payload.recentExecutions?.[0];
-        const breakdown = latest?.expertBreakdown ?? null;
-        const mappedScores: Array<number | null> = [
-          toScore(breakdown?.technician?.score),
-          toScore(breakdown?.deepMemory?.score),
-          toScore(breakdown?.marketPsychologist?.score),
-          toScore(breakdown?.onChainSleuth?.score),
-          toScore(breakdown?.riskManager?.score),
-          toScore(breakdown?.macroOrderBook?.score),
-          toScore(latest?.confidence),
-        ];
-        setScores(mappedScores);
-        const threshold = typeof payload.minConfidenceToExecute === 'number' ? payload.minConfidenceToExecute : 75;
-        const latestConfidence = toScore(latest?.confidence);
-        setConsensusPulse(latestConfidence != null && latestConfidence >= threshold);
-      } catch {
-        if (!mounted) return;
-        setConsensusPulse(false);
-        setScores(EXPERT_META.map(() => null));
-      }
-    };
-    void syncExecutionState();
-    const timer = setInterval(syncExecutionState, 12_000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
 
   return (
     <motion.div variants={staggerItem} className="mb-6">

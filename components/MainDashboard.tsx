@@ -17,7 +17,6 @@ import AIAccuracyChart from '@/components/AIAccuracyChart';
 import DeepMemoryFeed from '@/components/DeepMemoryFeed';
 import BoardOfExperts from '@/components/BoardOfExperts';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { getMarketRiskSentinelAction } from '@/app/actions';
 import { useMarketState } from '@/context/MarketStateContext';
 
 const GLASS =
@@ -89,29 +88,13 @@ function TerminalClock() {
  * Bloomberg-style terminal dashboard: bento grid + glass cards + Deep Memory stream.
  */
 export default function MainDashboard() {
-  const { isDefcon1, defcon, sentiment, volatilityNormalized } = useMarketState();
-  const [marketMode, setMarketMode] = useState<MarketMode>('bull');
-  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const { isDefcon1, defcon, sentiment, volatilityNormalized, loading: marketLoading } = useMarketState();
 
-  useEffect(() => {
-    let mounted = true;
-    const syncMarketMode = async () => {
-      try {
-        const payload = (await getMarketRiskSentinelAction()) as { status?: 'SAFE' | 'DANGEROUS' };
-        setMarketMode(payload.status === 'DANGEROUS' ? 'bear' : 'bull');
-      } catch {
-        if (mounted) setMarketMode('bull');
-      } finally {
-        if (mounted) setIsBootstrapping(false);
-      }
-    };
-    void syncMarketMode();
-    const timer = setInterval(syncMarketMode, 20000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, []);
+  // Derive market mode directly from the already-polling MarketStateContext.
+  // This eliminates the duplicate getMarketRiskSentinelAction setInterval that
+  // was previously firing every 20 s redundantly alongside the 18 s context poll.
+  const marketMode: MarketMode = sentiment?.status === 'DANGEROUS' ? 'bear' : 'bull';
+  const isBootstrapping = marketLoading && sentiment === null;
 
   return (
     <section

@@ -12,11 +12,11 @@ import { motion } from 'motion/react';
 import {
   closeVirtualPortfolioTradeAction,
   executeTradingSignalAction,
-  getExecutionDashboardSnapshotAction,
   getSignalCoreTelemetryAction,
   updateTradingExecutionStatusAction,
   type SignalCoreTelemetryPayload,
 } from '@/app/actions';
+import { useLiveExecutionStream } from '@/context/LiveExecutionStreamContext';
 import SectionErrorBoundary from '@/components/SectionErrorBoundary';
 
 /** Obsidian & Wealth — institutional deck tokens */
@@ -201,7 +201,24 @@ function MicroSparkline({
 }
 
 export default function QuantumCommandCenter() {
-  const [snap, setSnap] = useState<DashboardSnap | null>(null);
+  // ── SSE stream (replaces the old 4-second polling bomb) ──────────────────
+  const { snap: streamSnap, forceRefresh } = useLiveExecutionStream();
+
+  // Normalise the stream payload into the local DashboardSnap shape.
+  const snap = useMemo<DashboardSnap | null>(() => {
+    if (!streamSnap) return null;
+    return {
+      mode: streamSnap.mode,
+      masterSwitchEnabled: streamSnap.masterSwitchEnabled,
+      minConfidenceToExecute: streamSnap.minConfidenceToExecute,
+      robotHandshakeAt: streamSnap.robotHandshakeAt ?? null,
+      robotHandshakeSource: streamSnap.robotHandshakeSource ?? null,
+      activeTrades: streamSnap.activeTrades as DashboardSnap['activeTrades'],
+      recentExecutions: streamSnap.recentExecutions as DashboardSnap['recentExecutions'],
+    };
+  }, [streamSnap]);
+
+  // ── Signal-Core telemetry (microstructure — symbol-specific, 30 s poll) ──
   const [telemetry, setTelemetry] = useState<SignalCoreTelemetryPayload | null>(null);
   const [tickSymbol, setTickSymbol] = useState('BTCUSDT');
   const [busy, setBusy] = useState<string | null>(null);
@@ -213,32 +230,9 @@ export default function QuantumCommandCenter() {
   const [entHist, setEntHist] = useState<number[]>([]);
   const [kalHist, setKalHist] = useState<number[]>([]);
 
-  const refresh = useCallback(async () => {
+  const refreshTelemetry = useCallback(async () => {
     try {
-      const [dashRaw, telem] = await Promise.all([
-        getExecutionDashboardSnapshotAction() as Promise<Partial<DashboardSnap> | null>,
-        getSignalCoreTelemetryAction({ symbol: tickSymbol }),
-      ]);
-      const dash: DashboardSnap | null =
-        dashRaw && typeof dashRaw === 'object'
-          ? {
-              mode: dashRaw.mode === 'LIVE' ? 'LIVE' : 'PAPER',
-              masterSwitchEnabled: Boolean(dashRaw.masterSwitchEnabled),
-              minConfidenceToExecute: dashRaw.minConfidenceToExecute ?? 80,
-              robotHandshakeAt:
-                typeof (dashRaw as { robotHandshakeAt?: unknown }).robotHandshakeAt === 'string'
-                  ? (dashRaw as { robotHandshakeAt: string }).robotHandshakeAt
-                  : null,
-              robotHandshakeSource:
-                (dashRaw as { robotHandshakeSource?: unknown }).robotHandshakeSource === 'telegram' ||
-                (dashRaw as { robotHandshakeSource?: unknown }).robotHandshakeSource === 'dashboard'
-                  ? ((dashRaw as { robotHandshakeSource: 'telegram' | 'dashboard' }).robotHandshakeSource)
-                  : null,
-              activeTrades: Array.isArray(dashRaw.activeTrades) ? dashRaw.activeTrades : [],
-              recentExecutions: Array.isArray(dashRaw.recentExecutions) ? dashRaw.recentExecutions : [],
-            }
-          : null;
-      setSnap(dash);
+      const telem = await getSignalCoreTelemetryAction({ symbol: tickSymbol });
       if (telem.ok) {
         setTelemetry(telem);
         if (telem.metrics) {
@@ -248,20 +242,21 @@ export default function QuantumCommandCenter() {
           const k = telem.metrics.kalman_velocity;
           if (k != null && Number.isFinite(k)) setKalHist((h) => pushCap(h, k, SPARK_CAP));
         }
+        setErr(null);
       } else {
         setErr(telem.error);
       }
-      setErr(null);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'סנכרון עמדת הפיקוד נכשל');
+      setErr(e instanceof Error ? e.message : 'שגיאת טלמטריה');
     }
   }, [tickSymbol]);
 
+  // Telemetry: fetch on symbol change + light 30 s refresh (microstructure only).
   useEffect(() => {
-    void refresh();
-    const i = setInterval(() => void refresh(), 4000);
+    void refreshTelemetry();
+    const i = setInterval(() => void refreshTelemetry(), 30_000);
     return () => clearInterval(i);
-  }, [refresh]);
+  }, [refreshTelemetry]);
 
   const consensusPulse = useMemo(() => {
     if (!snap) return false;
@@ -316,7 +311,7 @@ export default function QuantumCommandCenter() {
     try {
       const out = await updateTradingExecutionStatusAction({ masterSwitchEnabled: enabled });
       if (!out.success) setErr(out.error);
-      else await refresh();
+      else forceRefresh();
     } finally {
       setBusy(null);
     }
@@ -328,7 +323,7 @@ export default function QuantumCommandCenter() {
     setBusy('kill');
     try {
       await Promise.all(open.map((t) => closeVirtualPortfolioTradeAction({ symbol: t.symbol })));
-      await refresh();
+      forceRefresh();
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'רצף חיסול נכשל');
     } finally {
@@ -361,7 +356,7 @@ export default function QuantumCommandCenter() {
               priority: 'atomic',
             });
             if (!out.success) setErr(out.error);
-            else await refresh();
+            else forceRefresh();
           } finally {
             setBusy(null);
           }

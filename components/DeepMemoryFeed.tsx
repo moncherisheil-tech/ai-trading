@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { BrainCircuit, Radio } from 'lucide-react';
-import { getTradingExecutionStatusAction } from '@/app/actions';
+import { useLiveExecutionStream } from '@/context/LiveExecutionStreamContext';
 
 type ExecutionRow = {
   symbol: string;
@@ -12,10 +12,6 @@ type ExecutionRow = {
   createdAt: string;
   overseerSummary: string | null;
   overseerReasoningPath: string | null;
-};
-
-type ExecutionStatusPayload = {
-  recentExecutions?: ExecutionRow[];
 };
 
 function formatLiveLine(row: ExecutionRow): string {
@@ -29,55 +25,45 @@ export type DeepMemoryFeedProps = {
 };
 
 export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) {
+  const { snap, streamStatus } = useLiveExecutionStream();
+
   const [lines, setLines] = useState<string[]>([
     '[Deep Memory] Loading live execution memory feed...',
   ]);
-  const [live, setLive] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
   const seenKeysRef = useRef<Set<string>>(new Set());
 
+  // Derive liveness from SSE stream status.
+  const live = streamStatus === 'live' && (snap?.recentExecutions?.length ?? 0) > 0;
+
+  // React to new snapshot data pushed by the SSE stream.
   useEffect(() => {
-    let mounted = true;
-    const poll = async () => {
-      try {
-        const out = await getTradingExecutionStatusAction();
-        if (!out.success) throw new Error(out.error);
-        const payload = out.data as ExecutionStatusPayload;
-        const rows = Array.isArray(payload.recentExecutions) ? payload.recentExecutions : [];
-        if (!mounted) return;
-        if (rows.length === 0) {
-          setLive(false);
-          setLines(['[Deep Memory] No execution memory events yet.']);
-          return;
-        }
+    const rows = (snap?.recentExecutions ?? []) as ExecutionRow[];
+    if (rows.length === 0) {
+      setLines(['[Deep Memory] No execution memory events yet.']);
+      return;
+    }
 
-        const nextLines: string[] = [];
-        for (const row of rows.slice(0, 20).reverse()) {
-          const key = `${row.symbol}|${row.createdAt}|${row.status}|${row.confidence}`;
-          if (!seenKeysRef.current.has(key)) {
-            seenKeysRef.current.add(key);
-            nextLines.push(formatLiveLine(row));
-          }
-        }
-
-        setLive(true);
-        if (nextLines.length > 0) {
-          setLines((prev) => [...prev, ...nextLines].slice(-120));
-        }
-      } catch {
-        if (!mounted) return;
-        setLive(false);
-        setLines((prev) => (prev.length > 0 ? prev : ['[Deep Memory] Feed unavailable.']));
+    const nextLines: string[] = [];
+    for (const row of rows.slice(0, 20).reverse()) {
+      const key = `${row.symbol}|${row.createdAt}|${row.status}|${row.confidence}`;
+      if (!seenKeysRef.current.has(key)) {
+        seenKeysRef.current.add(key);
+        nextLines.push(formatLiveLine(row));
       }
-    };
-    void poll();
-    const id = setInterval(() => void poll(), 8000);
-    return () => {
-      mounted = false;
-      clearInterval(id);
-    };
-  }, []);
+    }
+    if (nextLines.length > 0) {
+      setLines((prev) => [...prev, ...nextLines].slice(-120));
+    }
+  }, [snap]);
+
+  // Reset seen-key tracker when the stream reconnects.
+  useEffect(() => {
+    if (streamStatus === 'connecting') {
+      seenKeysRef.current.clear();
+    }
+  }, [streamStatus]);
 
   const statusLabel = useMemo(() => (live ? 'Live' : 'Standby'), [live]);
 
@@ -87,12 +73,6 @@ export default function DeepMemoryFeed({ className = '' }: DeepMemoryFeedProps) 
     if (!el || !stickBottom.current) return;
     el.scrollTop = el.scrollHeight;
   }, [lines]);
-
-  useEffect(() => {
-    if (!live) {
-      seenKeysRef.current.clear();
-    }
-  }, [live]);
 
   const onScroll = () => {
     const el = scrollRef.current;

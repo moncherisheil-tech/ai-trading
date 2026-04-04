@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "dev": "next dev",
+    "dev:web": "next dev",
+    "dev:worker": "npx tsx scripts/run-worker.ts",
+    "dev": "concurrently --names \"WEB,WORKER\" --prefix-colors \"cyan,magenta\" \"npm run dev:web\" \"npm run dev:worker\"",
     "build": "next build",
     "build:prod": "bash scripts/build-prod.sh",
     "build:production": "bash scripts/build-production.sh",
@@ -60,6 +62,7 @@
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^2.1.8",
+    "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "eslint": "9.39.1",
     "eslint-config-next": "16.0.8",

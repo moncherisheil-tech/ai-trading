@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { Lock, RefreshCw, Zap, Wallet, Crosshair, TrendingUp } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -12,7 +12,8 @@ import {
   Tooltip,
   Legend,
 } from 'recharts';
-import { getTradingExecutionStatusAction, updateTradingExecutionStatusAction } from '@/app/actions';
+import { updateTradingExecutionStatusAction } from '@/app/actions';
+import { useLiveExecutionStream } from '@/context/LiveExecutionStreamContext';
 import SectionErrorBoundary from '@/components/SectionErrorBoundary';
 
 type ExecutionStatusResponse = {
@@ -112,11 +113,7 @@ function TradeDirectionBadge({ direction }: { direction: AnalysisPayload['direct
   );
 }
 
-async function loadStatus(): Promise<{ data: ExecutionStatusResponse | null; error: string | null }> {
-  const out = await getTradingExecutionStatusAction();
-  if (!out.success) return { data: null, error: out.error };
-  return { data: out.data as ExecutionStatusResponse, error: null };
-}
+// loadStatus removed — data now arrives via SSE LiveExecutionStreamContext.
 
 function ReasoningTrigger({
   disabled,
@@ -142,24 +139,14 @@ function ReasoningTrigger({
 }
 
 export default function PaperTradingPanel() {
-  const [status, setStatus] = useState<ExecutionStatusResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  // ── SSE stream replaces the 15-second polling interval ───────────────────
+  const { snap: streamSnap, streamStatus, forceRefresh } = useLiveExecutionStream();
+  const status = streamSnap as ExecutionStatusResponse | null;
+  const loading = streamSnap === null && streamStatus === 'connecting';
+
   const [saving, setSaving] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    const { data, error: err } = await loadStatus();
-    setStatus(data);
-    setError(err);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const t = setInterval(() => void refresh(), 15_000);
-    return () => clearInterval(t);
-  }, [refresh]);
 
   useLayoutEffect(() => {
     if (analysis) window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -173,8 +160,8 @@ export default function PaperTradingPanel() {
         setError(null);
         const out = await updateTradingExecutionStatusAction(payload);
         if (out.success) {
-          const data = out.data as { snapshot?: ExecutionStatusResponse | null };
-          setStatus((data.snapshot as ExecutionStatusResponse) ?? null);
+          // Trigger a fresh SSE push so all consumers see the updated config.
+          forceRefresh();
         } else {
           setError(out.error);
         }
@@ -182,7 +169,7 @@ export default function PaperTradingPanel() {
         setSaving(false);
       }
     },
-    [saving]
+    [saving, forceRefresh]
   );
 
   const activeTrades = useMemo(() => status?.activeTrades.slice(0, 6) ?? [], [status?.activeTrades]);
@@ -209,7 +196,7 @@ export default function PaperTradingPanel() {
           type="button"
           id="refresh-panel-btn"
           name="refresh-execution-status"
-          onClick={() => void refresh()}
+          onClick={forceRefresh}
           className="group relative inline-flex items-center gap-2 text-xs font-bold px-5 py-3 rounded-xl transition-all duration-300 border border-cyan-400/50 text-cyan-100 bg-gradient-to-b from-cyan-500/20 to-cyan-950/30 shadow-[0_0_16px_rgba(34,211,238,0.2)] hover:shadow-[0_0_22px_rgba(34,211,238,0.3)] hover:border-cyan-300/70 active:scale-95 backdrop-blur-xl uppercase tracking-wider"
         >
           <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
