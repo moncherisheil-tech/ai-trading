@@ -7,6 +7,9 @@
  * ║                                                                  ║
  * ║  Calculates EMA-20, EMA-50, RSI-14 per timeframe.               ║
  * ║  Confluence gate: signal fires only when ≥ 3/4 TFs agree.       ║
+ * ║                                                                  ║
+ * ║  CACHE SHIELD: Results are Redis-cached for 60 s per symbol.    ║
+ * ║  10 parallel jobs → 1 Binance fetch, 9 Redis reads (RAM).       ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -46,6 +49,32 @@ const TF_TO_BINANCE: Record<Timeframe, { interval: string; limit: number }> = {
 
 const BINANCE_KLINES_URL = 'https://api.binance.com/api/v3/klines';
 const FETCH_TIMEOUT_MS = 8_000;
+
+// ─── Redis Cache Shield ────────────────────────────────────────────────────
+
+const MTF_CACHE_TTL_SECONDS = 60;
+
+function mtfCacheKey(symbol: string): string {
+  return `cache:mtf:${symbol.toUpperCase()}`;
+}
+
+async function cacheGet(key: string): Promise<string | null> {
+  try {
+    const { getHttpRedisClient } = await import('@/lib/queue/redis-client');
+    return await getHttpRedisClient().get(key);
+  } catch {
+    return null;
+  }
+}
+
+async function cacheSet(key: string, value: string, ttlSeconds: number): Promise<void> {
+  try {
+    const { getHttpRedisClient } = await import('@/lib/queue/redis-client');
+    await getHttpRedisClient().set(key, value, 'EX', ttlSeconds);
+  } catch {
+    // Non-fatal — next call will fetch from Binance
+  }
+}
 
 // ─── Math helpers ─────────────────────────────────────────────────────────
 
@@ -171,9 +200,26 @@ async function analyzeTimeframe(
  * Gracefully handles partial failures — a missing timeframe simply does not
  * count toward the confluence score.
  *
+ * Results are Redis-cached for MTF_CACHE_TTL_SECONDS (60 s) per symbol so
+ * that concurrent jobs share a single Binance round-trip instead of all
+ * hammering the API simultaneously.
+ *
  * @param symbol  e.g. "BTCUSDT"
  */
 export async function fetchMTFConfluence(symbol: string): Promise<MTFConfluenceResult> {
+  const cacheKey = mtfCacheKey(symbol);
+
+  // ── Cache hit: serve from Redis RAM ───────────────────────────────────────
+  const cached = await cacheGet(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached) as MTFConfluenceResult;
+      return parsed;
+    } catch {
+      // Corrupt cache entry — fall through to live fetch
+    }
+  }
+
   const timeframes: Timeframe[] = ['H1', 'D1', 'W1', 'M1'];
   const settled = await Promise.allSettled(
     timeframes.map((tf) => analyzeTimeframe(symbol, tf))
@@ -204,7 +250,7 @@ export async function fetchMTFConfluence(symbol: string): Promise<MTFConfluenceR
   const confluenceScore = alignedTimeframes.length;
   const isConfluent = confluenceScore >= 3;
 
-  return {
+  const result: MTFConfluenceResult = {
     symbol,
     confluenceScore,
     dominantTrend,
@@ -213,6 +259,11 @@ export async function fetchMTFConfluence(symbol: string): Promise<MTFConfluenceR
     isConfluent,
     analysisTs: Date.now(),
   };
+
+  // ── Cache miss: persist to Redis for concurrent consumers ─────────────────
+  void cacheSet(cacheKey, JSON.stringify(result), MTF_CACHE_TTL_SECONDS);
+
+  return result;
 }
 
 /**

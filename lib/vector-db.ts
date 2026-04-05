@@ -13,8 +13,15 @@ const POST_MORTEMS_NAMESPACE = 'post-mortems';
 const BOARD_MEETINGS_NAMESPACE = 'board-meetings';
 const DIAGNOSTICS_NAMESPACE = 'diagnostics-probe';
 const DEFAULT_TOP_K = 3;
-/** Outer race for embed + Pinecone query; must exceed embedding budget + RPC + retries. */
-const PINECONE_QUERY_TIMEOUT_MS = 40_000;
+/**
+ * HFT-grade hard deadline for the entire embed + Pinecone round-trip.
+ * If Pinecone does not respond within 4 s, querySimilarTrades() returns []
+ * and the MoE continues WITHOUT crashing.  The previous 40 s timeout caused
+ * the entire trade-cycle to stall and eventually OOM the process.
+ *
+ * Override via PINECONE_QUERY_TIMEOUT_MS env var for slower network paths.
+ */
+const PINECONE_QUERY_TIMEOUT_MS = Number(process.env.PINECONE_QUERY_TIMEOUT_MS ?? 4_000);
 /**
  * 30 s delay before querying after an upsert.
  * Raised from 10 s to account for US-to-Germany cross-Atlantic replication latency
@@ -147,7 +154,12 @@ export const PINECONE_EMBEDDING_DIM = 768 as const;
 
 /** Alias kept for internal use — always equal to PINECONE_EMBEDDING_DIM. */
 export const GEMINI_EMBEDDING_DIMENSION = PINECONE_EMBEDDING_DIM;
-const EMBEDDING_FAILFAST_TIMEOUT_MS = 25_000;
+/**
+ * Per-embedding deadline.  Must be < PINECONE_QUERY_TIMEOUT_MS to leave
+ * budget for the Pinecone RPC itself.  Gemini embedding-001 typically
+ * responds in 0.8–2 s; 3 s gives 50% headroom before the outer 4 s gate fires.
+ */
+const EMBEDDING_FAILFAST_TIMEOUT_MS = Number(process.env.PINECONE_EMBED_TIMEOUT_MS ?? 3_000);
 
 /** Warn at most once per process about a misconfigured PINECONE_EMBEDDING_DIM. */
 let _embeddingDimWarnedOnce = false;
@@ -427,27 +439,38 @@ export async function querySimilarTrades(
       }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const isTimeout = /timeout/i.test(message);
     const isDimError = /dimension/i.test(message);
     const expectedDim = getExpectedEmbeddingDim();
     const isIndexError = /not found|404|index/i.test(message);
-    const fullErrorMsg = isDimError
-      ? `Pinecone query failed on index '${indexName}': Dimension mismatch. Expected: ${expectedDim}. ${message}`
-      : isIndexError
-        ? `Pinecone index '${indexName}' ERROR during query: ${message}. Verify PINECONE_INDEX_NAME="${indexName}" exists in your Pinecone project and PINECONE_EMBEDDING_DIM=${expectedDim} matches the index.`
-        : message;
 
-    console.error('[vector-db] Pinecone query failed.', {
-      index: indexName,
-      namespace: POST_MORTEMS_NAMESPACE,
-      expectedDimension: expectedDim,
-      error: fullErrorMsg,
-      errorCode: isIndexError ? 'INDEX_NOT_FOUND_OR_ERROR' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
-      hint: isDimError
-        ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
+    if (isTimeout) {
+      // Non-blocking timeout — MoE continues without historical context.
+      // This is the normal graceful-degradation path; do not crash.
+      console.warn(
+        `[vector-db] Pinecone timeout (${PINECONE_QUERY_TIMEOUT_MS}ms) for ${symbol} — ` +
+        'Deep Memory returning [] to keep MoE cycle alive. Other agents unaffected.'
+      );
+    } else {
+      const fullErrorMsg = isDimError
+        ? `Pinecone query failed on index '${indexName}': Dimension mismatch. Expected: ${expectedDim}. ${message}`
         : isIndexError
-          ? `HTTP 404 — index '${indexName}' not found. Ensure PINECONE_INDEX_NAME env var matches an existing index in your Pinecone project.`
-          : undefined,
-    });
+          ? `Pinecone index '${indexName}' ERROR during query: ${message}. Verify PINECONE_INDEX_NAME="${indexName}" exists in your Pinecone project and PINECONE_EMBEDDING_DIM=${expectedDim} matches the index.`
+          : message;
+
+      console.error('[vector-db] Pinecone query failed.', {
+        index: indexName,
+        namespace: POST_MORTEMS_NAMESPACE,
+        expectedDimension: expectedDim,
+        error: fullErrorMsg,
+        errorCode: isIndexError ? 'INDEX_NOT_FOUND_OR_ERROR' : isDimError ? 'DIMENSION_MISMATCH' : 'UNKNOWN',
+        hint: isDimError
+          ? `Pinecone index must accept ${expectedDim} dimensional vectors (gemini-embedding-001 default). Verify PINECONE_EMBEDDING_DIM env var matches your index configuration.`
+          : isIndexError
+            ? `HTTP 404 — index '${indexName}' not found. Ensure PINECONE_INDEX_NAME env var matches an existing index in your Pinecone project.`
+            : undefined,
+      });
+    }
     return [];
   }
 }

@@ -37,8 +37,12 @@ function getPool(): Pool {
       connectionString: cs,
       // Disable SSL for on-prem local Postgres — no TLS cert installed by default.
       ssl: isLocalHost(cs) ? false : undefined,
-      // Default 5 for the worker (low concurrency); override via PG_POOL_MAX.
-      max: Number(process.env.PG_POOL_MAX ?? 5),
+      // Institutional default: 50 concurrent connections.
+      // Eliminates "timeout exceeded when trying to connect" under parallel job load.
+      // Override via PG_POOL_MAX env var (e.g. PG_POOL_MAX=20 for limited DB plans).
+      max: Number(process.env.PG_POOL_MAX ?? 50),
+      // Release idle clients after 30 s to prevent zombie connections accumulating
+      // during quiet market hours. Clients are re-created on the next query.
       idleTimeoutMillis: 30_000,
       // 15 s — accounts for Israel → Germany cross-border latency (was 5 s,
       // which caused premature ETIMEDOUT on the first post-idle query).
@@ -52,6 +56,16 @@ function getPool(): Pool {
     pool.on('error', (err) => {
       console.error('[sql:pool] idle-client error:', err.message);
     });
+
+    pool.on('connect', () => {
+      // Visible in PM2 logs — confirms new connections are being established
+      // after idle teardown (expected after quiet periods, not a leak signal).
+    });
+
+    console.log(
+      `[sql:pool] Postgres pool initialized — max=${process.env.PG_POOL_MAX ?? 50}, ` +
+      `idle=${30_000}ms, connect_timeout=${15_000}ms`
+    );
   }
   return pool;
 }

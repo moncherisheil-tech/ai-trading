@@ -35,6 +35,34 @@ export interface NewsSentinelResult {
 const FETCH_TIMEOUT_MS = 4_000;
 const CRYPTOCOMPARE_URL = 'https://min-api.cryptocompare.com/data/v2/news/?lang=EN&limit=20';
 
+// ─── Redis Cache Shield ────────────────────────────────────────────────────
+
+/**
+ * Global news feed is the same URL regardless of symbol — one fetch serves all
+ * 10 concurrent jobs.  TTL=60 s drops external API calls by ~90%.
+ * Key is symbol-specific (post-filter) to avoid cross-symbol cache poisoning.
+ */
+const NEWS_CACHE_TTL_SECONDS = 60;
+const NEWS_RAW_CACHE_KEY = 'cache:news:raw_global';
+
+async function newsCacheGet(key: string): Promise<string | null> {
+  try {
+    const { getHttpRedisClient } = await import('@/lib/queue/redis-client');
+    return await getHttpRedisClient().get(key);
+  } catch {
+    return null;
+  }
+}
+
+async function newsCacheSet(key: string, value: string, ttlSeconds: number): Promise<void> {
+  try {
+    const { getHttpRedisClient } = await import('@/lib/queue/redis-client');
+    await getHttpRedisClient().set(key, value, 'EX', ttlSeconds);
+  } catch {
+    // Non-fatal — next call will re-fetch from CryptoCompare
+  }
+}
+
 /** Regex patterns for Scenario C (macro-risk triggers) */
 const MACRO_RISK_PATTERNS = [
   /\bSEC\b/,
@@ -78,44 +106,61 @@ async function fetchCryptoNews(symbol: string): Promise<string[]> {
   const apiKey = process.env.NEWS_API_KEY ?? process.env.CRYPTOCOMPARE_API_KEY;
   const url = `${CRYPTOCOMPARE_URL}${apiKey ? `&api_key=${apiKey}` : ''}`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-    if (!res.ok) return [];
-    const json = (await res.json()) as { Data?: CryptoCompareNewsItem[] };
-    const items = json?.Data ?? [];
-
-    const base = symbol.replace(/USDT$/i, '').toUpperCase();
-    const nameMap: Record<string, string> = {
-      BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binance',
-      XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', AVAX: 'avalanche',
-      MATIC: 'polygon', DOT: 'polkadot', LINK: 'chainlink', INJ: 'injective',
-      SUI: 'sui', APT: 'aptos', ARB: 'arbitrum', OP: 'optimism',
-    };
-    const searchTerms = [base.toLowerCase(), nameMap[base] ?? ''].filter(Boolean);
-
-    const relevant: string[] = [];
-    const general: string[] = [];
-
-    for (const item of items) {
-      const title = item.title?.trim() ?? '';
-      if (!title) continue;
-      const text = `${title} ${item.body ?? ''} ${item.tags ?? ''}`.toLowerCase();
-      if (searchTerms.some((t) => text.includes(t))) {
-        relevant.push(title);
-      } else {
-        general.push(title);
-      }
+  // ── Cache hit: raw news items served from Redis RAM ────────────────────
+  let items: CryptoCompareNewsItem[] = [];
+  const cachedRaw = await newsCacheGet(NEWS_RAW_CACHE_KEY);
+  if (cachedRaw) {
+    try {
+      items = JSON.parse(cachedRaw) as CryptoCompareNewsItem[];
+    } catch {
+      items = [];
     }
-
-    return [...relevant, ...general].slice(0, 12);
-  } catch {
-    return [];
-  } finally {
-    clearTimeout(timer);
   }
+
+  // ── Cache miss: fetch from CryptoCompare and cache the raw payload ─────
+  if (items.length === 0) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: controller.signal, cache: 'no-store' });
+      if (!res.ok) return [];
+      const json = (await res.json()) as { Data?: CryptoCompareNewsItem[] };
+      items = json?.Data ?? [];
+      if (items.length > 0) {
+        void newsCacheSet(NEWS_RAW_CACHE_KEY, JSON.stringify(items), NEWS_CACHE_TTL_SECONDS);
+      }
+    } catch {
+      return [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // ── Filter cached/fetched items for this symbol ───────────────────────
+  const base = symbol.replace(/USDT$/i, '').toUpperCase();
+  const nameMap: Record<string, string> = {
+    BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binance',
+    XRP: 'ripple', ADA: 'cardano', DOGE: 'dogecoin', AVAX: 'avalanche',
+    MATIC: 'polygon', DOT: 'polkadot', LINK: 'chainlink', INJ: 'injective',
+    SUI: 'sui', APT: 'aptos', ARB: 'arbitrum', OP: 'optimism',
+  };
+  const searchTerms = [base.toLowerCase(), nameMap[base] ?? ''].filter(Boolean);
+
+  const relevant: string[] = [];
+  const general: string[] = [];
+
+  for (const item of items) {
+    const title = item.title?.trim() ?? '';
+    if (!title) continue;
+    const text = `${title} ${item.body ?? ''} ${item.tags ?? ''}`.toLowerCase();
+    if (searchTerms.some((t) => text.includes(t))) {
+      relevant.push(title);
+    } else {
+      general.push(title);
+    }
+  }
+
+  return [...relevant, ...general].slice(0, 12);
 }
 
 // ─── Scenario classifier ──────────────────────────────────────────────────

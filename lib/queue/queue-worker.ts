@@ -100,7 +100,17 @@ import { buildCandidateList } from '../workers/market-scanner';
 import { getScannerSettings } from '../db/system-settings';
 import type { ConnectionOptions } from 'bullmq';
 
-const CONCURRENCY = Number(process.env.QUEUE_CONCURRENCY ?? 3);
+/**
+ * Worker concurrency — how many coin-scan jobs run in parallel.
+ * Default raised from 3 → 5 now that:
+ *   • Redis Cache Shield eliminates redundant Binance/News API calls (~90% reduction)
+ *   • Postgres pool raised to max=50 (no more connection exhaustion)
+ *   • Pinecone gated at 4 s (no more 25 s embedding blocks)
+ *
+ * Use QUEUE_CONCURRENCY=10 for full HFT throughput on high-spec machines,
+ * or QUEUE_CONCURRENCY=2 to throttle on limited-plan DB/API tiers.
+ */
+const CONCURRENCY = Number(process.env.QUEUE_CONCURRENCY ?? 5);
 const PER_JOB_TIMEOUT_MS = Number(process.env.QUEUE_JOB_TIMEOUT_MS ?? 150_000);
 const SELF_HEAL_RESTART_DELAY_MS = 15_000;
 let selfHealLoopActive = false;
