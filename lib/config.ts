@@ -136,16 +136,33 @@ if (APP_CONFIG.proxyBinanceUrl) {
 // ---------------------------------------------------------------------------
 // Boot-time environment validation — fail fast rather than fail silent.
 // The server MUST NOT start if critical secrets are absent.
+//
+// SECURITY NOTE: This block runs ONLY on the server (typeof window === 'undefined').
+// Client bundles never execute this code, so no secrets leak to the browser.
+// DYDX_WALLET_PRIVATE_KEY is only required when IS_LIVE_MODE=true AND DRY_RUN != 'true',
+// preventing false-positive crashes in paper-trading / simulation mode.
 // ---------------------------------------------------------------------------
-const REQUIRED_ENV_VARS: Array<{ key: string; description: string }> = [
+const REQUIRED_ENV_VARS: Array<{ key: string; description: string; liveOnly?: boolean }> = [
   { key: 'APP_SESSION_SECRET',         description: 'HMAC signing key for session cookies' },
   { key: 'DATABASE_URL',               description: 'PostgreSQL connection string' },
   { key: 'ADMIN_SECRET',               description: 'Bearer token for administrative API routes' },
-  { key: 'DYDX_WALLET_PRIVATE_KEY',    description: 'dYdX wallet private key (hex) or 12/24-word mnemonic for perpetuals execution' },
+  {
+    key: 'DYDX_WALLET_PRIVATE_KEY',
+    description: 'dYdX wallet private key (hex) or 12/24-word mnemonic for perpetuals execution',
+    liveOnly: true,  // Only required when IS_LIVE_MODE=true AND DRY_RUN=false
+  },
 ];
 
-if (process.env.NODE_ENV !== 'test') {
-  const missing = REQUIRED_ENV_VARS.filter(({ key }) => !process.env[key]?.trim());
+if (typeof window === 'undefined' && process.env.NODE_ENV !== 'test') {
+  const isLiveMode = String(process.env.IS_LIVE_MODE || 'false').toLowerCase() === 'true';
+  const isDryRun   = String(process.env.DRY_RUN   || 'true').toLowerCase()  === 'true';
+
+  const missing = REQUIRED_ENV_VARS.filter(({ key, liveOnly }) => {
+    // Skip live-only vars when running in paper/dry-run mode to prevent false-positive crashes
+    if (liveOnly && (!isLiveMode || isDryRun)) return false;
+    return !process.env[key]?.trim();
+  });
+
   if (missing.length > 0) {
     const lines = missing.map(({ key, description }) => `  • ${key}  — ${description}`).join('\n');
     throw new Error(

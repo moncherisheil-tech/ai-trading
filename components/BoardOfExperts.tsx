@@ -8,13 +8,14 @@ import { useAIStatus } from '@/hooks/use-ai-status';
 import { useLiveExecutionStream } from '@/context/LiveExecutionStreamContext';
 
 const EXPERT_META = [
-  { name: 'אנליסט טכני', alias: 'מהנדס השוק', neon: '#00E5FF' },
-  { name: 'אנליסט פונדמנטלי', alias: 'פרופסור הנתונים', neon: '#A855F7' },
-  { name: 'אנליסט סנטימנט', alias: 'מוביל תחושת השוק', neon: '#EC4899' },
-  { name: 'אנליסט אונ־צ׳יין / לווייתנים', alias: 'לווייתן', neon: '#06B6D4' },
-  { name: 'מנהל סיכונים', alias: 'המגן', neon: '#22C55E' },
-  { name: 'אנליסט מאקרו', alias: 'אסטרטג המאקרו', neon: '#F59E0B' },
-  { name: 'מפקח AI', alias: 'האדריכל', neon: '#FB7185' },
+  { name: 'אנליסט טכני', alias: 'מהנדס השוק', neon: '#00E5FF', icon: '📊' },
+  { name: 'אנליסט פונדמנטלי', alias: 'פרופסור הנתונים', neon: '#A855F7', icon: '🔬' },
+  { name: 'אנליסט סנטימנט', alias: 'מוביל תחושת השוק', neon: '#EC4899', icon: '💡' },
+  { name: 'אנליסט אונ־צ׳יין / לווייתנים', alias: 'לווייתן', neon: '#06B6D4', icon: '🐋' },
+  { name: 'מנהל סיכונים', alias: 'המגן', neon: '#22C55E', icon: '🛡️' },
+  { name: 'אנליסט מאקרו', alias: 'אסטרטג המאקרו', neon: '#F59E0B', icon: '🌐' },
+  { name: 'מפקח AI', alias: 'האדריכל', neon: '#FB7185', icon: '🤖' },
+  { name: 'סנטינל חדשות', alias: 'שומר השוק', neon: '#FF6B35', icon: '📡' },
 ] as const;
 
 export type ExpertAgentStatus =
@@ -26,6 +27,7 @@ export type ExpertAgentStatus =
 type ExpertCardData = (typeof EXPERT_META)[number] & {
   score: number | null;
   status: ExpertAgentStatus;
+  sentimentBar?: number | null; // -1 to 1 for News Sentinel
 };
 
 function ExpertSigil({ neon, active, gradId }: { neon: string; active: boolean; gradId: string }) {
@@ -57,6 +59,25 @@ function statusTone(status: ExpertAgentStatus): string {
   return 'text-amber-300';
 }
 
+function SentimentMeter({ value, neon }: { value: number; neon: string }) {
+  const pct = Math.round(((value + 1) / 2) * 100);
+  const color = value > 0.2 ? '#22C55E' : value < -0.2 ? '#EF4444' : '#F59E0B';
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[9px] uppercase tracking-widest text-zinc-500">סנטימנט</span>
+        <span className="text-[9px] font-mono tabular-nums" style={{ color }}>{pct}%</span>
+      </div>
+      <div className="h-1 w-full rounded-full bg-white/10 overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function ExpertCard({
   expert,
   consensusPulse,
@@ -69,6 +90,7 @@ function ExpertCard({
   const sigGradId = useId().replace(/:/g, '');
   const isLeviathan = expert.alias.includes('לווייתן');
   const isShield = expert.alias.includes('מגן');
+  const isNewsSentinel = expert.alias.includes('שומר');
   const scoreDecrypt = useCyberDecryptNumber(expert.score, { decimals: 1 });
 
   const auraTone =
@@ -102,9 +124,16 @@ function ExpertCard({
         />
         <motion.div className="relative z-[1] flex items-center justify-between">
           <div className="h-10 w-10 rounded-xl border border-white/10 bg-black/45 flex items-center justify-center shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
-            <ExpertSigil neon={expert.neon} active={consensusPulse} gradId={sigGradId} />
+            {isNewsSentinel ? (
+              <span className="text-xl leading-none" aria-hidden>{expert.icon}</span>
+            ) : (
+              <ExpertSigil neon={expert.neon} active={consensusPulse} gradId={sigGradId} />
+            )}
           </div>
-          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expert.neon, boxShadow: `0 0 12px ${expert.neon}` }} />
+          <div className="flex items-center gap-1.5">
+            <span className="text-base leading-none" aria-hidden>{expert.icon}</span>
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: expert.neon, boxShadow: `0 0 12px ${expert.neon}` }} />
+          </div>
         </motion.div>
         <motion.p className="relative z-[1] mt-3 text-sm text-zinc-100 font-semibold leading-tight tracking-tight">
           {expert.name}
@@ -115,6 +144,11 @@ function ExpertCard({
         <p className="relative z-[1] mt-2 text-[11px] text-zinc-300/90 font-mono tabular-nums tracking-tight">
           {expert.score != null ? `ניקוד ${scoreDecrypt}` : 'ניקוד — ממתין לנתוני שוק'}
         </p>
+        {isNewsSentinel && expert.sentimentBar != null && (
+          <div className="relative z-[1]">
+            <SentimentMeter value={expert.sentimentBar} neon={expert.neon} />
+          </div>
+        )}
         <p className={`relative z-[1] text-[10px] uppercase tracking-[0.16em] font-mono tabular-nums ${statusTone(expert.status)}`}>
           {expert.status}
         </p>
@@ -156,12 +190,16 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
     return Number.isFinite(n) ? n : null;
   };
 
-  const { scores, consensusPulse } = useMemo(() => {
+  const { scores, sentimentBars, consensusPulse } = useMemo(() => {
     if (!snap) {
-      return { scores: EXPERT_META.map(() => null) as (number | null)[], consensusPulse: false };
+      return {
+        scores: EXPERT_META.map(() => null) as (number | null)[],
+        sentimentBars: EXPERT_META.map(() => null) as (number | null)[],
+        consensusPulse: false,
+      };
     }
     const latest = snap.recentExecutions?.[0];
-    const breakdown = (latest?.expertBreakdown ?? null) as Record<string, { score?: unknown }> | null;
+    const breakdown = (latest?.expertBreakdown ?? null) as Record<string, { score?: unknown; sentimentScore?: unknown }> | null;
     const mappedScores: (number | null)[] = [
       toScore(breakdown?.technician?.score),
       toScore(breakdown?.deepMemory?.score),
@@ -170,11 +208,20 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
       toScore(breakdown?.riskManager?.score),
       toScore(breakdown?.macroOrderBook?.score),
       toScore(latest?.confidence),
+      toScore(breakdown?.newsSentinel?.score),
+    ];
+    // Sentiment bar only for News Sentinel (index 7)
+    const newsSentinelSentiment = breakdown?.newsSentinel?.sentimentScore != null
+      ? toScore(breakdown.newsSentinel.sentimentScore)
+      : null;
+    const mappedSentimentBars: (number | null)[] = [
+      null, null, null, null, null, null, null, newsSentinelSentiment,
     ];
     const threshold = typeof snap.minConfidenceToExecute === 'number' ? snap.minConfidenceToExecute : 75;
     const latestConf = toScore(latest?.confidence);
     return {
       scores: mappedScores,
+      sentimentBars: mappedSentimentBars,
       consensusPulse: latestConf != null && latestConf >= threshold,
     };
   }, [snap]);
@@ -184,15 +231,16 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
       EXPERT_META.map((meta, idx) => ({
         ...meta,
         score: scores[idx] ?? null,
+        sentimentBar: sentimentBars[idx] ?? null,
         status: mergeExpertStatus(scores[idx] ?? null, aiLoading, aiStatus),
       })),
-    [scores, aiLoading, aiStatus]
+    [scores, sentimentBars, aiLoading, aiStatus]
   );
 
   return (
     <motion.div variants={staggerItem} className="mb-6">
       <div className="flex items-center justify-between gap-3 mb-3">
-        <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">שבעת המומחים</p>
+        <p className="text-[11px] uppercase tracking-[0.3em] text-cyan-300/90">מועצת 8 המומחים — MoE</p>
         <div className="flex flex-col items-end gap-0.5">
           <p className={`text-xs ${consensusPulse ? 'text-emerald-300' : 'text-zinc-500'}`}>
             {consensusPulse ? 'הושג קונצנזוס' : 'ממתין לקונצנזוס'}
@@ -201,20 +249,28 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
             <p className="text-[10px] text-amber-500/90 tabular-nums">ADMIN_SECRET לא מוגדר בשרת — חלק מפעולות האופס מוגבלות</p>
           ) : null}
           {aiStatus ? (
-            <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em]">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.1em]">
               <span className="inline-flex items-center gap-1 text-emerald-300">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 i9 Pipeline Active
               </span>
               <span className={`inline-flex items-center gap-1 ${aiStatus.dbConnected ? 'text-emerald-300' : 'text-zinc-500'}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.dbConnected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
                 DB {aiStatus.dbConnected ? 'Connected' : 'Offline'}
               </span>
+              <span className="inline-flex items-center gap-1 text-cyan-300/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+                Learning Center
+              </span>
+              <span className="inline-flex items-center gap-1 text-violet-300/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-violet-400" />
+                MoE 8 Experts
+              </span>
             </div>
           ) : null}
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-7 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-3">
         {experts.map((expert) => (
           <ExpertCard key={expert.name} expert={expert} consensusPulse={consensusPulse} isDefcon1={isDefcon1} />
         ))}

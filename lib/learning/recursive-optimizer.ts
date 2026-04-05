@@ -190,8 +190,9 @@ export function computeRecursiveOptimization(input: {
 /**
  * Heuristic causal inference from close reason + PnL + trade context.
  * Returns the most likely CausalFactors without an LLM call (fast path).
+ * Exported so consensus-engine can surface causal context before generating a new signal.
  */
-function inferCausalFactors(
+export function inferCausalFactors(
   pnlPct: number,
   closeReason: string,
   agentVerdict?: string,
@@ -380,6 +381,43 @@ async function persistCausalAdjustments(
   }
 
   return { writtenToDb, penaltyApplied, penaltyDetails };
+}
+
+/**
+ * MoE Pre-Consensus Feedback Loop.
+ *
+ * Queries the last N learned_insights for a given symbol before the MoE
+ * generates a new consensus signal. The returned context is injected into
+ * the LLM prompt so the system learns from past causal failures.
+ *
+ * @param symbol   e.g. "BTCUSDT"
+ * @param limit    Max number of past insights to retrieve (default 5)
+ * @returns        A compact string summary suitable for LLM injection
+ */
+export async function queryLearnedInsightsForSymbol(
+  symbol: string,
+  limit = 5,
+): Promise<string> {
+  try {
+    // Fetch the most recent EpisodicMemory records for this symbol (causal + synthetic)
+    const memories = await prisma.episodicMemory.findMany({
+      where: { symbol: { in: [symbol, 'BTCUSDT'] } },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    if (memories.length === 0) {
+      return 'No prior learned insights available for this symbol.';
+    }
+
+    const lines = memories.map((m, i) =>
+      `[${i + 1}] ${m.marketRegime}: ${m.abstractLesson.slice(0, 200)}`
+    );
+    return `Learned Insights (last ${memories.length} post-mortems):\n${lines.join('\n')}`;
+  } catch (err) {
+    console.error('[LearningFeedback] Failed to query learned insights:', err instanceof Error ? err.message : err);
+    return 'Learned insights unavailable (DB error).';
+  }
 }
 
 /**

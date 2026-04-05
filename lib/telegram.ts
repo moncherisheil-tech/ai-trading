@@ -418,6 +418,10 @@ export async function sendEliteAlert(params: {
   /** Optional TP/SL % for monospace ladder (Protocol Omega alerts). */
   takeProfitPct?: number;
   stopLossPct?: number;
+  /** Alpha Score (0-100) from GlobalRadar / Alpha Engine. Displayed prominently in Hebrew format. */
+  alphaScore?: number;
+  /** MTF Confluence Summary — compact string from formatMTFSummary() showing H1/D1/W1/M1 alignment. */
+  mtfConfluenceSummary?: string;
 }): Promise<TelegramSendResult> {
   const token = getToken();
   if (!token) return { ok: false, error: 'TELEGRAM_NOT_CONFIGURED', statusCode: 0 };
@@ -444,35 +448,45 @@ export async function sendEliteAlert(params: {
     params.gemScore != null && Number.isFinite(params.gemScore)
       ? `Gem Score: \`${formatPercent(params.gemScore)}\``
       : '';
+  const alphaScoreLine =
+    params.alphaScore != null && Number.isFinite(params.alphaScore)
+      ? `⚡ *ציון אלפא*: \`${Math.round(params.alphaScore)}/100\``
+      : '';
+  const mtfLine =
+    params.mtfConfluenceSummary
+      ? `📐 *קונצנזוס MTF*: \`${escapeMarkdown(params.mtfConfluenceSummary.slice(0, 120))}\``
+      : '';
   const masterInsightHe = (params.masterInsightHe ?? '').trim();
   const macroLogicHe = (params.macroLogicHe ?? '').trim();
   const onchainLogicHe = (params.onchainLogicHe ?? '').trim();
   const deepMemoryLogicHe = (params.deepMemoryLogicHe ?? '').trim();
   const extraReasoningBlocks = [
-    masterInsightHe ? `Consensus Insight: ${masterInsightHe.slice(0, 300)}` : '',
-    macroLogicHe ? `Macro / Order Book: ${macroLogicHe.slice(0, 220)}` : '',
-    onchainLogicHe ? `On-Chain: ${onchainLogicHe.slice(0, 160)}` : '',
-    deepMemoryLogicHe ? `Deep Memory: ${deepMemoryLogicHe.slice(0, 160)}` : '',
+    masterInsightHe ? `תובנת קונסנזוס: ${masterInsightHe.slice(0, 300)}` : '',
+    macroLogicHe ? `מאקרו / ספר פקודות: ${macroLogicHe.slice(0, 220)}` : '',
+    onchainLogicHe ? `אונ-צ׳יין: ${onchainLogicHe.slice(0, 160)}` : '',
+    deepMemoryLogicHe ? `זיכרון עמוק: ${deepMemoryLogicHe.slice(0, 160)}` : '',
   ]
     .filter(Boolean)
     .join('\n');
   const text =
     params.messageText ||
     [
-      '🐋 *Elite Signal*',
+      '🐋 *אות עילית — קואנטום מון שרי*',
       '',
-      `Asset: *${escapeMarkdown(base)}*`,
+      `נכס: *${escapeMarkdown(base)}*`,
       ladder,
       gemScoreLine,
-      `${safetyIcon} Market Safety: *${safetyHe}*`,
+      alphaScoreLine,
+      mtfLine,
+      `${safetyIcon} בטיחות שוק: *${safetyHe}*`,
       '',
-      '*Reasoning*',
+      '*נימוק*',
       escapeMarkdown((params.reasoning || 'אין נימוק זמין.').slice(0, 360)),
       extraReasoningBlocks ? escapeMarkdown(extraReasoningBlocks) : '',
       '',
-      params.simulationLink ? `Simulation: ${escapeMarkdown(params.simulationLink)}` : '',
+      params.simulationLink ? `סימולציה: ${escapeMarkdown(params.simulationLink)}` : '',
       '',
-      '_Select action:_',
+      '_בחר פעולה:_',
     ]
       .filter(Boolean)
       .join('\n');

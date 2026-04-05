@@ -397,12 +397,19 @@ export function createBrokerAdapter(options?: { allowSimulationFallback?: boolea
  * PAPER mode must never hit a real exchange.
  * LIVE uses DydxBrokerAdapter (dYdX v4 perpetuals); simulated only when
  * allowSimulationFallback is true and DYDX_WALLET_PRIVATE_KEY is missing.
+ *
+ * DRY_RUN=true is an additional hard lockdown: even if mode=LIVE is somehow
+ * set, DRY_RUN forces simulation and prevents real fund movement.
  */
 export function createExecutionBrokerAdapter(
   mode: 'PAPER' | 'LIVE',
   options?: { allowSimulationFallback?: boolean; testnet?: boolean }
 ): IBrokerAdapter {
-  if (mode === 'PAPER') {
+  const isDryRun = String(process.env.DRY_RUN ?? 'true').toLowerCase() === 'true';
+  if (mode === 'PAPER' || isDryRun) {
+    if (isDryRun && mode === 'LIVE') {
+      console.warn('[BrokerAdapter] DRY_RUN=true overrides LIVE mode — SimulatedExchangeAdapter active. No real funds will move.');
+    }
     return new SimulatedExchangeAdapter();
   }
   return createBrokerAdapter(options);

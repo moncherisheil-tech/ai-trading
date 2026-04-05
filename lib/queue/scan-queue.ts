@@ -250,8 +250,13 @@ export async function enqueueScanCycle(
   const queue = getCoinScanQueue();
   await setActiveCycleId(cycleId);
 
+  // Sanitize jobId: BullMQ prohibits colons in jobId (causes Redis key collisions).
+  // Replace any non-alphanumeric characters with hyphens for safe Redis key generation.
+  const sanitizePart = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '-');
+  const safeCycleId = sanitizePart(cycleId);
+
   const jobs = candidates.map((symbol, index) => ({
-    name: `scan:${symbol}:${cycleId}`,
+    name: `scan-${sanitizePart(symbol)}-${safeCycleId}`,
     data: {
       symbol,
       cycleId,
@@ -260,7 +265,7 @@ export async function enqueueScanCycle(
       enqueuedAt: Date.now(),
     } satisfies CoinScanJobData,
     opts: {
-      jobId: `${cycleId}:${symbol}`,
+      jobId: `${safeCycleId}_${sanitizePart(symbol)}`,
       priority: index + 1,
       attempts: 5,
       backoff: { type: 'custom' as const },

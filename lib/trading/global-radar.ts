@@ -42,6 +42,8 @@ const BINANCE_KLINES_URL = 'https://api.binance.com/api/v3/klines';
 const FETCH_TIMEOUT_MS = 10_000;
 const MIN_VOLUME_USD = 3_000_000;       // $3M min 24h volume — eliminates illiquid coins
 const MAX_CANDIDATES_FOR_RSI = 60;      // Fetch RSI for only top 60 by volume (CPU bound)
+const RATE_LIMIT_BATCH_SIZE = 10;       // Max concurrent Binance klines requests
+const RATE_LIMIT_DELAY_MS = 250;        // Delay between batches to avoid 429 errors
 const RSI_PERIOD = 14;
 const RSI_OVERBOUGHT = 70;
 const RSI_OVERSOLD = 30;
@@ -182,6 +184,29 @@ function buildReasoning(c: Omit<RadarCandidate, 'reasoning' | 'alphaScore'>): st
   return `${rsiTag} · ${volTag} · ${newsTag} · 24h Δ${c.priceChangePct24h.toFixed(2)}%`;
 }
 
+// ─── Rate-limited batch fetcher ───────────────────────────────────────────
+
+/**
+ * Executes async tasks in batches with a staggered delay between batches.
+ * Prevents 429 Too Many Requests from Binance by throttling parallel requests.
+ */
+async function batchedFetch<T>(
+  tasks: Array<() => Promise<T>>,
+  batchSize = RATE_LIMIT_BATCH_SIZE,
+  delayMs = RATE_LIMIT_DELAY_MS,
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = [];
+  for (let i = 0; i < tasks.length; i += batchSize) {
+    const batch = tasks.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(batch.map((fn) => fn()));
+    results.push(...batchResults);
+    if (i + batchSize < tasks.length) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return results;
+}
+
 // ─── News fetch (limited to top candidates) ───────────────────────────────
 
 async function fetchNewsCount(symbol: string): Promise<number> {
@@ -277,9 +302,10 @@ export async function runGlobalRadar(isEvening = false): Promise<GlobalRadarResu
   const volumes = topByVolume.map((t) => t.volumeUsd24h).sort((a, b) => a - b);
   const medianVolume = volumes[Math.floor(volumes.length / 2)] ?? 1;
 
-  // 4. Fetch H1 RSI for all candidates in parallel (batched)
-  const rsiResults = await Promise.allSettled(
-    topByVolume.map((t) => fetchH1RSI(t.symbol))
+  // 4. Fetch H1 RSI for all candidates in rate-limited batches (10 at a time, 250ms delay)
+  // Prevents 429 Too Many Requests from Binance klines endpoint.
+  const rsiResults = await batchedFetch(
+    topByVolume.map((t) => () => fetchH1RSI(t.symbol))
   );
 
   // 5. Build candidates with scores (no news yet — too slow for 60 coins)
@@ -304,8 +330,10 @@ export async function runGlobalRadar(isEvening = false): Promise<GlobalRadarResu
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 
-  const newsResults = await Promise.allSettled(
-    preTop10.map((c) => fetchNewsCount(c.symbol))
+  const newsResults = await batchedFetch(
+    preTop10.map((c) => () => fetchNewsCount(c.symbol)),
+    5,
+    250
   );
 
   // 7. Final Alpha Score with news

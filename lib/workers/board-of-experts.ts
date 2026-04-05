@@ -15,6 +15,8 @@ import { escapeHtml } from '@/lib/telegram';
 import { rsi } from '@/lib/indicators';
 import { storeBoardMeetingMemory } from '@/lib/vector-db';
 import { getAppSettings, resolveLlmTemperature } from '@/lib/db/app-settings';
+import { runNewsSentinel, newsSentinelToVerdict } from '@/lib/agents/news-sentinel';
+import { fetchMTFConfluence, formatMTFSummary } from '@/lib/trading/mtf-fetcher';
 
 const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
 const RSS_FEEDS = [
@@ -462,7 +464,11 @@ CRITICAL: Return ONLY the raw JSON object above. No markdown fences (\`\`\`json)
   }
 }
 
-async function runOverseer(experts: Record<string, ExpertOutput>): Promise<OverseerOutput> {
+async function runOverseer(
+  experts: Record<string, ExpertOutput>,
+  mtfSummary?: string,
+  newsSentinelScenario?: string,
+): Promise<OverseerOutput> {
   // All setup (key retrieval, model instantiation, API call) is inside the try-catch.
   // Previously, getAppSettings() and getGeminiApiKey() were called OUTSIDE try-catch,
   // meaning a DB outage or missing key would throw from runOverseer itself and propagate
@@ -472,8 +478,16 @@ async function runOverseer(experts: Record<string, ExpertOutput>): Promise<Overs
     const genAI = new GoogleGenerativeAI(getGeminiApiKey());
     const selectedOverseer = resolveGeminiModel(APP_CONFIG.primaryModel || GEMINI_CANONICAL_PRO_MODEL_ID);
     const model = genAI.getGenerativeModel({ model: selectedOverseer.model }, selectedOverseer.requestOptions);
-    const prompt = `System instruction: You are a CEO-level trading overseer (מנכ"ל). Do not do raw analysis. Only synthesize the 6 expert JSON outputs below. Output ONLY valid JSON — no markdown, no text before or after.
 
+    const mtfSection = mtfSummary
+      ? `\nMTF Confluence Gate (REQUIRED): ${mtfSummary}\nIMPORTANT: A "go" verdict is ONLY valid when at least 3 of 4 timeframes (H1, D1, W1, M1) agree on the dominant trend direction. If confluenceScore < 3, finalVerdict MUST be "caution" or "no-go".\n`
+      : '';
+    const newsSentinelSection = newsSentinelScenario
+      ? `\nNews Sentinel (Expert 8) Emergency Override: ${newsSentinelScenario}\nIMPORTANT: If scenario is C_PROTECT_CAPITAL, finalVerdict MUST be "no-go" — HARD SKIP, 0ms latency, no exceptions.\n`
+      : '';
+
+    const prompt = `System instruction: You are a CEO-level trading overseer (מנכ"ל). Do not do raw analysis. Only synthesize the 8 expert JSON outputs below. Output ONLY valid JSON — no markdown, no text before or after.
+${mtfSection}${newsSentinelSection}
 Experts JSON:
 ${JSON.stringify(experts, null, 2)}
 
@@ -481,8 +495,9 @@ Instructions:
 1) Resolve conflicts explicitly (e.g. technical bullish but sentiment+risk bearish).
 2) Return a decisive, professional executive verdict suitable for a live trading room.
 3) Compute confidenceScore (0-100) as the weighted average of expert confidence scores, penalised if experts strongly conflict.
-4) Write summaryHebrew in professional financial Hebrew (2-3 sentences) that a trader can act on immediately.
-5) Do NOT invent price levels or data not present in the expert outputs.
+4) High-Confidence TRADE signal requires ≥3/4 MTF timeframe alignment AND no News Sentinel emergency.
+5) Write summaryHebrew in professional financial Hebrew (2-3 sentences) that a trader can act on immediately.
+6) Do NOT invent price levels or data not present in the expert outputs.
 
 Output JSON exactly (no extra keys, no omitted keys):
 {
@@ -678,6 +693,47 @@ export async function runBoardOfExperts(context: 'morning' | 'evening'): Promise
     })),
   };
 
+  // Expert 8 — News Sentinel (synchronous path: no LLM call, < 2s latency)
+  // For the board meeting context, use BTC as the primary symbol for global news pulse.
+  // Emergency events (SEC, Hack, CPI) trigger HARD SKIP with 0ms LLM latency.
+  const btcDelta = btcTicker?.priceChangePercent ?? 0;
+  let newsSentinelExpert: ExpertOutput;
+  let newsSentinelScenarioTag = '';
+  let mtfConfluenceSummary = '';
+
+  try {
+    const [sentinelResult, btcMTF] = await Promise.all([
+      runNewsSentinel('BTCUSDT', btcDelta),
+      fetchMTFConfluence('BTCUSDT'),
+    ]);
+    const sentinelVerdict = newsSentinelToVerdict(sentinelResult);
+    newsSentinelScenarioTag = sentinelResult.scenario;
+    mtfConfluenceSummary = formatMTFSummary(btcMTF);
+
+    newsSentinelExpert = {
+      expert: 'Expert 8 — News Sentinel',
+      stance: sentinelVerdict.verdict === 'BULLISH' ? 'bullish' : sentinelVerdict.verdict === 'BEARISH' ? 'bearish' : 'neutral',
+      confidence: sentinelVerdict.confidence,
+      reasoning: sentinelResult.reasoning.slice(0, 300),
+      action: sentinelResult.macroRiskDetected
+        ? '🚨 HARD SKIP — Macro/regulatory event detected. Capital protection mode active.'
+        : sentinelResult.scenario === 'A_STRONG_BUY'
+        ? 'News corroborates price action — proceed with confluence gate verification.'
+        : sentinelResult.scenario === 'B_MANIPULATION_WARNING'
+        ? 'Manipulation warning — reduce position size, tighten stops.'
+        : 'Neutral news environment — defer to technical confluence.',
+    };
+  } catch (err) {
+    console.error('[BoardExpert] Expert 8 (News Sentinel) failed:', err instanceof Error ? err.message : err);
+    newsSentinelExpert = {
+      expert: 'Expert 8 — News Sentinel',
+      stance: 'neutral',
+      confidence: 0,
+      reasoning: 'Data Unavailable: News Sentinel offline this cycle.',
+      action: 'Data Unavailable',
+    };
+  }
+
   // Use Promise.allSettled so that if one expert's API call throws an unhandled error
   // (e.g. network error escaping callExpert's own catch), the remaining 5 experts still
   // complete. Previously Promise.all would cancel all pending experts on the first throw.
@@ -757,8 +813,11 @@ export async function runBoardOfExperts(context: 'morning' | 'evening'): Promise
     expert4: onchainExpert,
     expert5: macroExpert,
     expert6: momentumExpert,
+    expert8: newsSentinelExpert,
   };
-  const overseer = await runOverseer(experts);
+
+  // Pass MTF confluence summary and News Sentinel scenario to overseer for High-Confidence gate
+  const overseer = await runOverseer(experts, mtfConfluenceSummary, newsSentinelScenarioTag);
   await recordBoardMeetingLog({
     trigger_type: context,
     the_7_expert_verdicts: experts,
@@ -819,7 +878,7 @@ export function formatBoardMeetingForTelegram(
       ? board.topHeadlines.map((h, i) => `• ${i + 1}. ${escapeHtml(h.slice(0, 140))}`)
       : ['• No RSS headlines were available in this cycle.']),
     '',
-    '<b>Board of 6 Experts:</b>',
+    '<b>מועצת 8 המומחים (MoE — 7 אנליסטים + סנטינל חדשות):</b>',
   ];
 
   for (const expert of Object.values(board.experts)) {
