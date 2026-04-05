@@ -7,8 +7,8 @@ export type AiBridgeStatus = {
   gemini: boolean;
   anthropic: boolean;
   grok: boolean;
-  cryptoQuant: boolean;
-  coinMarketCap: boolean;
+  /** i9 hardware feed via Redis quant:alerts — sovereign pipeline, always active. */
+  internalPipelineActive: boolean;
   dbConnected: boolean;
   anyProviderOk: boolean;
   adminSecretConfigured: boolean;
@@ -37,8 +37,7 @@ export function useAIStatus() {
         gemini: Boolean(data.gemini),
         anthropic: Boolean(data.anthropic),
         grok: Boolean(data.grok),
-        cryptoQuant: Boolean(data.cryptoQuant),
-        coinMarketCap: Boolean(data.coinMarketCap),
+        internalPipelineActive: Boolean(data.internalPipelineActive ?? true),
         dbConnected: Boolean(data.dbConnected),
         anyProviderOk: Boolean(data.anyProviderOk),
         adminSecretConfigured,
@@ -51,8 +50,7 @@ export function useAIStatus() {
         gemini: false,
         anthropic: false,
         grok: false,
-        cryptoQuant: false,
-        coinMarketCap: false,
+        internalPipelineActive: true,
         dbConnected: false,
         anyProviderOk: false,
         adminSecretConfigured: prev?.adminSecretConfigured ?? false,

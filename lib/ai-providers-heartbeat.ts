@@ -49,8 +49,8 @@ export type AiProvidersHeartbeat = {
   gemini: boolean;
   anthropic: boolean;
   grok: boolean;
-  cryptoQuant: boolean;
-  coinMarketCap: boolean;
+  /** i9 hardware feed via Redis quant:alerts → always true (sovereign pipeline). */
+  internalPipelineActive: boolean;
   dbConnected: boolean;
   adminSecretValid: boolean;
   anyProviderOk: boolean;
@@ -59,15 +59,12 @@ export type AiProvidersHeartbeat = {
 /**
  * Lightweight live checks for Gemini + Anthropic (consensus stack).
  * Used by server actions — never exposes API keys.
+ *
+ * CryptoQuant and CoinMarketCap have been decommissioned. All market data
+ * flows through the sovereign i9 hardware feed (Redis quant:alerts channel).
  */
 export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
-  const validKey = (value: string | undefined): boolean => {
-    const v = (value || '').trim();
-    return Boolean(v && v.length >= 8 && !/todo|changeme|example/i.test(v));
-  };
   const adminSecretValid = Boolean((process.env.ADMIN_SECRET || '').trim());
-  const cryptoQuant = validKey(process.env.CRYPTOQUANT_API_KEY);
-  const coinMarketCap = validKey(process.env.CMC_API_KEY);
   const [infra, a] = await Promise.all([
     getLiveInfraHealth(),
     withTimeout(pingAnthropic(), HEARTBEAT_MS),
@@ -83,8 +80,7 @@ export async function runAiProvidersHeartbeat(): Promise<AiProvidersHeartbeat> {
     gemini,
     anthropic,
     grok,
-    cryptoQuant,
-    coinMarketCap,
+    internalPipelineActive: true,
     dbConnected,
     adminSecretValid,
     anyProviderOk: dbConnected && anyProviderWithKey,

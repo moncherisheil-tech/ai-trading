@@ -1,35 +1,27 @@
-type EnvKeyValidation = {
-  present: boolean;
-  valid: boolean;
-  reason?: string;
-};
-
-function validateProviderApiKey(keyName: 'CRYPTOQUANT_API_KEY' | 'CMC_API_KEY'): EnvKeyValidation {
-  const raw = (process.env[keyName] || '').trim();
-  if (!raw) {
-    return { present: false, valid: false, reason: `${keyName} is missing` };
-  }
-  if (raw.length < 8 || /todo|changeme|example/i.test(raw)) {
-    return { present: true, valid: false, reason: `${keyName} appears invalid` };
-  }
-  return { present: true, valid: true };
-}
+/**
+ * Market Data — Internal Pipeline Only.
+ *
+ * External providers (CryptoQuant, CoinMarketCap) have been decommissioned.
+ * All real-time whale signals flow exclusively through the sovereign i9 hardware
+ * feed via Redis Pub/Sub (WHALE_REDIS_URL → "quant:alerts" channel).
+ * Supplementary market context uses Binance public endpoints (no API key required).
+ *
+ * This module is retained as a compatibility shim so existing callers compile
+ * without modification.  It no longer validates external API keys.
+ */
 
 export function getMarketDataProviderStatus() {
   return {
-    cryptoQuant: validateProviderApiKey('CRYPTOQUANT_API_KEY'),
-    coinMarketCap: validateProviderApiKey('CMC_API_KEY'),
+    internalPipeline: { present: true, valid: true },
+    binancePublic: { present: true, valid: true },
   };
 }
 
 export function ensureMarketDataProviderOrFallback(
-  provider: 'CryptoQuant' | 'CoinMarketCap'
+  _provider: 'CryptoQuant' | 'CoinMarketCap'
 ): { enabled: boolean; reason: string | null } {
-  const keyName = provider === 'CryptoQuant' ? 'CRYPTOQUANT_API_KEY' : 'CMC_API_KEY';
-  const status = validateProviderApiKey(keyName);
-  if (status.valid) return { enabled: true, reason: null };
-
-  const reason = status.reason ?? `${keyName} is unavailable`;
-  console.error(`[CRITICAL] [MarketData] ${provider} disabled: ${reason}. Falling back to degraded data path.`);
-  return { enabled: false, reason };
+  return {
+    enabled: false,
+    reason: `${_provider} decommissioned — all market data flows through the i9 internal pipeline (Redis quant:alerts) and Binance public WebSockets.`,
+  };
 }

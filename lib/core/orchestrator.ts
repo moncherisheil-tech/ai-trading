@@ -587,6 +587,17 @@ export interface CeoDecision {
   durationMs: number;
 }
 
+// Weight key map: expert name → NeuroPlasticity field name
+const EXPERT_WEIGHT_KEYS: Record<string, string> = {
+  Technician:         'techWeight',
+  RiskManager:        'riskWeight',
+  MarketPsychologist: 'psychWeight',
+  MacroOrderBook:     'macroWeight',
+  OnChainSleuth:      'onchainWeight',
+  DeepMemory:         'deepMemoryWeight',
+  Contrarian:         'contrarianWeight',
+};
+
 async function runCeoOverseer(
   signal: ValidatedWhaleSignal,
   expertResults: ExpertResult[]
@@ -594,28 +605,52 @@ async function runCeoOverseer(
   const t0 = Date.now();
   const { generateLiveText } = await import('@/lib/ai-client');
 
-  const expertSummary = expertResults
-    .map((e) => `[${e.expert}] ${e.verdict} (${e.confidence}%) — ${e.reasoning}`)
-    .join('\n');
+  // Load live NeuroPlasticity weights so CEO can weight each expert by historical accuracy
+  let weights: Record<string, number> = {};
+  try {
+    const { fetchCurrentNeuroPlasticity } = await import('@/lib/trading/reinforcement-learning');
+    const np = await fetchCurrentNeuroPlasticity();
+    weights = np as unknown as Record<string, number>;
+  } catch {
+    // Non-fatal: CEO proceeds with equal weights if NeuroPlasticity is unavailable
+  }
+
+  const getWeight = (expertName: string): number => {
+    const key = EXPERT_WEIGHT_KEYS[expertName];
+    const w = key ? Number(weights[key]) : NaN;
+    return Number.isFinite(w) && w > 0 ? w : 1.0;
+  };
+
+  // Weighted confidence: experts with higher historical accuracy carry more signal
+  const totalWeight = expertResults.reduce((sum, e) => sum + getWeight(e.expert), 0);
+  const weightedAvgConfidence = totalWeight > 0
+    ? Math.round(expertResults.reduce((sum, e) => sum + e.confidence * getWeight(e.expert), 0) / totalWeight)
+    : Math.round(expertResults.reduce((sum, e) => sum + e.confidence, 0) / expertResults.length);
 
   const bullishCount = expertResults.filter((e) => e.verdict === 'BULLISH').length;
   const bearishCount = expertResults.filter((e) => e.verdict === 'BEARISH').length;
-  const avgConfidence = Math.round(
-    expertResults.reduce((sum, e) => sum + e.confidence, 0) / expertResults.length
-  );
+
+  const expertSummary = expertResults
+    .map((e) => {
+      const w = getWeight(e.expert);
+      const trust = w >= 1.3 ? '★ HIGH TRUST' : w <= 0.7 ? '⚠ LOW TRUST' : 'NEUTRAL';
+      return `[${e.expert} weight=${w.toFixed(2)} ${trust}] ${e.verdict} (${e.confidence}%) — ${e.reasoning}`;
+    })
+    .join('\n');
 
   const prompt = `You are the CEO Overseer — the final decision-maker.
 Signal: ${signal.symbol} | ${signal.anomaly_type} | delta_pct=${signal.delta_pct}%
 
-Board vote: ${bullishCount} BULLISH, ${bearishCount} BEARISH, avg confidence ${avgConfidence}%
+Board vote: ${bullishCount} BULLISH, ${bearishCount} BEARISH, weighted confidence ${weightedAvgConfidence}%
+(Weights reflect historical accuracy — HIGH TRUST experts have proven track records, LOW TRUST experts have recent mis-calls.)
 
-Expert verdicts:
+Expert verdicts with accuracy weights:
 ${expertSummary}
 
 Issue a definitive verdict:
-- TRADE: execute now, high confidence, clear edge
+- TRADE: execute now, high confidence, clear edge — prioritize HIGH TRUST expert consensus
 - HOLD: wait for better entry or confirmation
-- SKIP: insufficient edge, conflicting signals, or risk too high
+- SKIP: insufficient edge, conflicting signals, or risk too high — LOW TRUST majority = SKIP
 
 Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasoning":"<2-3 sentences>","keyRisk":"<1 sentence>"}`;
 

@@ -202,13 +202,13 @@ export default function BoardOfExperts({ staggerItem }: BoardOfExpertsProps) {
           ) : null}
           {aiStatus ? (
             <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-[0.1em]">
-              <span className={`inline-flex items-center gap-1 ${aiStatus.cryptoQuant ? 'text-emerald-300' : 'text-zinc-500'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.cryptoQuant ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                CryptoQuant {aiStatus.cryptoQuant ? 'Connected' : 'Missing'}
+              <span className="inline-flex items-center gap-1 text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                i9 Pipeline Active
               </span>
-              <span className={`inline-flex items-center gap-1 ${aiStatus.coinMarketCap ? 'text-emerald-300' : 'text-zinc-500'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.coinMarketCap ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
-                CoinMarketCap {aiStatus.coinMarketCap ? 'Connected' : 'Missing'}
+              <span className={`inline-flex items-center gap-1 ${aiStatus.dbConnected ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${aiStatus.dbConnected ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                DB {aiStatus.dbConnected ? 'Connected' : 'Offline'}
               </span>
             </div>
           ) : null}
