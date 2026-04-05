@@ -70,8 +70,10 @@ function TickerBand({
  * Motion is handled entirely by the CSS `ticker-scroll` keyframe animation on `.ticker-loop`
  * with a per-band `--ticker-duration` var that scales with item count.
  * No React state intervals, no JS timers for animation — zero render-loop overhead.
+ *
+ * Wrapped in React.memo — prevents re-renders triggered by unrelated parent state updates.
  */
-export default function CryptoTicker() {
+const CryptoTicker = memo(function CryptoTicker() {
   const { tickers, connectionState } = useBinanceTicker();
 
   const gainers = useMemo(
@@ -145,4 +147,6 @@ export default function CryptoTicker() {
       )}
     </div>
   );
-}
+});
+
+export default CryptoTicker;

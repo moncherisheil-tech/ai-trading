@@ -27,12 +27,48 @@ const STALE_THRESHOLD_MS = 10_000;
 /** Hard reconnect every N ms regardless of stale detection — guards against silent feed freezes. */
 const HARD_RECONNECT_INTERVAL_MS = 5 * 60_000; // 5 minutes
 
+// ─── Dynamic Top-20 Symbol Registry ──────────────────────────────────────────
+// Populated on first subscriber attach via Binance REST 24hr ticker endpoint.
+// Falls back to TARGET_SYMBOLS (full static list) until the fetch resolves.
+
+let dynamicSymbols: string[] | null = null;
+let symbolFetchPromise: Promise<void> | null = null;
+
+async function fetchTop20ByVolume(): Promise<void> {
+  try {
+    const res = await fetch('https://api.binance.com/api/v3/ticker/24hr', {
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`Binance 24hr ticker fetch failed: ${res.status}`);
+    const data = (await res.json()) as Array<{ symbol: string; quoteVolume: string }>;
+    const top20 = data
+      .filter((t) => typeof t.symbol === 'string' && t.symbol.endsWith('USDT') && !t.symbol.includes('_'))
+      .sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+      .slice(0, 20)
+      .map((t) => t.symbol.toUpperCase());
+    dynamicSymbols = top20;
+    console.log(`[use-binance-ticker] Dynamic Top 20 USDT pairs by volume loaded: ${top20.join(', ')}`);
+  } catch (err) {
+    console.error('[use-binance-ticker] Top-20 fetch failed — using full static symbol list as fallback:', err);
+    // Non-fatal: fall back to the full TARGET_SYMBOLS list so the ticker still renders
+    dynamicSymbols = null;
+  }
+}
+
+/** Returns the active symbol list: dynamic top-20 if fetched, full static list otherwise. */
+function getActiveSymbols(): readonly string[] {
+  return dynamicSymbols ?? TARGET_SYMBOLS;
+}
+
+// ─── Module-level singleton WebSocket state ───────────────────────────────────
+
 function detachWebSocketHandlers(socket: WebSocket): void {
   socket.onopen = null;
   socket.onmessage = null;
   socket.onerror = null;
   socket.onclose = null;
 }
+
 let globalWs: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -79,7 +115,10 @@ function flushPendingRows(): void {
   const rows = pendingRows;
   pendingRows = null;
   if (!rows || rows.length === 0) return;
+
+  // Map-based deduplication: symbol is the key — mathematically impossible to produce duplicates.
   const map = new Map(snapshot.tickers.map((ticker) => [ticker.symbol, ticker]));
+
   let validPriceCount = 0;
   rows.forEach((row) => {
     const price = parseFloat(String(row.c ?? ''));
@@ -90,17 +129,23 @@ function flushPendingRows(): void {
       return;
     }
     validPriceCount++;
-    const baseSymbol = String(row.s ?? '').replace('USDT', '');
+    const baseSymbol = String(row.s ?? '').replace(/USDT$/i, '');
     const change = ((price - open) / open) * 100;
+    // setSnapshot via Map.set guarantees uniqueness — identical baseSymbol overwrites previous entry
     map.set(baseSymbol, { symbol: baseSymbol, price, change });
   });
+
   if (validPriceCount === 0 && rows.length > 0) {
     console.warn('[use-binance-ticker] Flush batch contained no valid prices — possible feed issue.');
   }
-  const ordered = TARGET_SYMBOLS
-    .map((symbol) => symbol.replace('USDT', ''))
+
+  // Re-order output to match the active symbol list (volume-sorted top 20 or full static list)
+  const activeSymbols = getActiveSymbols();
+  const ordered = activeSymbols
+    .map((symbol) => symbol.replace(/USDT$/i, ''))
     .map((base) => map.get(base))
     .filter((row): row is TickerData => row != null);
+
   if (ordered.length > 0) setSnapshot({ tickers: ordered });
 }
 
@@ -182,17 +227,22 @@ function ensureConnected(): void {
       return;
     }
     if (!Array.isArray(data)) return;
+
     const usdtUsdcRow = data.find((t: { s?: string }) => String(t.s || '').toUpperCase() === 'USDTUSDC') as
       | { c?: string; o?: string }
       | undefined;
     updateUsdtUsdcProxy(usdtUsdcRow ?? null);
-    const filtered = data.filter((t: { s?: string }) => TARGET_SYMBOLS.includes(String(t.s || '').toUpperCase()));
+
+    // Filter to active symbol set — strict Set-lookup for O(1) dedup gate at the ingestion boundary
+    const activeSet = new Set(getActiveSymbols());
+    const filtered = data.filter((t: { s?: string }) => activeSet.has(String(t.s || '').toUpperCase()));
     if (filtered.length === 0) return;
     pendingRows = filtered;
     scheduleFlush();
   };
 
   ws.onerror = () => setSnapshot({ connectionState: 'error' });
+
   ws.onclose = () => {
     const closed = globalWs;
     globalWs = null;
@@ -205,25 +255,32 @@ function ensureConnected(): void {
 
 function subscribeTicker(subscriber: TickerSubscriber): () => void {
   subscribers.add(subscriber);
+  // Emit the current snapshot immediately so the UI is never blank on subscribe
   subscriber(snapshot);
+
+  // Kick off the top-20 volume fetch on first subscriber.
+  // Promise is cached — subsequent subscribers share the same single in-flight request.
+  if (!symbolFetchPromise) {
+    symbolFetchPromise = fetchTop20ByVolume();
+  }
+
   ensureConnected();
+
   return () => {
     subscribers.delete(subscriber);
     if (subscribers.size > 0) return;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    if (flushTimer) {
-      clearTimeout(flushTimer);
-      flushTimer = null;
-    }
-    if (staleTimer) {
-      clearTimeout(staleTimer);
-      staleTimer = null;
-    }
+
+    // Last subscriber left — fully tear down the singleton
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    if (staleTimer) { clearTimeout(staleTimer); staleTimer = null; }
     stopHardReconnectInterval();
     pendingRows = null;
+
+    // Reset dynamic symbol registry so the next mount re-fetches fresh top-20 data
+    dynamicSymbols = null;
+    symbolFetchPromise = null;
+
     const sock = globalWs;
     globalWs = null;
     if (sock) {
