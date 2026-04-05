@@ -11,7 +11,7 @@
  */
 
 import { Queue, QueueEvents, type ConnectionOptions } from 'bullmq';
-import { getRedisClient, isRedisAvailable } from './redis-client';
+import { getRedisClient, isRedisAvailable, isRedisFatalAuthError } from './redis-client';
 import type { ExpertMacroOutput } from '@/lib/consensus-engine';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -74,6 +74,14 @@ export async function waitForRedisReady(
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (isRedisFatalAuthError(err)) {
+        console.error(
+          `[ScanQueue] [AUTH_ERROR] Redis authentication failed during PING (attempt ${attempt}/${maxAttempts}). ` +
+          'Update REDIS_URL password / username, or switch to rediss:// if the host requires TLS. ' +
+          `Detail: ${msg}`
+        );
+        return false;
+      }
       if (attempt < maxAttempts) {
         console.error(
           `[ScanQueue] Redis not available (attempt ${attempt}/${maxAttempts}): ${msg}. ` +

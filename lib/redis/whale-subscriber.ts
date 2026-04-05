@@ -18,7 +18,8 @@
  * Exponential back-off, gives up after 50 attempts (~8 min cumulative).
  */
 
-import IORedis from 'ioredis';
+import { getResolvedWhaleRedisUrl } from '@/lib/config';
+import { createLongLivedRedisClient } from '@/lib/queue/redis-client';
 
 export interface WhaleAlert {
   symbol: string;
@@ -30,15 +31,15 @@ export interface WhaleAlert {
 const CHANNEL = 'quant:alerts';
 
 function getWhaleRedisUrl(): string {
-  const rawUrl = process.env.WHALE_REDIS_URL;
-  if (!rawUrl || rawUrl.trim() === '') {
+  const url = getResolvedWhaleRedisUrl();
+  if (!url) {
     throw new Error(
       '[WhaleSubscriber] WHALE_REDIS_URL is not set. ' +
-      'Add it to your .env file before starting the server. ' +
-      'Example: WHALE_REDIS_URL=redis://default:<password>@<host>:6379'
+      'Add it to your .env (see lib/config.ts getResolvedWhaleRedisUrl). ' +
+      'Example: WHALE_REDIS_URL=rediss://default:<password>@<host>:6380'
     );
   }
-  return rawUrl.replace(/^["']|["']$/g, '').trim();
+  return url;
 }
 
 // ── Singleton guards ──────────────────────────────────────────────────────────
@@ -66,31 +67,16 @@ function registerWhaleSubscriberShutdownHooks(): void {
 }
 
 export class WhaleSubscriber {
-  private client: IORedis;
+  private client: ReturnType<typeof createLongLivedRedisClient>;
 
   constructor() {
     const url = getWhaleRedisUrl();
 
-    this.client = new IORedis(url, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      connectTimeout: 10_000,
-      retryStrategy(times) {
-        if (times > 50) {
-          console.error(
-            `[WhaleSubscriber] Giving up after ${times} reconnect attempts. ` +
-            'Check WHALE_REDIS_URL and remote firewall rules.'
-          );
-          return null;
-        }
-        const delay = Math.min(times * 300, 10_000);
-        console.warn(`[WhaleSubscriber] Reconnect attempt #${times} — retrying in ${delay}ms`);
-        return delay;
-      },
-    });
+    // Shared auth/TLS handling with BullMQ client — [AUTH_ERROR] stops endless reconnect on bad password.
+    this.client = createLongLivedRedisClient(url, 'WhaleSubscriber', null, 50);
 
     this.client.on('connect', () =>
-      console.log('[WhaleSubscriber] TCP connected → WHALE_REDIS_URL')
+      console.log('[WhaleSubscriber] TCP connected → WHALE_REDIS_URL (TLS if rediss://)')
     );
 
     this.client.on('ready', () => {
@@ -103,10 +89,6 @@ export class WhaleSubscriber {
         }
       });
     });
-
-    this.client.on('error', (err) =>
-      console.error('[WhaleSubscriber] Redis error:', err.message)
-    );
 
     this.client.on('close', () =>
       console.warn('[WhaleSubscriber] Connection closed — waiting for retry...')

@@ -7,6 +7,10 @@ import { sql } from '@/lib/db/sql';
  * When Learning Center generates a Post-Mortem (why_win_lose), store it as an embedding.
  * Query for 3 most similar historical trades to inject into agents' context.
  * STRICT FALLBACK: If Pinecone fails or keys missing, bypass gracefully; consensus engine never crashes.
+ *
+ * Architecture note: Pinecone client init (`getPineconeIndexOrThrow`, SDK import) is independent of
+ * Postgres bootstrap. `sql` is used only by integrity / diagnostics helpers — a DB outage does not
+ * prevent `querySimilarTrades()` from attempting a vector query (it fails closed to [] on Pinecone errors only).
  */
 
 const POST_MORTEMS_NAMESPACE = 'post-mortems';

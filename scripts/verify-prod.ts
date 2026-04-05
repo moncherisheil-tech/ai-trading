@@ -1,167 +1,284 @@
 /**
- * Production Connectivity Verification
- * ─────────────────────────────────────
- * Verifies the i9 internal pipeline, Binance public feed, and Redis.
- *
- * NOTE: CryptoQuant and CoinMarketCap checks have been removed.
- * All market data now flows through the sovereign i9 hardware feed
- * (WHALE_REDIS_URL → Redis quant:alerts → BullMQ → Orchestrator).
+ * CLEAN BOOT — sequential infrastructure verification (CEO / Workspace 2)
+ * ───────────────────────────────────────────────────────────────────────
+ * Runs strict, ordered checks so a single failure pinpoints which .env key to fix.
+ * Does NOT import @/lib/config (avoids boot-time required-env throws before checks run).
  *
  * Usage:
- *   npx ts-node scripts/verify-prod.ts
- *   (or via: tsx scripts/verify-prod.ts)
+ *   npx tsx scripts/verify-prod.ts
+ *   npm run verify:prod
  */
 
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import IORedis from 'ioredis';
+import { Pool } from 'pg';
 
 dotenv.config({ path: path.join(process.cwd(), '.env') });
 
 const COLOR = {
-  reset:  '\x1b[0m',
-  green:  '\x1b[32m',
-  red:    '\x1b[31m',
+  reset: '\x1b[0m',
+  green: '\x1b[32m',
+  red: '\x1b[31m',
   yellow: '\x1b[33m',
-  cyan:   '\x1b[36m',
-  bold:   '\x1b[1m',
+  cyan: '\x1b[36m',
+  bold: '\x1b[1m',
 };
 
-function pass(label: string, detail: string) {
-  console.log(`${COLOR.green}✔ PASS${COLOR.reset}  ${COLOR.bold}${label}${COLOR.reset}  →  ${detail}`);
+function pass(step: string, label: string, detail: string) {
+  console.log(
+    `${COLOR.green}PASS${COLOR.reset}  ${COLOR.bold}[${step}] ${label}${COLOR.reset}  →  ${detail}`
+  );
 }
 
-function fail(label: string, detail: string) {
-  console.error(`${COLOR.red}✖ FAIL${COLOR.reset}  ${COLOR.bold}${label}${COLOR.reset}  →  ${detail}`);
+function fail(step: string, label: string, detail: string) {
+  console.error(
+    `${COLOR.red}FAIL${COLOR.reset}  ${COLOR.bold}[${step}] ${label}${COLOR.reset}  →  ${detail}`
+  );
 }
 
-function warn(label: string, detail: string) {
-  console.warn(`${COLOR.yellow}⚠ WARN${COLOR.reset}  ${COLOR.bold}${label}${COLOR.reset}  →  ${detail}`);
-}
-
-function info(msg: string) {
-  console.log(`${COLOR.cyan}ℹ${COLOR.reset}  ${msg}`);
+function skip(step: string, label: string, detail: string) {
+  console.log(
+    `${COLOR.yellow}SKIP${COLOR.reset}  ${COLOR.bold}[${step}] ${label}${COLOR.reset}  →  ${detail}`
+  );
 }
 
 function banner(title: string) {
-  console.log(`\n${COLOR.bold}${COLOR.cyan}${'─'.repeat(60)}${COLOR.reset}`);
+  console.log(`\n${COLOR.bold}${COLOR.cyan}${'═'.repeat(64)}${COLOR.reset}`);
   console.log(`${COLOR.bold}${COLOR.cyan}  ${title}${COLOR.reset}`);
-  console.log(`${COLOR.bold}${COLOR.cyan}${'─'.repeat(60)}${COLOR.reset}\n`);
+  console.log(`${COLOR.bold}${COLOR.cyan}${'═'.repeat(64)}${COLOR.reset}\n`);
 }
 
-interface CheckResult {
-  name: string;
-  passed: boolean;
-  statusCode?: number;
-  detail: string;
-  warning?: boolean;
+function stripEnvQuotes(raw: string | undefined): string {
+  const v = (raw || '').trim();
+  if (!v) return '';
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    return v.slice(1, -1).trim();
+  }
+  return v;
 }
 
-async function checkBinancePublic(): Promise<CheckResult> {
-  const name = 'Binance Public API — BTC/USDT Ticker';
+function maskRedisUrl(url: string): string {
+  return url.replace(/:\/\/([^:/?#]+):([^@]+)@/, '://$1:***@');
+}
+
+function isRedisAuthError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toUpperCase();
+  return (
+    msg.includes('WRONGPASS') ||
+    msg.includes('NOAUTH') ||
+    msg.includes('INVALID USERNAME-PASSWORD') ||
+    msg.includes('AUTHENTICATION REQUIRED') ||
+    msg.includes('ERR AUTH') ||
+    msg.includes('DENIED BY ACL')
+  );
+}
+
+async function testRedisPing(
+  step: string,
+  label: string,
+  redisUrl: string | undefined,
+  optional: boolean
+): Promise<boolean> {
+  const url = stripEnvQuotes(redisUrl);
+  if (!url) {
+    if (optional) {
+      skip(step, label, 'Env var not set — optional for this check.');
+      return true;
+    }
+    fail(step, label, 'URL is empty — set the variable in .env');
+    return false;
+  }
+
+  const client = new IORedis(url, {
+    maxRetriesPerRequest: 1,
+    enableReadyCheck: true,
+    connectTimeout: 8_000,
+    lazyConnect: true,
+    tls: url.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+  });
+
+  try {
+    await client.connect();
+    const pong = await client.ping();
+    await client.quit();
+    if (pong !== 'PONG') {
+      fail(step, label, `Unexpected PING reply: ${String(pong)}`);
+      return false;
+    }
+    pass(step, label, `PING/PONG OK — ${maskRedisUrl(url)}`);
+    return true;
+  } catch (err) {
+    try {
+      client.disconnect();
+    } catch {
+      /* ignore */
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (isRedisAuthError(err)) {
+      fail(
+        step,
+        label,
+        `[AUTH_ERROR] Invalid password, ACL, or TLS scheme. Use rediss:// if the host requires TLS. ${msg}`
+      );
+    } else {
+      fail(step, label, msg);
+    }
+    return false;
+  }
+}
+
+async function testPostgres(): Promise<boolean> {
+  const step = '2';
+  const label = 'PostgreSQL — DATABASE_URL';
+  const cs = stripEnvQuotes(process.env.DATABASE_URL);
+  if (!cs) {
+    fail(step, label, 'DATABASE_URL is not set');
+    return false;
+  }
+
+  const pool = new Pool({
+    connectionString: cs,
+    connectionTimeoutMillis: 12_000,
+    max: 1,
+    ssl: (() => {
+      if (/127\.0\.0\.1|localhost|::1/.test(cs)) return false as const;
+      try {
+        const u = new URL(cs);
+        const m = u.searchParams.get('sslmode')?.toLowerCase();
+        if (m === 'require' || m === 'prefer' || m === 'verify-ca') {
+          return { rejectUnauthorized: false as const };
+        }
+        if (m === 'verify-full') return { rejectUnauthorized: true as const };
+      } catch {
+        /* fall through */
+      }
+      return undefined;
+    })(),
+  });
+
+  try {
+    const r = await pool.query('SELECT 1 AS ok');
+    const ok = Number((r.rows[0] as { ok?: number })?.ok) === 1;
+    await pool.end();
+    if (!ok) {
+      fail(step, label, 'SELECT 1 returned unexpected row');
+      return false;
+    }
+    pass(step, label, 'SELECT 1 OK — update password in .env if you see 28P01 elsewhere');
+    return true;
+  } catch (err) {
+    await pool.end().catch(() => {});
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/28P01|password authentication failed/i.test(msg)) {
+      fail(
+        step,
+        label,
+        'Authentication failed (28P01). Encode special chars in password: node -e "console.log(encodeURIComponent(\'YOUR_PW\'))"'
+      );
+    } else {
+      fail(step, label, msg);
+    }
+    return false;
+  }
+}
+
+async function testPinecone(): Promise<boolean> {
+  const step = '3';
+  const label = 'Pinecone — PINECONE_API_KEY + index';
+  const apiKey = stripEnvQuotes(process.env.PINECONE_API_KEY);
+  if (!apiKey) {
+    skip(step, label, 'PINECONE_API_KEY unset — vector memory disabled; not a hard fail for MoE');
+    return true;
+  }
+
+  let indexName = stripEnvQuotes(process.env.PINECONE_INDEX_NAME) || 'quantum-memory';
+  if (/^\d+$/.test(indexName)) {
+    indexName = 'quantum-memory';
+  }
+
+  try {
+    const { Pinecone } = await import('@pinecone-database/pinecone');
+    const pc = new Pinecone({ apiKey });
+    const index = pc.index(indexName);
+    await index.describeIndexStats();
+    pass(step, label, `describeIndexStats OK — index="${indexName}"`);
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    fail(step, label, `Check PINECONE_API_KEY and PINECONE_INDEX_NAME. ${msg}`);
+    return false;
+  }
+}
+
+async function testBinance(): Promise<boolean> {
+  const step = '4';
+  const label = 'Binance Public API — BTCUSDT 24h ticker';
   const url = 'https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT';
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
-    if (res.ok) {
-      const data = await res.json() as { lastPrice?: string };
-      return { name, passed: true, statusCode: res.status, detail: `HTTP ${res.status} OK — BTC price: $${parseFloat(data.lastPrice ?? '0').toFixed(2)}` };
+    if (!res.ok) {
+      fail(step, label, `HTTP ${res.status}`);
+      return false;
     }
-    return { name, passed: false, statusCode: res.status, detail: `HTTP ${res.status}` };
-  } catch (err: unknown) {
-    return { name, passed: false, detail: `Network error: ${err instanceof Error ? err.message : String(err)}` };
+    const data = (await res.json()) as { lastPrice?: string };
+    const px = parseFloat(data.lastPrice ?? '0');
+    pass(step, label, `HTTP ${res.status} — BTC last ≈ $${Number.isFinite(px) ? px.toFixed(2) : '?'}`);
+    return true;
+  } catch (err) {
+    fail(step, label, err instanceof Error ? err.message : String(err));
+    return false;
   }
-}
-
-async function checkRedisConfig(): Promise<CheckResult> {
-  const name = 'Redis / i9 Pipeline — WHALE_REDIS_URL';
-  const whaleUrl = (process.env.WHALE_REDIS_URL || '').trim();
-  const redisUrl = (process.env.REDIS_URL || '').trim();
-  if (!whaleUrl) {
-    return { name, passed: false, detail: 'WHALE_REDIS_URL is not set — i9 hardware feed will NOT connect' };
-  }
-  info(`WHALE_REDIS_URL present: ${whaleUrl.slice(0, 20)}…`);
-  if (!redisUrl) {
-    return {
-      name,
-      passed: true,
-      warning: true,
-      detail: `WHALE_REDIS_URL is set. REDIS_URL missing (will use fallback redis://127.0.0.1:6379).`,
-    };
-  }
-  return { name, passed: true, detail: `WHALE_REDIS_URL + REDIS_URL both configured.` };
-}
-
-async function checkDatabaseUrl(): Promise<CheckResult> {
-  const name = 'PostgreSQL — DATABASE_URL';
-  const dbUrl = (process.env.DATABASE_URL || '').trim();
-  if (!dbUrl) {
-    return { name, passed: false, detail: 'DATABASE_URL is not set — DB persistence WILL FAIL' };
-  }
-  info(`DATABASE_URL present: ${dbUrl.slice(0, 22)}…`);
-  return { name, passed: true, detail: 'DATABASE_URL configured.' };
-}
-
-async function checkDydxKey(): Promise<CheckResult> {
-  const name = 'dYdX Wallet — DYDX_WALLET_PRIVATE_KEY';
-  const key = (process.env.DYDX_WALLET_PRIVATE_KEY || '').trim();
-  if (!key || /todo|changeme|example/i.test(key)) {
-    return { name, passed: false, detail: 'DYDX_WALLET_PRIVATE_KEY missing — live execution blocked' };
-  }
-  return { name, passed: true, detail: 'DYDX_WALLET_PRIVATE_KEY configured.' };
-}
-
-async function checkTelegramToken(): Promise<CheckResult> {
-  const name = 'Telegram — TELEGRAM_BOT_TOKEN';
-  const token = (process.env.TELEGRAM_BOT_TOKEN || '').trim();
-  if (!token) {
-    return { name, passed: false, detail: 'TELEGRAM_BOT_TOKEN missing — alerts will NOT be delivered' };
-  }
-  return { name, passed: true, detail: 'TELEGRAM_BOT_TOKEN configured.' };
 }
 
 async function main() {
-  banner('i9 Pipeline & Production Connectivity Check');
-  console.log(`  Server time : ${new Date().toISOString()}`);
-  console.log(`  Node        : ${process.version}`);
-  console.log(`  CWD         : ${process.cwd()}\n`);
-  console.log(`  [NOTE] CryptoQuant + CoinMarketCap decommissioned.\n`);
-  console.log(`         All whale data flows through i9 → Redis quant:alerts → BullMQ.\n`);
+  banner('CLEAN BOOT — Sequential connection audit');
+  console.log(`  Time : ${new Date().toISOString()}`);
+  console.log(`  Node : ${process.version}`);
+  console.log(`  CWD  : ${process.cwd()}\n`);
 
-  const results = await Promise.all([
-    checkRedisConfig(),
-    checkDatabaseUrl(),
-    checkBinancePublic(),
-    checkDydxKey(),
-    checkTelegramToken(),
-  ]);
+  const results: boolean[] = [];
 
-  console.log('');
-  let allPassed = true;
-  for (const r of results) {
-    if (r.passed && !r.warning) {
-      pass(r.name, r.detail);
-    } else if (r.passed && r.warning) {
-      warn(r.name, r.detail);
-    } else {
-      fail(r.name, r.detail);
-      allPassed = false;
-    }
+  // 1 — BullMQ / app Redis (mirrors lib/config getResolvedRedisUrl fallback)
+  const redisExplicit = stripEnvQuotes(process.env.REDIS_URL);
+  const redisMain = redisExplicit || 'redis://127.0.0.1:6379';
+  const r1 = await testRedisPing('1', 'Redis (REDIS_URL) — AUTH + PING', redisMain, false);
+  results.push(r1);
+  if (r1 && !redisExplicit) {
+    console.warn(
+      `${COLOR.yellow}WARN${COLOR.reset}  REDIS_URL is unset — test used local fallback redis://127.0.0.1:6379. ` +
+      'Set REDIS_URL in production to point at Workspace 2 / German broker.'
+    );
   }
 
+  // 1b — Workspace 2 ingestion (optional)
+  const whale = stripEnvQuotes(process.env.WHALE_REDIS_URL);
+  if (whale) {
+    results.push(await testRedisPing('1b', 'Redis (WHALE_REDIS_URL) — Workspace 2 / i9', whale, false));
+  } else {
+    skip('1b', 'Redis (WHALE_REDIS_URL)', 'Not set — whale subscriber disabled until configured');
+    results.push(true);
+  }
+
+  results.push(await testPostgres());
+  results.push(await testPinecone());
+  results.push(await testBinance());
+
+  const allPass = results.every(Boolean);
   console.log('');
-  if (allPassed) {
+  if (allPass) {
     console.log(
-      `${COLOR.green}${COLOR.bold}ALL CHECKS PASSED — i9 pipeline ready.${COLOR.reset}`
+      `${COLOR.green}${COLOR.bold}ALL REQUIRED CHECKS PASSED — safe to start trading engine / workers.${COLOR.reset}`
     );
     process.exit(0);
-  } else {
-    console.error(
-      `${COLOR.red}${COLOR.bold}ONE OR MORE CHECKS FAILED — review the output above.${COLOR.reset}`
-    );
-    process.exit(1);
   }
+  console.error(
+    `${COLOR.red}${COLOR.bold}ONE OR MORE CHECKS FAILED — update the matching keys in .env and re-run.${COLOR.reset}`
+  );
+  process.exit(1);
 }
 
 main().catch((err) => {

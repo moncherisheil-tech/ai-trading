@@ -122,6 +122,41 @@ export const APP_CONFIG = {
   paperLiquidationPct: Number(process.env.PAPER_LIQUIDATION_PCT || -75),
 };
 
+// ---------------------------------------------------------------------------
+// Redis / Workspace 2 — canonical URL resolution (BullMQ, HTTP cache, whale sub)
+// All connection code should read these helpers instead of raw process.env
+// so quotes, trimming, and fallbacks stay consistent across the monolith.
+// ---------------------------------------------------------------------------
+
+/** BullMQ + queue-worker Redis. Falls back to local broker only when REDIS_URL is unset. */
+export function getResolvedRedisUrl(): string {
+  const v = normalizeEnvValue(process.env.REDIS_URL);
+  return v || 'redis://127.0.0.1:6379';
+}
+
+/** Remote ingestion Redis (e.g. German node / i9 → quant:alerts). Null if unset. */
+export function getResolvedWhaleRedisUrl(): string | null {
+  const v = normalizeEnvValue(process.env.WHALE_REDIS_URL);
+  return v || null;
+}
+
+/**
+ * Redis URL for HTTP routes / cache shield — prefers WHALE_REDIS_URL, then REDIS_URL.
+ * @throws if neither variable is set (API handlers must not silently use localhost).
+ */
+export function getResolvedHttpRedisUrl(): string {
+  const whale = getResolvedWhaleRedisUrl();
+  const main = normalizeEnvValue(process.env.REDIS_URL);
+  const url = whale || main;
+  if (!url) {
+    throw new Error(
+      '[config] Neither WHALE_REDIS_URL nor REDIS_URL is set. ' +
+      'Set at least one in .env for Redis-backed API routes.'
+    );
+  }
+  return url;
+}
+
 if (APP_CONFIG.proxyBinanceUrl) {
   try {
     const origin = new URL(APP_CONFIG.proxyBinanceUrl).origin;

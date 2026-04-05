@@ -30,13 +30,34 @@ function isLocalHost(url: string): boolean {
   return /127\.0\.0\.1|localhost|::1/.test(url);
 }
 
+/**
+ * TLS for remote Postgres when `sslmode` is set on DATABASE_URL (e.g. Neon, Supabase, EU cloud).
+ * Complex passwords must still be percent-encoded per `sovereign-db-url.ts` before reaching the Pool.
+ */
+function poolSslFromConnectionString(cs: string): false | { rejectUnauthorized: boolean } | undefined {
+  if (isLocalHost(cs)) return false;
+  try {
+    const parsed = new URL(cs);
+    const mode = parsed.searchParams.get('sslmode')?.toLowerCase();
+    if (mode === 'require' || mode === 'prefer' || mode === 'verify-ca') {
+      return { rejectUnauthorized: false };
+    }
+    if (mode === 'verify-full') {
+      return { rejectUnauthorized: true };
+    }
+  } catch {
+    // URL shape already validated by assertAuthorizedDatabaseUrl
+  }
+  return undefined;
+}
+
 function getPool(): Pool {
   if (!pool) {
     const cs = connectionString();
     pool = new Pool({
       connectionString: cs,
-      // Disable SSL for on-prem local Postgres — no TLS cert installed by default.
-      ssl: isLocalHost(cs) ? false : undefined,
+      // Local: no TLS. Remote: optional explicit ssl from sslmode=…; otherwise pg uses URL defaults.
+      ssl: poolSslFromConnectionString(cs),
       // Institutional default: 50 concurrent connections.
       // Eliminates "timeout exceeded when trying to connect" under parallel job load.
       // Override via PG_POOL_MAX env var (e.g. PG_POOL_MAX=20 for limited DB plans).

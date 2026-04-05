@@ -77,6 +77,7 @@ waitForPostgres().catch(() => {/* non-fatal — logged inside waitForPostgres */
 
 import { Worker, type Job } from 'bullmq';
 import { randomUUID } from 'crypto';
+// Redis: URLs resolved via lib/config.ts; WRONGPASS/NOAUTH → [AUTH_ERROR] + reconnect abort (redis-client.ts).
 import { getRedisClient, closeRedisClient } from './redis-client';
 import { disconnectPrisma } from '@/lib/prisma';
 import {
