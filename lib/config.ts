@@ -138,10 +138,10 @@ if (APP_CONFIG.proxyBinanceUrl) {
 // The server MUST NOT start if critical secrets are absent.
 // ---------------------------------------------------------------------------
 const REQUIRED_ENV_VARS: Array<{ key: string; description: string }> = [
-  { key: 'APP_SESSION_SECRET',  description: 'HMAC signing key for session cookies' },
-  { key: 'DATABASE_URL',        description: 'PostgreSQL connection string' },
-  { key: 'ADMIN_SECRET',        description: 'Bearer token for administrative API routes' },
-  { key: 'BINANCE_API_KEY',     description: 'Binance exchange API key' },
+  { key: 'APP_SESSION_SECRET',         description: 'HMAC signing key for session cookies' },
+  { key: 'DATABASE_URL',               description: 'PostgreSQL connection string' },
+  { key: 'ADMIN_SECRET',               description: 'Bearer token for administrative API routes' },
+  { key: 'DYDX_WALLET_PRIVATE_KEY',    description: 'dYdX wallet private key (hex) or 12/24-word mnemonic for perpetuals execution' },
 ];
 
 if (process.env.NODE_ENV !== 'test') {

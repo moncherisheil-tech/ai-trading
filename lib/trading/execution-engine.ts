@@ -27,11 +27,14 @@ import {
   shouldUseStealthTwap,
 } from '@/lib/trading/execution-liquidity';
 import { buildScalpExecutionPlan, inferScalpTierFromVolatility } from '@/lib/trading/scalp-tiers';
-import { createExecutionBrokerAdapter, type BrokerOrderSide } from '@/lib/trading/broker-adapter';
+import {
+  createExecutionBrokerAdapter,
+  createBrokerAdapter,
+  type BrokerOrderSide,
+} from '@/lib/trading/broker-adapter';
 import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
 import { ReinforcementEngine, fetchCurrentNeuroPlasticity } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
-import ccxt from 'ccxt';
 import { insertTradeExecution, markTradeExecutionFailed, type TradeExecutionRow } from '@/lib/db/execution-learning';
 
 const INITIAL_VIRTUAL_BALANCE_USD = 10_000;
@@ -952,13 +955,6 @@ export interface AlphaSignalExecutionInput {
   amountUsd?: number;
 }
 
-function normalizeCcxtSymbol(symbol: string): string {
-  const s = (symbol || '').toUpperCase().replace(/\s+/g, '');
-  if (s.includes('/')) return s;
-  if (s.endsWith('USDT')) return `${s.slice(0, -4)}/USDT`;
-  return s;
-}
-
 // ── PHASE 2 FIX: Exchange Kill Switch ──────────────────────────────────────
 // Tracks consecutive Binance 500/network failures per process lifetime.
 // If EXCHANGE_KILL_SWITCH_THRESHOLD consecutive failures occur, the kill switch
@@ -979,6 +975,10 @@ function isExchangeRetryable(err: unknown): boolean {
   // Retry on: 500, 502, 503, 504, network errors, rate limits (429 with backoff)
   if (status && [429, 500, 502, 503, 504].includes(Number(status))) return true;
   if (/timeout|timed out|econnreset|econnrefused|etimedout|enotfound|network|socket|fetch failed|aborted|unavailable|internal server/i.test(msg)) return true;
+  // dYdX terminal errors — do NOT retry (would just fail again)
+  if (/insufficient.?margin|insufficient.?funds|order.?rejected|broadcast.?failed/i.test(msg)) return false;
+  // dYdX sequence mismatch can be retried (next block will have correct sequence)
+  if (/sequence.?mismatch|account.?sequence/i.test(msg)) return true;
   return false;
 }
 
@@ -1019,7 +1019,7 @@ async function withExchangeRetryAndKillSwitch<T>(
     // Fire-and-forget CEO alert
     dispatchCriticalAlert(
       '🚨 EXCHANGE KILL SWITCH TRIPPED — ALL LIVE ORDERS BLOCKED',
-      `Binance has returned ${exchangeConsecutiveFailures} consecutive failures. ` +
+      `dYdX execution has returned ${exchangeConsecutiveFailures} consecutive failures. ` +
       `LIVE execution is now suspended. Last error: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}. ` +
       `Ops: restart the process or call /api/ops/reset-kill-switch to re-enable.`,
       'CRITICAL'
@@ -1084,64 +1084,69 @@ export class LiveExecutionEngine {
     }
 
     try {
-      const apiKey = process.env.BINANCE_API_KEY?.trim();
-      const secret =
-        process.env.BINANCE_SECRET?.trim() || process.env.BINANCE_API_SECRET?.trim();
-      if (!apiKey || !secret) {
+      // ── Step 1: Fetch live price from Binance public radar (THE RADAR — untouched) ───
+      // Binance public ticker needs no API key — it's the market data backbone.
+      const symbolPrices = await fetchBinanceTickerPrices([symbol], 10_000);
+      const marketPrice = symbolPrices.get(symbol);
+      if (!Number.isFinite(marketPrice) || (marketPrice ?? 0) <= 0) {
         if (execution?.id) await markTradeExecutionFailed(execution.id);
         return {
           success: false,
           mode,
-          reason: 'Missing BINANCE_API_KEY / BINANCE_API_SECRET (or BINANCE_SECRET).',
+          reason: `Live Binance market price unavailable for ${symbol}.`,
           execution,
         };
       }
 
-      const exchange = new ccxt.binance({
-        apiKey,
-        secret,
-        enableRateLimit: true,
-        options: { defaultType: 'spot' },
-      });
-
-      const ccxtSymbol = normalizeCcxtSymbol(symbol);
-
-      // PHASE 2 FIX: Wrap ticker fetch and order creation with retry + kill switch
-      const ticker = await withExchangeRetryAndKillSwitch(
-        `fetchTicker(${ccxtSymbol})`,
-        () => exchange.fetchTicker(ccxtSymbol)
-      );
-      const marketPrice = Number(ticker.last ?? ticker.close ?? ticker.ask ?? ticker.bid ?? 0);
-      if (!Number.isFinite(marketPrice) || marketPrice <= 0) {
-        throw new Error(`Invalid market price for ${ccxtSymbol}.`);
-      }
-
-      const amountBase = amountUsd / marketPrice;
+      // ── Step 2: Protocol Omega — $50 hard cap (belt + suspenders) ────────────────────
+      const cappedAmountUsd = Math.min(amountUsd, MAX_TRADE_SIZE_USD);
+      const amountBase = cappedAmountUsd / marketPrice!;
       if (!Number.isFinite(amountBase) || amountBase <= 0) {
-        throw new Error('Invalid order amount.');
+        if (execution?.id) await markTradeExecutionFailed(execution.id);
+        return { success: false, mode, reason: 'Invalid order amount computed from market price.', execution };
       }
 
-      const orderType = signal.orderType ?? 'market';
+      // ── Step 3: Execute via dYdX v4 perpetuals (THE SNIPER) ──────────────────────────
+      // DydxBrokerAdapter converts symbol (BTCUSDT → BTC-USD) and places a
+      // limit-IOC order with a 10% worst-case price buffer to emulate a market fill.
+      // dYdX-specific errors (Insufficient Margin, Order Rejected, Sequence Mismatch,
+      // Gas/Fee failures) are caught below and recorded to the TradeExecution table.
       await withExchangeRetryAndKillSwitch(
-        `createOrder(${ccxtSymbol} ${signal.side} ${orderType})`,
-        () => exchange.createOrder(
-          ccxtSymbol,
-          orderType,
-          signal.side.toLowerCase() as 'buy' | 'sell',
-          amountBase,
-          orderType === 'limit' ? signal.limitPrice : undefined
-        )
+        `dydx.createMarketOrder(${symbol} ${signal.side})`,
+        async () => {
+          const adapter = createBrokerAdapter({
+            allowSimulationFallback: false,
+            testnet: process.env.EXCHANGE_TESTNET === 'true',
+          });
+          await adapter.createMarketOrder(
+            symbol,
+            signal.side.toLowerCase() as 'buy' | 'sell',
+            amountBase,
+            {
+              clientOrderId: executionId,
+              marketPriceHint: marketPrice,
+            }
+          );
+        }
       );
 
-      return { success: true, mode, reason: `LIVE ${orderType.toUpperCase()} order submitted.`, execution };
+      return { success: true, mode, reason: `LIVE MARKET order submitted via dYdX perpetuals.`, execution };
     } catch (err) {
       console.error('[LiveExecutionEngine] executeSignal failed:', err);
       if (execution?.id) await markTradeExecutionFailed(execution.id);
       const reason = err instanceof Error ? err.message : 'Unknown live execution failure.';
-      // If kill switch just tripped, the CEO alert was already sent inside withExchangeRetryAndKillSwitch
+
+      // Classify dYdX-specific terminal errors for ops alerting
+      const lowerReason = reason.toLowerCase();
+      const isDydxFatal =
+        /insufficient.?margin|insufficient.?funds|order.?rejected|sequence.?mismatch|account.?sequence|broadcast.?failed|gas|fee/i.test(lowerReason);
+
       if (!reason.includes('[KILL_SWITCH]')) {
+        const alertTitle = isDydxFatal
+          ? `LiveExecutionEngine — dYdX Fatal Order Error`
+          : `LiveExecutionEngine — Order Failed`;
         await dispatchCriticalAlert(
-          'LiveExecutionEngine — Order Failed',
+          alertTitle,
           `${symbol} ${signal.side}: ${reason}`,
           'CRITICAL'
         ).catch(console.error);

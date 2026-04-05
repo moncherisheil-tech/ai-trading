@@ -81,17 +81,18 @@ export function getPineconeIndexName(): string | undefined {
  * and queue-worker.ts). Throws on fatal misconfiguration; warns on recoverable issues.
  *
  * Validation rules enforced here:
- *   1. PINECONE_INDEX_NAME — must NOT be purely numeric; must be a valid alphanumeric slug.
- *   2. PINECONE_DIMENSION  — must equal "768" when set (model output dimension).
+ *   1. PINECONE_INDEX_NAME    — must NOT be purely numeric; must be a valid alphanumeric slug.
+ *   2. PINECONE_DIMENSION     — must equal "768" when set (model output dimension).
  *      Accepts both PINECONE_EMBEDDING_DIM and PINECONE_DIMENSION variable names.
- *   3. REDIS_URL           — must be set in production and must equal
- *      redis://127.0.0.1:6379 for this on-prem deployment.
- *   4. Core secrets        — DATABASE_URL, APP_SESSION_SECRET, TELEGRAM_BOT_TOKEN
+ *   3. REDIS_URL              — must be set in production; warns if missing (falls back to 127.0.0.1:6379).
+ *   4. Core secrets           — DATABASE_URL, APP_SESSION_SECRET, TELEGRAM_BOT_TOKEN
  *      must all be present and non-empty.
- *   5. GEMINI_API_KEY      — must be present and non-placeholder (GOOGLE_API_KEY accepted as alias).
- *   6. BINANCE_API_KEY     — must be present and non-placeholder.
- *   7. Binance secret      — BINANCE_SECRET or BINANCE_API_SECRET must be present and non-placeholder.
- *   8. SCAN_TOKEN          — required for /api/ops/absolute-scan and ops automation; boot fails if missing.
+ *   5. GEMINI_API_KEY         — must be present and non-placeholder (GOOGLE_API_KEY accepted as alias).
+ *   6. DYDX_WALLET_PRIVATE_KEY — required for live trade execution via dYdX v4 perpetuals.
+ *      Accepts a 64-char hex private key or a 12/24-word BIP-39 mnemonic.
+ *      NOTE: Binance API keys are NOT required — Binance is used only for public market data
+ *      (WebSockets, tickers, order-book depth) which need no authentication.
+ *   7. SCAN_TOKEN             — required for /api/ops/absolute-scan and ops automation; boot fails if missing.
  *
  * This function is safe to call multiple times (idempotent warn/throw logic).
  */
@@ -192,28 +193,21 @@ export function validateInfraEnv(): void {
     throw new Error(msg);
   }
 
-  // ── 6. Binance API key ─────────────────────────────────────────────────────
-  const binanceApiKey = stripEnvQuotes(process.env.BINANCE_API_KEY);
-  if (!binanceApiKey || isInvalidKey(binanceApiKey)) {
+  // ── 6. dYdX wallet key — required for live perpetuals execution (THE SNIPER) ─
+  // Binance API keys are intentionally NOT checked here. Binance is used only for
+  // public market data (WebSockets, tickers, order-book depth) which require no
+  // authentication. All trade execution routes through dYdX v4 (self-custody, zero-KYC).
+  const dydxKey = stripEnvQuotes(process.env.DYDX_WALLET_PRIVATE_KEY);
+  if (!dydxKey || dydxKey.trim() === '' || isInvalidKey(dydxKey)) {
     const msg =
-      '[FATAL BOOT ERROR] BINANCE_API_KEY is missing or contains a placeholder value. ' +
-      'Set BINANCE_API_KEY in your .env file before starting the server.';
+      '[FATAL BOOT ERROR] DYDX_WALLET_PRIVATE_KEY is missing or contains a placeholder value. ' +
+      'Set DYDX_WALLET_PRIVATE_KEY (64-char hex private key or 12/24-word mnemonic) in your .env file. ' +
+      'This key is required for live trade execution via dYdX v4 perpetuals.';
     console.error(msg);
     throw new Error(msg);
   }
 
-  // ── 7. Binance secret (BINANCE_SECRET or BINANCE_API_SECRET alias) ─────────
-  const binanceSecret =
-    stripEnvQuotes(process.env.BINANCE_SECRET) || stripEnvQuotes(process.env.BINANCE_API_SECRET);
-  if (!binanceSecret || isInvalidKey(binanceSecret)) {
-    const msg =
-      '[FATAL BOOT ERROR] Binance secret is missing or contains a placeholder value. ' +
-      'Set BINANCE_API_SECRET (or legacy BINANCE_SECRET) in your .env file before starting the server.';
-    console.error(msg);
-    throw new Error(msg);
-  }
-
-  // ── 8. SCAN_TOKEN (ops / absolute-scan auth) ───────────────────────────────
+  // ── 7. SCAN_TOKEN (ops / absolute-scan auth) ───────────────────────────────
   const scanToken = stripEnvQuotes(process.env.SCAN_TOKEN);
   if (!scanToken || scanToken.trim() === '' || isInvalidKey(scanToken)) {
     const msg =
