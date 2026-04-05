@@ -84,14 +84,16 @@ model LearnedInsight {
 model SystemNeuroPlasticity {
   id Int @id
 
-  /// 7 Expert synaptic weights — clamped [0.1, 3.0]
-  techWeight        Float @default(1.0)
-  riskWeight        Float @default(1.0)
-  psychWeight       Float @default(1.0)
-  macroWeight       Float @default(1.0)
-  onchainWeight     Float @default(1.0)
-  deepMemoryWeight  Float @default(1.0)
-  contrarianWeight  Float @default(1.0)
+  /// 8 Expert synaptic weights — clamped [0.35, 2.80] by SingularityEngine MoE normaliser
+  techWeight           Float @default(1.0)
+  riskWeight           Float @default(1.0)
+  psychWeight          Float @default(1.0)
+  macroWeight          Float @default(1.0)
+  onchainWeight        Float @default(1.0)
+  deepMemoryWeight     Float @default(1.0)
+  contrarianWeight     Float @default(1.0)
+  /// Omega Sentinel Phase 3: NewsSentinel 8th expert weight
+  newsSentinelWeight   Float @default(1.0)
 
   /// CEO / Overseer executive parameters
   ceoConfidenceThreshold Float @default(75.0)

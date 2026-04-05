@@ -144,6 +144,7 @@ const shadowReliabilityWindow: Record<BoardExpertKey, Array<{ correct: boolean; 
   onchain: [],
   deepMemory: [],
   contrarian: [],
+  newsSentinel: [],
 };
 
 function buildDeterministicId(prefix: string, parts: Array<string | number>): string {
@@ -1962,6 +1963,7 @@ export async function runConsensusEngine(
       onchain: 50,
       deepMemory: 50,
       contrarian: 50,
+      newsSentinel: 50,
     })),
     getExpertHitRates7d({ symbol: normalizedForHits }).catch(() => ({
       technician: 50,
@@ -1971,6 +1973,7 @@ export async function runConsensusEngine(
       onchain: 50,
       deepMemory: 50,
       contrarian: 50,
+      newsSentinel: 50,
     })),
   ]);
   let hitRates = hitRates30dRaw;
@@ -2043,11 +2046,11 @@ export async function runConsensusEngine(
   const regimeBase: Record<BoardExpertKey, number> =
     marketRegime === 'high-volatility'
       // Contrarian is most valuable in volatile regimes — traps and false-breakouts are more common.
-      ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9, contrarian: 1.3 }
+      ? { technician: 0.95, risk: 1.4, psych: 1.05, macro: 0.9, onchain: 1.15, deepMemory: 0.9, contrarian: 1.3, newsSentinel: 1.2 }
       : marketRegime === 'trending'
         // In clear trends, contrarian signals tend to be noise — reduce its base weight.
-        ? { technician: 1.25, risk: 0.85, psych: 1.0, macro: 1.15, onchain: 1.1, deepMemory: 0.95, contrarian: 0.75 }
-        : { technician: 1.0, risk: 1.05, psych: 1.1, macro: 1.1, onchain: 0.95, deepMemory: 1.0, contrarian: 1.1 };
+        ? { technician: 1.25, risk: 0.85, psych: 1.0, macro: 1.15, onchain: 1.1, deepMemory: 0.95, contrarian: 0.75, newsSentinel: 1.0 }
+        : { technician: 1.0, risk: 1.05, psych: 1.1, macro: 1.1, onchain: 0.95, deepMemory: 1.0, contrarian: 1.1, newsSentinel: 1.0 };
 
   const watchdog = {
     gemini: getProviderHealth('gemini'),
@@ -2076,6 +2079,8 @@ export async function runConsensusEngine(
     deepMemory:  hitToWeight(hitRates.deepMemory)   * regimeBase.deepMemory  * (1 + shadowReliabilityBoost('deepMemory'))   * providerHealthFactor('gemini') * decayFactors.deepMemory,
     // Expert 7 (Contrarian): Gemini-hosted; also scored via shadowReliabilityBoost.
     contrarian:  hitToWeight(hitRates.contrarian ?? 50) * regimeBase.contrarian * (1 + shadowReliabilityBoost('contrarian')) * providerHealthFactor('gemini') * decayFactors.contrarian,
+    // Expert 8 (NewsSentinel): runs synchronously from CryptoCompare; provider health not applicable.
+    newsSentinel: hitToWeight(hitRates.newsSentinel ?? 50) * regimeBase.newsSentinel * (1 + shadowReliabilityBoost('newsSentinel')) * decayFactors.newsSentinel,
   };
 
   shadowPredictions.set(`${input.symbol}:technician`, {

@@ -1,19 +1,21 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════╗
- * ║     QUANTUM OMEGA GOD-CLASS ORCHESTRATOR  ·  Level 100,000      ║
+ * ║   QUANTUM OMEGA GOD-CLASS ORCHESTRATOR  ·  Omega Sentinel v2    ║
  * ╠══════════════════════════════════════════════════════════════════╣
  * ║  Single source of truth for ALL AI calls and ALL DB operations. ║
  * ║  No component, route, or worker may bypass this module.         ║
  * ║                                                                  ║
- * ║  PIPELINE (Phase 3 — MoE Workflow):                             ║
- * ║   1. Zod validation        → drop invalid / mock signals        ║
- * ║   2. DB Boot               → ensureAllTablesExist() once        ║
- * ║   3. EpisodicMemory        → Pinecone context fetch             ║
- * ║   4. Fan-out (Board)       → 7 experts via Promise.allSettled   ║
- * ║   5. Fault Tolerance       → failed experts skipped, not crash  ║
- * ║   6. Fan-in (CEO)          → Overseer synthesizes verdict       ║
- * ║   7. Execution             → Trading Robot on TRADE only        ║
- * ║   8. NeuroPlasticity       → post-mortem → Pinecone + Postgres  ║
+ * ║  PIPELINE (Omega Sentinel — MoE + MTF + News):                  ║
+ * ║   0. Zod validation           → drop invalid / mock signals     ║
+ * ║   1. DB Boot                  → ensureAllTablesExist() once     ║
+ * ║   2. MTF Confluence           → H1/D1/W1/M1 trend gate         ║
+ * ║   3. News Sentinel            → scenario A/B/C classification   ║
+ * ║   4. EpisodicMemory           → Pinecone context fetch          ║
+ * ║   5. Fan-out (Board)          → 8 experts (incl. NewsSentinel)  ║
+ * ║   6. Fault Tolerance          → failed experts skipped          ║
+ * ║   7. Fan-in (CEO)             → Overseer synthesizes verdict    ║
+ * ║   8. Execution                → Trading Robot on TRADE only     ║
+ * ║   9. NeuroPlasticity          → post-mortem → Pinecone + PG     ║
  * ╚══════════════════════════════════════════════════════════════════╝
  */
 
@@ -22,6 +24,8 @@ import type { Job } from 'bullmq';
 import { runDbBootstrapper } from '@/lib/core/db-bootstrapper';
 import { queryRaw } from '@/lib/db/sql';
 import { writeAudit } from '@/lib/audit';
+import type { MTFConfluenceResult } from '@/lib/trading/mtf-fetcher';
+import type { NewsSentinelResult } from '@/lib/agents/news-sentinel';
 
 // ─── Zod Validation Schema ─────────────────────────────────────────────────
 // Enforces real data. Rejects mock/test payloads and malformed signals.
@@ -383,6 +387,10 @@ export interface OrchestratorContext {
   signal: ValidatedWhaleSignal;
   episodicMemory: string[];
   marketContext?: Record<string, unknown>;
+  /** Multi-Timeframe Confluence result — populated before expert fan-out */
+  mtfConfluence?: MTFConfluenceResult;
+  /** News Sentinel result — populated before expert fan-out */
+  newsSentinel?: NewsSentinelResult;
 }
 
 // ─── Safe JSON Helpers ─────────────────────────────────────────────────────
@@ -555,6 +563,35 @@ Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"
   return { expert: 'Contrarian', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
+/**
+ * NewsSentinel Expert (8th expert) — uses the pre-fetched news scenario result
+ * from OrchestratorContext to avoid double-fetching headlines.
+ * Falls back to a fresh fetch when context is unavailable.
+ */
+async function runNewsSentinelExpert(ctx: OrchestratorContext): Promise<ExpertResult> {
+  const t0 = Date.now();
+
+  let sentinelResult: NewsSentinelResult;
+
+  if (ctx.newsSentinel) {
+    sentinelResult = ctx.newsSentinel;
+  } else {
+    const { runNewsSentinel } = await import('@/lib/agents/news-sentinel');
+    sentinelResult = await runNewsSentinel(ctx.signal.symbol, ctx.signal.delta_pct);
+  }
+
+  const { newsSentinelToVerdict } = await import('@/lib/agents/news-sentinel');
+  const verdict = newsSentinelToVerdict(sentinelResult);
+
+  return {
+    expert: 'NewsSentinel',
+    verdict: verdict.verdict,
+    confidence: verdict.confidence,
+    reasoning: verdict.reasoning,
+    durationMs: Date.now() - t0,
+  };
+}
+
 const EXPERT_TASKS: Array<(ctx: OrchestratorContext) => Promise<ExpertResult>> = [
   runTechnicianExpert,
   runRiskExpert,
@@ -563,6 +600,7 @@ const EXPERT_TASKS: Array<(ctx: OrchestratorContext) => Promise<ExpertResult>> =
   runOnChainExpert,
   runDeepMemoryExpert,
   runContrarianExpert,
+  runNewsSentinelExpert,
 ];
 
 const EXPERT_NAMES = [
@@ -573,6 +611,7 @@ const EXPERT_NAMES = [
   'OnChainSleuth',
   'DeepMemory',
   'Contrarian',
+  'NewsSentinel',
 ];
 
 // ─── CEO Overseer ─────────────────────────────────────────────────────────
@@ -596,11 +635,14 @@ const EXPERT_WEIGHT_KEYS: Record<string, string> = {
   OnChainSleuth:      'onchainWeight',
   DeepMemory:         'deepMemoryWeight',
   Contrarian:         'contrarianWeight',
+  NewsSentinel:       'newsSentinelWeight',  // Omega Sentinel Phase 3
 };
 
 async function runCeoOverseer(
   signal: ValidatedWhaleSignal,
-  expertResults: ExpertResult[]
+  expertResults: ExpertResult[],
+  mtfConfluence?: MTFConfluenceResult,
+  newsSentinel?: NewsSentinelResult
 ): Promise<CeoDecision> {
   const t0 = Date.now();
   const { generateLiveText } = await import('@/lib/ai-client');
@@ -638,8 +680,33 @@ async function runCeoOverseer(
     })
     .join('\n');
 
+  // Build MTF context for CEO
+  let mtfSection = '';
+  if (mtfConfluence) {
+    const { formatMTFSummary } = await import('@/lib/trading/mtf-fetcher');
+    mtfSection = `\nMulti-Timeframe Confluence: ${formatMTFSummary(mtfConfluence)}`;
+    if (!mtfConfluence.isConfluent) {
+      mtfSection += '\n⚠ MTF GATE: Confluence FAILED (< 3/4 TFs aligned). Bias toward SKIP.';
+    }
+  }
+
+  // Build news context for CEO
+  let newsSection = '';
+  if (newsSentinel) {
+    const scenarioLabel = {
+      A_STRONG_BUY: 'Scenario A — Confirmed Catalyst (BULLISH)',
+      B_MANIPULATION_WARNING: 'Scenario B — Possible Manipulation (BEARISH WARNING)',
+      C_PROTECT_CAPITAL: 'Scenario C — Macro Risk Detected → PROTECT_CAPITAL',
+      NEUTRAL: 'Neutral news environment',
+    }[newsSentinel.scenario];
+    newsSection = `\nNews Sentinel: ${scenarioLabel} | Sentiment=${newsSentinel.sentimentScore.toFixed(2)}`;
+    if (newsSentinel.riskMode === 'PROTECT_CAPITAL') {
+      newsSection += '\n🚨 NEWS SENTINEL: PROTECT_CAPITAL mode — Tighten SL, reduce position size.';
+    }
+  }
+
   const prompt = `You are the CEO Overseer — the final decision-maker.
-Signal: ${signal.symbol} | ${signal.anomaly_type} | delta_pct=${signal.delta_pct}%
+Signal: ${signal.symbol} | ${signal.anomaly_type} | delta_pct=${signal.delta_pct}%${mtfSection}${newsSection}
 
 Board vote: ${bullishCount} BULLISH, ${bearishCount} BEARISH, weighted confidence ${weightedAvgConfidence}%
 (Weights reflect historical accuracy — HIGH TRUST experts have proven track records, LOW TRUST experts have recent mis-calls.)
@@ -647,12 +714,30 @@ Board vote: ${bullishCount} BULLISH, ${bearishCount} BEARISH, weighted confidenc
 Expert verdicts with accuracy weights:
 ${expertSummary}
 
+OMEGA SENTINEL RULES:
+- If MTF confluence FAILED (< 3 TFs aligned): default to SKIP unless overwhelming expert consensus
+- If News Sentinel = PROTECT_CAPITAL: always SKIP or HOLD, never TRADE
+- If News Sentinel = B_MANIPULATION_WARNING: high skepticism required before TRADE
+- If News Sentinel = A_STRONG_BUY + MTF confluent: lower the TRADE threshold
+
 Issue a definitive verdict:
 - TRADE: execute now, high confidence, clear edge — prioritize HIGH TRUST expert consensus
 - HOLD: wait for better entry or confirmation
 - SKIP: insufficient edge, conflicting signals, or risk too high — LOW TRUST majority = SKIP
 
 Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasoning":"<2-3 sentences>","keyRisk":"<1 sentence>"}`;
+
+  // Hard override: PROTECT_CAPITAL news mode forces SKIP before any LLM call
+  if (newsSentinel?.riskMode === 'PROTECT_CAPITAL') {
+    console.log('[Orchestrator] CEO hard-skipped via News Sentinel PROTECT_CAPITAL mode.');
+    return {
+      verdict: 'SKIP',
+      confidence: 95,
+      reasoning: `News Sentinel triggered PROTECT_CAPITAL mode: ${newsSentinel.reasoning}`,
+      keyRisk: 'Macro/regulatory risk detected — no trade executed.',
+      durationMs: Date.now() - t0,
+    };
+  }
 
   let raw: string;
   try {
@@ -665,6 +750,18 @@ Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasonin
     raw = await generateLiveText({ prompt, provider: 'gemini' });
   }
   const parsed = safeParseOverseerJson(raw);
+
+  // Post-parse override: if MTF gate failed AND verdict is TRADE → demote to HOLD
+  if (mtfConfluence && !mtfConfluence.isConfluent && parsed.verdict === 'TRADE') {
+    console.log('[Orchestrator] CEO TRADE demoted to HOLD: MTF confluence gate failed.');
+    return {
+      ...parsed,
+      verdict: 'HOLD',
+      reasoning: `${parsed.reasoning} [MTF Gate Override: only ${mtfConfluence.confluenceScore}/4 timeframes confluent — demoted from TRADE to HOLD.]`,
+      durationMs: Date.now() - t0,
+    };
+  }
+
   return { ...parsed, durationMs: Date.now() - t0 };
 }
 
@@ -771,8 +868,49 @@ export async function orchestrateWhaleSignal(
   await job.log('STEP_1 | ✓ All tables verified');
   await job.updateProgress(15);
 
-  // ── Step 2: EpisodicMemory (Pinecone) ─────────────────────────────────────
-  await job.log('STEP_2 | Querying EpisodicMemory (Pinecone)...');
+  // ── Step 2: MTF Confluence Gate ───────────────────────────────────────────
+  await job.log('STEP_2 | Fetching Multi-Timeframe Confluence (H1/D1/W1/M1)...');
+  let mtfConfluence: MTFConfluenceResult | undefined;
+  try {
+    const { fetchMTFConfluence } = await import('@/lib/trading/mtf-fetcher');
+    mtfConfluence = await fetchMTFConfluence(signal.symbol);
+    const { formatMTFSummary } = await import('@/lib/trading/mtf-fetcher');
+    await job.log(
+      `STEP_2 | MTF: ${formatMTFSummary(mtfConfluence)} | Confluent: ${mtfConfluence.isConfluent}`
+    );
+    if (!mtfConfluence.isConfluent) {
+      await job.log(
+        `STEP_2 | ⚠ MTF GATE: Confluence score ${mtfConfluence.confluenceScore}/4 — pipeline continues with CEO override protection`
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await job.log(`STEP_2 | ⚠ MTF fetch failed (non-fatal): ${msg}`);
+    console.warn('[Orchestrator] MTF confluence fetch failed, proceeding without:', msg);
+  }
+  await job.updateProgress(18);
+
+  // ── Step 2b: News Sentinel ─────────────────────────────────────────────
+  await job.log('STEP_2b | News Sentinel — classifying news scenario...');
+  let newsSentinel: NewsSentinelResult | undefined;
+  try {
+    const { runNewsSentinel } = await import('@/lib/agents/news-sentinel');
+    newsSentinel = await runNewsSentinel(signal.symbol, signal.delta_pct);
+    await job.log(
+      `STEP_2b | News Sentinel: scenario=${newsSentinel.scenario} | riskMode=${newsSentinel.riskMode} | latency=${newsSentinel.latencyMs}ms`
+    );
+    if (newsSentinel.riskMode === 'PROTECT_CAPITAL') {
+      await job.log('STEP_2b | 🚨 PROTECT_CAPITAL mode activated — CEO will SKIP this trade');
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await job.log(`STEP_2b | ⚠ News Sentinel failed (non-fatal): ${msg}`);
+    console.warn('[Orchestrator] News Sentinel failed, proceeding without news context:', msg);
+  }
+  await job.updateProgress(22);
+
+  // ── Step 3: EpisodicMemory (Pinecone) ─────────────────────────────────────
+  await job.log('STEP_3 | Querying EpisodicMemory (Pinecone)...');
   let episodicMemory: string[] = [];
   try {
     const { querySimilarTrades } = await import('@/lib/vector-db');
@@ -781,24 +919,24 @@ export async function orchestrateWhaleSignal(
       (h) =>
         `[${h.symbol}] ${h.outcome ?? 'unknown'} — ${h.whyWinLose ?? h.masterInsight ?? 'no detail'} (score=${h.score?.toFixed(3) ?? '?'})`
     );
-    await job.log(`STEP_2 | ✓ Retrieved ${episodicMemory.length} episodic memories`);
+    await job.log(`STEP_3 | ✓ Retrieved ${episodicMemory.length} episodic memories`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await job.log(`STEP_2 | ⚠ Pinecone unavailable (non-fatal): ${msg}`);
+    await job.log(`STEP_3 | ⚠ Pinecone unavailable (non-fatal): ${msg}`);
     console.warn('[Orchestrator] Pinecone query failed, proceeding without memory:', msg);
   }
-  await job.updateProgress(25);
+  await job.updateProgress(28);
 
-  // ── Step 3: Fan-out — 7 Experts via Promise.allSettled ───────────────────
-  await job.log(`STEP_3 | Dispatching to ${EXPERT_NAMES.join(', ')}...`);
+  // ── Step 4: Fan-out — 8 Experts via Promise.allSettled ──────────────────
+  await job.log(`STEP_4 | Dispatching to ${EXPERT_NAMES.join(', ')}...`);
 
-  const ctx: OrchestratorContext = { signal, episodicMemory };
+  const ctx: OrchestratorContext = { signal, episodicMemory, mtfConfluence, newsSentinel };
   const expertPromises = EXPERT_TASKS.map((fn) => fn(ctx));
   const settledResults = await Promise.allSettled(expertPromises);
 
-  await job.updateProgress(60);
+  await job.updateProgress(62);
 
-  // ── Step 4: Fault Tolerance — collect only successful results ─────────────
+  // ── Step 5: Fault Tolerance — collect only successful results ─────────────
   const expertResults: ExpertResult[] = [];
   let expertsFailed = 0;
 
@@ -807,36 +945,36 @@ export async function orchestrateWhaleSignal(
     const name = EXPERT_NAMES[i];
     if (result.status === 'fulfilled') {
       expertResults.push(result.value);
-      await job.log(`STEP_4 | ✓ ${name}: ${result.value.verdict} (${result.value.confidence}%)`);
+      await job.log(`STEP_5 | ✓ ${name}: ${result.value.verdict} (${result.value.confidence}%)`);
     } else {
       expertsFailed++;
       const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      await job.log(`STEP_4 | ✗ ${name} FAILED (skipped): ${errMsg}`);
+      await job.log(`STEP_5 | ✗ ${name} FAILED (skipped): ${errMsg}`);
       console.warn(`[Orchestrator] Expert ${name} failed, skipping:`, errMsg);
     }
   }
 
   if (expertResults.length === 0) {
-    await job.log('STEP_4 | ABORT: All 7 experts failed — no basis for decision');
+    await job.log('STEP_5 | ABORT: All 8 experts failed — no basis for decision');
     throw new Error('PIPELINE_ABORT: All experts failed simultaneously');
   }
 
   await job.log(
-    `STEP_4 | Board complete: ${expertResults.length}/${EXPERT_NAMES.length} experts succeeded`
+    `STEP_5 | Board complete: ${expertResults.length}/${EXPERT_NAMES.length} experts succeeded`
   );
-  await job.updateProgress(70);
+  await job.updateProgress(72);
 
-  // ── Step 5: Fan-in — CEO Overseer ─────────────────────────────────────────
-  await job.log('STEP_5 | CEO Overseer synthesizing verdict...');
+  // ── Step 6: Fan-in — CEO Overseer ─────────────────────────────────────────
+  await job.log('STEP_6 | CEO Overseer synthesizing verdict...');
   let ceoDecision: CeoDecision;
   try {
-    ceoDecision = await runCeoOverseer(signal, expertResults);
+    ceoDecision = await runCeoOverseer(signal, expertResults, mtfConfluence, newsSentinel);
     await job.log(
-      `STEP_5 | ✓ CEO Verdict: ${ceoDecision.verdict} (${ceoDecision.confidence}%) — ${ceoDecision.reasoning}`
+      `STEP_6 | ✓ CEO Verdict: ${ceoDecision.verdict} (${ceoDecision.confidence}%) — ${ceoDecision.reasoning}`
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await job.log(`STEP_5 | CEO FAILED — defaulting to SKIP: ${msg}`);
+    await job.log(`STEP_6 | CEO FAILED — defaulting to SKIP: ${msg}`);
     console.error('[Orchestrator] CEO Overseer failed, defaulting to SKIP:', msg);
     ceoDecision = {
       verdict: 'SKIP',
@@ -846,13 +984,13 @@ export async function orchestrateWhaleSignal(
       durationMs: 0,
     };
   }
-  await job.updateProgress(80);
+  await job.updateProgress(82);
 
-  // ── Step 6: Execution (TRADE only) ────────────────────────────────────────
+  // ── Step 7: Execution (TRADE only) ────────────────────────────────────────
   let executionResult: { success: boolean; details?: string } | null = null;
 
   if (ceoDecision.verdict === 'TRADE') {
-    await job.log('STEP_6 | CEO issued TRADE — handing to Trading Robot...');
+    await job.log('STEP_7 | CEO issued TRADE — handing to Trading Robot...');
     try {
       const { executeAutonomousConsensusSignal } = await import('@/lib/trading/execution-engine');
       const majorityBullish =
@@ -872,28 +1010,30 @@ export async function orchestrateWhaleSignal(
         marketVolatility: Math.abs(signal.delta_pct),
       });
       executionResult = { success: true };
-      await job.log('STEP_6 | ✓ Trading Robot executed');
+      await job.log('STEP_7 | ✓ Trading Robot executed');
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       executionResult = { success: false, details: msg };
-      await job.log(`STEP_6 | Trading Robot FAILED (position not opened): ${msg}`);
+      await job.log(`STEP_7 | Trading Robot FAILED (position not opened): ${msg}`);
       console.error('[Orchestrator] Trading Robot failed:', msg);
     }
   } else {
-    await job.log(`STEP_6 | CEO verdict is ${ceoDecision.verdict} — no trade execution`);
+    await job.log(`STEP_7 | CEO verdict is ${ceoDecision.verdict} — no trade execution`);
   }
-  await job.updateProgress(90);
+  await job.updateProgress(92);
 
-  // ── Step 7: NeuroPlasticity ────────────────────────────────────────────────
-  await job.log('STEP_7 | Writing post-mortem lesson to NeuroPlasticity (Pinecone + Postgres)...');
+  // ── Step 8: NeuroPlasticity ────────────────────────────────────────────────
+  await job.log('STEP_8 | Writing post-mortem lesson to NeuroPlasticity (Pinecone + Postgres)...');
   await runNeuroPlasticity(signal, expertResults, ceoDecision, executionResult);
-  await job.log('STEP_7 | ✓ NeuroPlasticity complete');
+  await job.log('STEP_8 | ✓ NeuroPlasticity complete');
 
   const totalDuration = Date.now() - globalStart;
   await job.updateProgress(100);
   await job.log(
     `PIPELINE_COMPLETE | ${signal.symbol} | CEO=${ceoDecision.verdict} | ` +
     `experts=${expertResults.length}/${EXPERT_NAMES.length} | ` +
+    `mtf=${mtfConfluence ? `${mtfConfluence.confluenceScore}/4` : 'N/A'} | ` +
+    `news=${newsSentinel?.scenario ?? 'N/A'} | ` +
     `duration=${totalDuration}ms`
   );
 
@@ -906,6 +1046,10 @@ export async function orchestrateWhaleSignal(
       confidence: ceoDecision.confidence,
       expertSucceeded: expertResults.length,
       expertsFailed,
+      mtfConfluenceScore: mtfConfluence?.confluenceScore ?? null,
+      mtfIsConfluent: mtfConfluence?.isConfluent ?? null,
+      newsScenario: newsSentinel?.scenario ?? null,
+      newsRiskMode: newsSentinel?.riskMode ?? null,
       durationMs: totalDuration,
     },
   });

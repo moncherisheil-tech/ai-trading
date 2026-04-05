@@ -29,7 +29,7 @@ const EPSILON = 0.000001;
 //   The weight COLLAPSE condition (0→∞ or domination) is mathematically
 //   impossible within these bounds.
 // ---------------------------------------------------------------------------
-const MOE_NUM_EXPERTS = 7;
+const MOE_NUM_EXPERTS = 8; // Omega Sentinel: 7 original + NewsSentinel expert
 const MOE_MIN_SHARE = 0.05;   // 5% minimum share of total weight pool
 const MOE_MAX_SHARE = 0.40;   // 40% maximum share of total weight pool
 const MOE_MIN_NORMALIZED = MOE_MIN_SHARE * MOE_NUM_EXPERTS; // 0.35
@@ -91,6 +91,8 @@ export interface NeuroPlasticity {
   onchainWeight: number;
   deepMemoryWeight: number;
   contrarianWeight: number;
+  /** Omega Sentinel Phase 3: News Sentinel 8th expert weight */
+  newsSentinelWeight?: number;
   ceoConfidenceThreshold: number;
   ceoRiskTolerance: number;
   robotSlBufferPct: number;
@@ -158,6 +160,7 @@ const DEFAULT_NEURO_PLASTICITY: NeuroPlasticity = {
   onchainWeight: 1.0,
   deepMemoryWeight: 1.0,
   contrarianWeight: 1.0,
+  newsSentinelWeight: 1.0,
   ceoConfidenceThreshold: 75.0,
   ceoRiskTolerance: 1.0,
   robotSlBufferPct: 2.0,
@@ -381,6 +384,7 @@ async function loadNeuroPlasticity(): Promise<NeuroPlasticity> {
   try {
     const row = await prisma.systemNeuroPlasticity.findUnique({ where: { id: SINGLETON_ID } });
     if (!row) return { ...DEFAULT_NEURO_PLASTICITY };
+    const rowAny = row as unknown as Record<string, unknown>;
     return {
       techWeight: clampWeight(row.techWeight),
       riskWeight: clampWeight(row.riskWeight),
@@ -389,6 +393,8 @@ async function loadNeuroPlasticity(): Promise<NeuroPlasticity> {
       onchainWeight: clampWeight(row.onchainWeight),
       deepMemoryWeight: clampWeight(row.deepMemoryWeight),
       contrarianWeight: clampWeight(row.contrarianWeight),
+      // newsSentinelWeight added in Omega Sentinel migration — graceful fallback to 1.0
+      newsSentinelWeight: clampWeight(typeof rowAny['newsSentinelWeight'] === 'number' ? rowAny['newsSentinelWeight'] : 1.0),
       ceoConfidenceThreshold: row.ceoConfidenceThreshold,
       ceoRiskTolerance: row.ceoRiskTolerance,
       robotSlBufferPct: row.robotSlBufferPct,
@@ -524,6 +530,8 @@ export class SingularityEngine {
     let onchainW = previousPlasticity.onchainWeight;
     let deepMemoryW = previousPlasticity.deepMemoryWeight;
     let contrarianW = previousPlasticity.contrarianWeight;
+    // NewsSentinel weight (optional — defaults to 1.0 until migration runs)
+    let newsSentinelW = previousPlasticity.newsSentinelWeight ?? 1.0;
 
     const allBreakdowns: FullExpertBreakdown[] = [];
 
@@ -539,26 +547,36 @@ export class SingularityEngine {
       allBreakdowns.push(bd);
 
       // PHASE 1 FIX: Pass pnl_net_usd to applyScoreToWeight for magnitude scaling
-      techW       = applyScoreToWeight(techW,       scoreVote(bd.tech,       outcome), trade.pnl_net_usd);
-      riskW       = applyScoreToWeight(riskW,       scoreVote(bd.risk,       outcome), trade.pnl_net_usd);
-      psychW      = applyScoreToWeight(psychW,      scoreVote(bd.psych,      outcome), trade.pnl_net_usd);
-      macroW      = applyScoreToWeight(macroW,      scoreVote(bd.macro,      outcome), trade.pnl_net_usd);
-      onchainW    = applyScoreToWeight(onchainW,    scoreVote(bd.onchain,    outcome), trade.pnl_net_usd);
-      deepMemoryW = applyScoreToWeight(deepMemoryW, scoreVote(bd.deepMemory, outcome), trade.pnl_net_usd);
-      contrarianW = applyScoreToWeight(contrarianW, scoreVote(bd.contrarian, outcome), trade.pnl_net_usd);
+      techW          = applyScoreToWeight(techW,          scoreVote(bd.tech,       outcome), trade.pnl_net_usd);
+      riskW          = applyScoreToWeight(riskW,          scoreVote(bd.risk,       outcome), trade.pnl_net_usd);
+      psychW         = applyScoreToWeight(psychW,         scoreVote(bd.psych,      outcome), trade.pnl_net_usd);
+      macroW         = applyScoreToWeight(macroW,         scoreVote(bd.macro,      outcome), trade.pnl_net_usd);
+      onchainW       = applyScoreToWeight(onchainW,       scoreVote(bd.onchain,    outcome), trade.pnl_net_usd);
+      deepMemoryW    = applyScoreToWeight(deepMemoryW,    scoreVote(bd.deepMemory, outcome), trade.pnl_net_usd);
+      contrarianW    = applyScoreToWeight(contrarianW,    scoreVote(bd.contrarian, outcome), trade.pnl_net_usd);
+      // NewsSentinel vote extracted from agent_verdict string (news:BULLISH etc.)
+      const newsSentinelVote = normalizeVote(
+        (() => {
+          const av = (trade as unknown as Record<string, unknown>)['agent_verdict'];
+          if (typeof av !== 'string') return null;
+          const match = av.match(/NewsSentinel:(BULLISH|BEARISH|NEUTRAL)/i);
+          return match ? match[1] : null;
+        })()
+      );
+      newsSentinelW = applyScoreToWeight(newsSentinelW, scoreVote(newsSentinelVote, outcome), trade.pnl_net_usd);
     }
 
     // -----------------------------------------------------------------------
     // STEP 2 — PHASE 1 FIX: Apply MoE diversity normalization
     //
-    // After the full multiplicative update loop, normalize all 7 weights to
-    // sum=7.0, then hard-clamp each to [MOE_MIN_NORMALIZED, MOE_MAX_NORMALIZED].
+    // After the full multiplicative update loop, normalize all 8 weights to
+    // sum=MOE_NUM_EXPERTS (8.0), then hard-clamp each to [MOE_MIN_NORMALIZED, MOE_MAX_NORMALIZED].
     // This enforces: no expert < 5% share, no expert > 40% share.
     // -----------------------------------------------------------------------
 
-    const rawWeights = [techW, riskW, psychW, macroW, onchainW, deepMemoryW, contrarianW];
+    const rawWeights = [techW, riskW, psychW, macroW, onchainW, deepMemoryW, contrarianW, newsSentinelW];
     const [
-      techWN, riskWN, psychWN, macroWN, onchainWN, deepMemoryWN, contrarianWN
+      techWN, riskWN, psychWN, macroWN, onchainWN, deepMemoryWN, contrarianWN, newsSentinelWN
     ] = normalizeMoEWeights(rawWeights);
 
     // Log weight collapse detection
@@ -613,6 +631,7 @@ export class SingularityEngine {
       onchainWeight: onchainWN!,
       deepMemoryWeight: deepMemoryWN!,
       contrarianWeight: contrarianWN!,
+      newsSentinelWeight: newsSentinelWN!,
       ceoConfidenceThreshold: ceoThreshold,
       ceoRiskTolerance,
       robotSlBufferPct: slBuffer,

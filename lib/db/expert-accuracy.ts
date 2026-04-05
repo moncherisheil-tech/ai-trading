@@ -4,7 +4,7 @@
 
 import { listAgentInsightsSince, type AgentInsightRow } from '@/lib/db/agent-insights';
 
-export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory' | 'contrarian';
+export type BoardExpertKey = 'technician' | 'risk' | 'psych' | 'macro' | 'onchain' | 'deepMemory' | 'contrarian' | 'newsSentinel';
 
 const THRESHOLD = 55;
 
@@ -68,7 +68,8 @@ export async function getExpertHitRates30d(options?: {
     macro: finalize(macro),
     onchain: finalize(onchain),
     deepMemory: finalize(deep),
-    contrarian: 50, // No per-trade contrarian score stored yet; defaults to neutral decay threshold
+    contrarian: 50,      // No per-trade contrarian score stored yet; defaults to neutral decay threshold
+    newsSentinel: 50,    // Omega Sentinel Phase 3: no DB score yet; defaults to neutral
   };
 }
 
@@ -106,5 +107,6 @@ export async function getExpertHitRates7d(options?: {
     onchain: finalize(onchain),
     deepMemory: finalize(deep),
     contrarian: 50,
+    newsSentinel: 50,
   };
 }

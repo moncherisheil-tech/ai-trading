@@ -1,6 +1,8 @@
 /**
  * Live Scanning Worker: scans market every 20 minutes, runs AI analysis on gems,
  * logs high-confidence predictions and sends Telegram alerts with simulation buttons.
+ *
+ * Omega Sentinel v2: includes Global Top-10 Radar (30-min cycle) with Morning/Mid-day Briefing.
  */
 
 import { getCachedGemsTicker24h } from '@/lib/cache-service';
@@ -20,6 +22,8 @@ import { fetchBinanceTickerPrices, fetchMacroContext } from '@/lib/api-utils';
 import { toDecimal, round2 } from '@/lib/decimal';
 import { sendWorkerFailureAlert } from '@/lib/worker-alerts';
 import { runGlobalMacroExpertOnce } from '@/lib/consensus-engine';
+import { runGlobalRadar } from '@/lib/trading/global-radar';
+import { sendTelegramMessage } from '@/lib/notifications/telegram';
 
 const ELITE_CONFIDENCE_THRESHOLD = 85;
 
@@ -490,6 +494,12 @@ export async function runOneCycle(): Promise<void> {
     console.log(
       `[HEARTBEAT] Scanner cycle: checked=${coinsChecked} gems=${gemsFound} alerts=${alertsSent}`
     );
+
+    // ── Global Radar Briefing (30-min throttle) ─────────────────────────────
+    // Fire-and-forget: non-fatal if radar fails
+    runGlobalRadarBriefing().catch((err) => {
+      console.warn('[GlobalRadar] Non-fatal error in briefing:', err instanceof Error ? err.message : err);
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     writeAudit({ event: 'scanner.cycle_error', level: 'error', meta: { error: msg } });
@@ -509,6 +519,62 @@ export async function runOneCycle(): Promise<void> {
     state.lastScanTime = new Date().toISOString();
   } finally {
     state.status = 'IDLE';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OMEGA SENTINEL: Global Top-10 Radar (30-min cycle)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tracks when the last Global Radar briefing was sent so we can throttle
+ * to at most once every 30 minutes regardless of how often runOneCycle fires.
+ */
+let lastRadarBriefingAt = 0;
+const RADAR_BRIEFING_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Runs the Global Top-10 Radar and broadcasts the Morning/Mid-day Briefing to Telegram.
+ * Called from within runOneCycle() when the 30-min throttle allows.
+ */
+export async function runGlobalRadarBriefing(forceRun = false): Promise<void> {
+  const now = Date.now();
+  if (!forceRun && now - lastRadarBriefingAt < RADAR_BRIEFING_INTERVAL_MS) {
+    return; // Throttled — not yet 30 minutes since last briefing
+  }
+
+  const hour = new Date().getHours();
+  const isEvening = hour >= 18;
+
+  try {
+    console.log('[GlobalRadar] Starting Global Top-10 scan...');
+    const radarResult = await runGlobalRadar(isEvening);
+    lastRadarBriefingAt = Date.now();
+
+    writeAudit({
+      event: 'scanner.global_radar_complete',
+      level: 'info',
+      meta: {
+        totalScanned: radarResult.totalScanned,
+        top10: radarResult.top10.map((c) => ({ symbol: c.symbol, alphaScore: c.alphaScore })),
+        scanDurationMs: radarResult.scanDurationMs,
+      },
+    });
+
+    if (radarResult.top10.length > 0) {
+      const sent = await sendTelegramMessage(radarResult.briefingText, 'Markdown');
+      if (sent) {
+        console.log(`[GlobalRadar] ✅ Briefing sent — ${radarResult.top10.length} candidates, scanned ${radarResult.totalScanned} pairs in ${radarResult.scanDurationMs}ms`);
+      } else {
+        console.warn('[GlobalRadar] Briefing generated but Telegram send failed.');
+      }
+    } else {
+      console.warn('[GlobalRadar] No candidates found — briefing suppressed.');
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[GlobalRadar] Scan failed:', msg);
+    writeAudit({ event: 'scanner.global_radar_error', level: 'error', meta: { error: msg } });
   }
 }
 
