@@ -14,7 +14,8 @@
     "start:prod": "bash start-production.sh",
     "deploy": "bash deploy.sh",
     "verify": "tsx scripts/verify-system.ts",
-    "verify:prod": "tsx scripts/verify-prod.ts"
+    "verify:prod": "tsx scripts/verify-prod.ts",
+    "autonomous-check": "tsx scripts/autonomous-check.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

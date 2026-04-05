@@ -75,9 +75,8 @@ module.exports = {
       // dotenv finds .env relative to the repo, not the standalone bundle dir.
       cwd: __dirname,
 
-      // Absolute path prevents PM2 from resolving relative to cwd after a
-      // crash-restart where cwd may differ. Hard-coded to the production path.
-      script: '/root/ai-trading/.next/standalone/server.js',
+      // Portable: resolves to this repo's standalone server after `next build`.
+      script: path.join(__dirname, '.next/standalone/server.js'),
       interpreter: 'node',
 
       instances: 1,

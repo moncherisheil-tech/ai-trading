@@ -11,8 +11,8 @@
  * ║   2. MTF Confluence           → H1/D1/W1/M1 trend gate         ║
  * ║   3. News Sentinel            → scenario A/B/C classification   ║
  * ║   4. EpisodicMemory           → Pinecone context fetch          ║
- * ║   5. Fan-out (Board)          → 8 experts (incl. NewsSentinel)  ║
- * ║   6. Fault Tolerance          → failed experts skipped          ║
+ * ║   5. Fan-out (Board)          → 8 experts, paced (≤3 concurrent) ║
+ * ║   6. Fault Tolerance          → timeout / failed experts skipped ║
  * ║   7. Fan-in (CEO)             → Overseer synthesizes verdict    ║
  * ║   8. Execution                → Trading Robot on TRADE only     ║
  * ║   9. NeuroPlasticity          → post-mortem → Pinecone + PG     ║
@@ -391,6 +391,11 @@ export interface OrchestratorContext {
   mtfConfluence?: MTFConfluenceResult;
   /** News Sentinel result — populated before expert fan-out */
   newsSentinel?: NewsSentinelResult;
+  /**
+   * Per-expert AbortSignal: when the orchestrator deadline fires, `abort()` runs so
+   * generateLiveText cancels in-flight SDK HTTP (OpenAI/Groq/Anthropic/Gemini).
+   */
+  llmAbortSignal?: AbortSignal;
 }
 
 // ─── Safe JSON Helpers ─────────────────────────────────────────────────────
@@ -472,7 +477,7 @@ Episodic memory context: ${ctx.episodicMemory.slice(0, 2).join(' | ') || 'none'}
 
 Analyze purely from a technical price-action perspective.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'groq' });
+  const raw = await generateLiveText({ prompt, provider: 'groq', abortSignal: ctx.llmAbortSignal });
   return { expert: 'Technician', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -486,7 +491,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Analyze from a risk/reward and position-sizing perspective.
 Consider volatility, liquidity, and downside exposure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'gemini' });
+  const raw = await generateLiveText({ prompt, provider: 'gemini', abortSignal: ctx.llmAbortSignal });
   return { expert: 'RiskManager', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -499,7 +504,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 
 Analyze market sentiment, fear/greed, and crowd psychology.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'gemini' });
+  const raw = await generateLiveText({ prompt, provider: 'gemini', abortSignal: ctx.llmAbortSignal });
   return { expert: 'MarketPsychologist', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -512,7 +517,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 
 Analyze macro trends, funding rates, and order book pressure.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'groq' });
+  const raw = await generateLiveText({ prompt, provider: 'groq', abortSignal: ctx.llmAbortSignal });
   return { expert: 'MacroOrderBook', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -526,7 +531,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 This IS on-chain data. Interpret whale flow anomaly, smart money patterns.
 A large delta_pct positive = institutional accumulation. Negative = distribution.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'anthropic' });
+  const raw = await generateLiveText({ prompt, provider: 'anthropic', abortSignal: ctx.llmAbortSignal });
   return { expert: 'OnChainSleuth', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -545,7 +550,7 @@ ${memCtx}
 
 Based on past trade outcomes with similar whale patterns, what is your verdict?
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'gemini' });
+  const raw = await generateLiveText({ prompt, provider: 'gemini', abortSignal: ctx.llmAbortSignal });
   return { expert: 'DeepMemory', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -559,7 +564,7 @@ Whale anomaly: ${ctx.signal.anomaly_type} | delta_pct: ${ctx.signal.delta_pct}%
 Your job: argue the OPPOSITE of what most experts would say.
 Identify hidden risks, false breakouts, whale traps, liquidity grabs.
 Respond with JSON: {"verdict":"BULLISH"|"BEARISH"|"NEUTRAL","confidence":0-100,"reasoning":"<1-2 sentences>"}`;
-  const raw = await generateLiveText({ prompt, provider: 'groq' });
+  const raw = await generateLiveText({ prompt, provider: 'groq', abortSignal: ctx.llmAbortSignal });
   return { expert: 'Contrarian', ...safeParseExpertJson(raw), durationMs: Date.now() - t0 };
 }
 
@@ -614,6 +619,141 @@ const EXPERT_NAMES = [
   'NewsSentinel',
 ];
 
+// ─── MoE traffic control (internal pacing — no external gateway) ────────────
+// Caps concurrent LLM calls per whale job so N parallel BullMQ jobs do not blow provider rate limits.
+
+const ORCHESTRATOR_EXPERT_CONCURRENCY = Math.min(
+  EXPERT_TASKS.length,
+  Math.max(1, Number(process.env.ORCHESTRATOR_EXPERT_CONCURRENCY ?? 3))
+);
+const ORCHESTRATOR_EXPERT_TIMEOUT_MS = Math.max(
+  5_000,
+  Number(process.env.ORCHESTRATOR_EXPERT_TIMEOUT_MS ?? 30_000)
+);
+
+const ORCHESTRATOR_CEO_TIMEOUT_MS = Math.max(
+  15_000,
+  Number(process.env.ORCHESTRATOR_CEO_TIMEOUT_MS ?? 60_000)
+);
+
+/** Context for fan-out without per-expert `llmAbortSignal` (injected inside the pool). */
+export type ExpertFanOutInputContext = Pick<
+  OrchestratorContext,
+  'signal' | 'episodicMemory' | 'marketContext' | 'mtfConfluence' | 'newsSentinel'
+>;
+
+/**
+ * Runs all 8 experts with internal concurrency cap + deadline.
+ * On deadline: AbortController.abort() cancels SDK requests; race rejects with FAILED_NETWORK.
+ */
+export async function runExpertFanOut(
+  ctxBase: ExpertFanOutInputContext
+): Promise<PromiseSettledResult<ExpertResult>[]> {
+  const expertFactories = EXPERT_TASKS.map((fn, i) => {
+    const name = EXPERT_NAMES[i] ?? `Expert_${i}`;
+    return async () => {
+      const ac = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_, rej) => {
+        timer = setTimeout(() => {
+          ac.abort();
+          rej(
+            new Error(
+              `FAILED_NETWORK: Expert "${name}" exceeded internal deadline (${ORCHESTRATOR_EXPERT_TIMEOUT_MS}ms) — possible network or provider stall.`
+            )
+          );
+        }, ORCHESTRATOR_EXPERT_TIMEOUT_MS);
+      });
+      try {
+        const childCtx: OrchestratorContext = {
+          ...ctxBase,
+          llmAbortSignal: ac.signal,
+        };
+        return await Promise.race([fn(childCtx), deadline]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+  });
+  return runWithConcurrencyPool(expertFactories, ORCHESTRATOR_EXPERT_CONCURRENCY);
+}
+
+/**
+ * E2E smoke: full MoE board against a synthetic whale signal (8 LLM-capable steps; News uses sentinel path).
+ * Use from ops scripts when `IS_LIVE_MODE=true` and API keys are set.
+ */
+export async function runMoEBoardSmokeTest(): Promise<{
+  ok: boolean;
+  succeeded: number;
+  failed: number;
+  errors: string[];
+}> {
+  const ctxBase: ExpertFanOutInputContext = {
+    signal: {
+      symbol: 'BTCUSDT',
+      anomaly_type: 'WHALE_ACCUMULATION',
+      delta_pct: 2.75,
+      timestamp: new Date().toISOString(),
+    },
+    episodicMemory: [],
+  };
+  const settled = await runExpertFanOut(ctxBase);
+  const errors: string[] = [];
+  let succeeded = 0;
+  let failed = 0;
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i];
+    const name = EXPERT_NAMES[i] ?? `Expert_${i}`;
+    if (r?.status === 'fulfilled') {
+      succeeded++;
+    } else {
+      failed++;
+      const msg = r?.status === 'rejected' && r.reason instanceof Error ? r.reason.message : String(r);
+      errors.push(`${name}: ${msg}`);
+    }
+  }
+  return {
+    ok: succeeded === EXPERT_NAMES.length,
+    succeeded,
+    failed,
+    errors,
+  };
+}
+
+/**
+ * Runs async factories with a fixed concurrency pool (sliding window).
+ * Each slot pulls the next index when the previous task settles — no batch gaps.
+ */
+async function runWithConcurrencyPool<T>(
+  factories: Array<() => Promise<T>>,
+  concurrency: number
+): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(factories.length);
+  let nextIndex = 0;
+
+  async function runSlot(): Promise<void> {
+    for (;;) {
+      const i = nextIndex++;
+      if (i >= factories.length) return;
+      try {
+        const value = await factories[i]!();
+        results[i] = { status: 'fulfilled', value };
+      } catch (reason) {
+        results[i] = { status: 'rejected', reason };
+      }
+    }
+  }
+
+  const poolSize = Math.min(Math.max(1, concurrency), factories.length);
+  await Promise.all(Array.from({ length: poolSize }, () => runSlot()));
+  return results;
+}
+
+function isFailedNetworkError(reason: unknown): boolean {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  return msg.includes('FAILED_NETWORK');
+}
+
 // ─── CEO Overseer ─────────────────────────────────────────────────────────
 
 export type CeoVerdict = 'TRADE' | 'HOLD' | 'SKIP';
@@ -642,10 +782,12 @@ async function runCeoOverseer(
   signal: ValidatedWhaleSignal,
   expertResults: ExpertResult[],
   mtfConfluence?: MTFConfluenceResult,
-  newsSentinel?: NewsSentinelResult
+  newsSentinel?: NewsSentinelResult,
+  options?: { abortSignal?: AbortSignal }
 ): Promise<CeoDecision> {
   const t0 = Date.now();
   const { generateLiveText } = await import('@/lib/ai-client');
+  const llmSignal = options?.abortSignal;
 
   // Load live NeuroPlasticity weights so CEO can weight each expert by historical accuracy
   let weights: Record<string, number> = {};
@@ -741,13 +883,13 @@ Respond with JSON: {"verdict":"TRADE"|"HOLD"|"SKIP","confidence":0-100,"reasonin
 
   let raw: string;
   try {
-    raw = await generateLiveText({ prompt, provider: 'anthropic' });
+    raw = await generateLiveText({ prompt, provider: 'anthropic', abortSignal: llmSignal });
   } catch (anthropicErr) {
     const errMsg = anthropicErr instanceof Error ? anthropicErr.message : String(anthropicErr);
     console.warn(
       `[Orchestrator] CEO Anthropic unavailable — Gemini promoted to Acting CEO: ${errMsg}`
     );
-    raw = await generateLiveText({ prompt, provider: 'gemini' });
+    raw = await generateLiveText({ prompt, provider: 'gemini', abortSignal: llmSignal });
   }
   const parsed = safeParseOverseerJson(raw);
 
@@ -783,21 +925,36 @@ Execution: ${executionResult ? (executionResult.success ? 'SUCCESS' : `FAILED: $
 Key risk identified: ${ceoDecision.keyRisk}
 
 In 2-3 sentences, what should the system learn from this signal processing cycle?`;
-    const lesson = await generateLiveText({ prompt, provider: 'groq' });
+    const npAc = new AbortController();
+    const npTimer = setTimeout(() => npAc.abort(), 25_000);
+    let lesson = '';
+    try {
+      lesson = await generateLiveText({ prompt, provider: 'groq', abortSignal: npAc.signal });
+    } finally {
+      clearTimeout(npTimer);
+    }
 
     const { storePostMortem } = await import('@/lib/vector-db');
-    await storePostMortem({
+    const tradeId = Number.isFinite(Date.parse(signal.timestamp))
+      ? Date.parse(signal.timestamp)
+      : Date.now();
+    const direction =
+      ceoDecision.verdict === 'TRADE'
+        ? expertResults.filter((e) => e.verdict === 'BULLISH').length >= 4
+          ? 'Bullish'
+          : 'Bearish'
+        : 'Neutral';
+    const blob = [
+      `CEO=${ceoDecision.verdict} (${ceoDecision.confidence}%)`,
+      `direction=${direction}`,
+      `experts=${expertResults.map((e) => `${e.expert}:${e.verdict}`).join(',')}`,
+      `insight=${ceoDecision.reasoning}`,
+      lesson.trim(),
+    ].join('\n');
+    await storePostMortem(blob, {
       symbol: signal.symbol,
-      predictionId: `whale:${signal.symbol}:${signal.timestamp}`,
-      direction: ceoDecision.verdict === 'TRADE'
-        ? (expertResults.filter((e) => e.verdict === 'BULLISH').length >= 4 ? 'Bullish' : 'Bearish')
-        : 'Neutral',
-      finalConfidence: ceoDecision.confidence,
+      trade_id: tradeId,
       outcome: ceoDecision.verdict,
-      whyWinLose: lesson.trim(),
-      agentVerdict: expertResults.map((e) => `${e.expert}:${e.verdict}`).join(','),
-      masterInsight: ceoDecision.reasoning,
-      reasoningPath: `whale_signal → 7_experts → ceo_overseer → ${ceoDecision.verdict}`,
     });
 
     await queryRaw(
@@ -915,10 +1072,7 @@ export async function orchestrateWhaleSignal(
   try {
     const { querySimilarTrades } = await import('@/lib/vector-db');
     const hits = await querySimilarTrades(signal.symbol, 3);
-    episodicMemory = hits.map(
-      (h) =>
-        `[${h.symbol}] ${h.outcome ?? 'unknown'} — ${h.whyWinLose ?? h.masterInsight ?? 'no detail'} (score=${h.score?.toFixed(3) ?? '?'})`
-    );
+    episodicMemory = hits.map((h) => `[${h.symbol}] #${h.trade_id} — ${h.text || 'no detail'}`);
     await job.log(`STEP_3 | ✓ Retrieved ${episodicMemory.length} episodic memories`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -927,12 +1081,14 @@ export async function orchestrateWhaleSignal(
   }
   await job.updateProgress(28);
 
-  // ── Step 4: Fan-out — 8 Experts via Promise.allSettled ──────────────────
-  await job.log(`STEP_4 | Dispatching to ${EXPERT_NAMES.join(', ')}...`);
+  // ── Step 4: Fan-out — MoE matrix (paced concurrency + per-expert deadline) ─
+  await job.log(
+    `STEP_4 | Dispatching ${EXPERT_NAMES.length} experts — concurrency=${ORCHESTRATOR_EXPERT_CONCURRENCY}, ` +
+    `deadline=${ORCHESTRATOR_EXPERT_TIMEOUT_MS}ms each...`
+  );
 
-  const ctx: OrchestratorContext = { signal, episodicMemory, mtfConfluence, newsSentinel };
-  const expertPromises = EXPERT_TASKS.map((fn) => fn(ctx));
-  const settledResults = await Promise.allSettled(expertPromises);
+  const ctxBase: ExpertFanOutInputContext = { signal, episodicMemory, mtfConfluence, newsSentinel };
+  const settledResults = await runExpertFanOut(ctxBase);
 
   await job.updateProgress(62);
 
@@ -949,8 +1105,10 @@ export async function orchestrateWhaleSignal(
     } else {
       expertsFailed++;
       const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-      await job.log(`STEP_5 | ✗ ${name} FAILED (skipped): ${errMsg}`);
-      console.warn(`[Orchestrator] Expert ${name} failed, skipping:`, errMsg);
+      const net = isFailedNetworkError(result.reason);
+      const tag = net ? '[FAILED_NETWORK]' : '[FAILED_EXCEPTION]';
+      await job.log(`STEP_5 | ✗ ${name} ${tag} (excluded from consensus): ${errMsg}`);
+      console.warn(`[Orchestrator] Expert ${name} failed (${tag}), excluded from board:`, errMsg);
     }
   }
 
@@ -968,7 +1126,24 @@ export async function orchestrateWhaleSignal(
   await job.log('STEP_6 | CEO Overseer synthesizing verdict...');
   let ceoDecision: CeoDecision;
   try {
-    ceoDecision = await runCeoOverseer(signal, expertResults, mtfConfluence, newsSentinel);
+    const ceoAc = new AbortController();
+    let ceoTimer: ReturnType<typeof setTimeout> | undefined;
+    const ceoDeadline = new Promise<never>((_, rej) => {
+      ceoTimer = setTimeout(() => {
+        ceoAc.abort();
+        rej(new Error(`FAILED_NETWORK: CEO Overseer exceeded ${ORCHESTRATOR_CEO_TIMEOUT_MS}ms`));
+      }, ORCHESTRATOR_CEO_TIMEOUT_MS);
+    });
+    try {
+      ceoDecision = await Promise.race([
+        runCeoOverseer(signal, expertResults, mtfConfluence, newsSentinel, {
+          abortSignal: ceoAc.signal,
+        }),
+        ceoDeadline,
+      ]);
+    } finally {
+      if (ceoTimer) clearTimeout(ceoTimer);
+    }
     await job.log(
       `STEP_6 | ✓ CEO Verdict: ${ceoDecision.verdict} (${ceoDecision.confidence}%) — ${ceoDecision.reasoning}`
     );
@@ -1005,7 +1180,10 @@ export async function orchestrateWhaleSignal(
         consensusApproved: true,
         consensusReasoning: {
           overseerSummary: ceoDecision.reasoning,
-          expertReasoning: expertResults.map((e) => e.reasoning).join(' | '),
+          overseerReasoningPath: `whale_signal → board → ceo(${ceoDecision.verdict})`,
+          expertBreakdown: Object.fromEntries(
+            expertResults.map((e) => [e.expert, { verdict: e.verdict, reasoning: e.reasoning }])
+          ) as Record<string, unknown>,
         },
         marketVolatility: Math.abs(signal.delta_pct),
       });

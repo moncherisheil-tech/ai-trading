@@ -36,6 +36,8 @@ export async function generateLiveText(params: {
   maxOutputTokens?: number;
   temperature?: number;
   locale?: 'he' | 'en';
+  /** When aborted (e.g. orchestrator deadline), underlying HTTP is cancelled where SDK supports it. */
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   assertLiveModeEnabled();
   const provider: LlmProvider = params.provider ?? resolveProvider();
@@ -48,34 +50,42 @@ export async function generateLiveText(params: {
     ? [params.systemInstruction, localeDirective].filter(Boolean).join('\n\n')
     : params.systemInstruction;
   const prompt = forceHebrew ? `${params.prompt}\n\n${localeDirective}` : params.prompt;
+  const signal = params.abortSignal;
+  const opt = signal ? { signal } : undefined;
 
   if (provider === 'openai') {
     const client = new OpenAI({ apiKey: getOpenAiApiKey() });
     const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
-        { role: 'user' as const, content: prompt },
-      ],
-      temperature,
-      max_tokens: maxOutputTokens,
-    });
+    const completion = await client.chat.completions.create(
+      {
+        model,
+        messages: [
+          ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
+          { role: 'user' as const, content: prompt },
+        ],
+        temperature,
+        max_tokens: maxOutputTokens,
+      },
+      opt
+    );
     return (completion.choices?.[0]?.message?.content || '').trim();
   }
 
   if (provider === 'groq') {
     const client = new Groq({ apiKey: getRequiredGroqApiKey() });
     const model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
-    const completion = await client.chat.completions.create({
-      model,
-      messages: [
-        ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
-        { role: 'user' as const, content: prompt },
-      ],
-      temperature,
-      max_tokens: maxOutputTokens,
-    });
+    const completion = await client.chat.completions.create(
+      {
+        model,
+        messages: [
+          ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),
+          { role: 'user' as const, content: prompt },
+        ],
+        temperature,
+        max_tokens: maxOutputTokens,
+      },
+      opt
+    );
     return (completion.choices?.[0]?.message?.content || '').trim();
   }
 
@@ -89,14 +99,14 @@ export async function generateLiveText(params: {
       messages: [{ role: 'user' as const, content: prompt }],
     });
     try {
-      const message = await client.messages.create(buildRequest(ANTHROPIC_SONNET_MODEL));
+      const message = await client.messages.create(buildRequest(ANTHROPIC_SONNET_MODEL), opt);
       return (message.content[0]?.type === 'text' ? message.content[0].text : '').trim();
     } catch (primaryErr) {
       const isModelErr =
         primaryErr instanceof Error &&
         (primaryErr.message.includes('404') || primaryErr.message.toLowerCase().includes('not_found'));
       if (isModelErr) {
-        const fallback = await client.messages.create(buildRequest(ANTHROPIC_SONNET_FALLBACK_SNAPSHOT));
+        const fallback = await client.messages.create(buildRequest(ANTHROPIC_SONNET_FALLBACK_SNAPSHOT), opt);
         return (fallback.content[0]?.type === 'text' ? fallback.content[0].text : '').trim();
       }
       throw primaryErr;
@@ -112,11 +122,15 @@ export async function generateLiveText(params: {
     selected.requestOptions
   );
   const geminiPrompt = systemInstruction ? `${systemInstruction}\n\n${prompt}` : prompt;
+  const genOpts = signal ? { signal } : undefined;
   const response = await withGeminiRateLimitRetry(() =>
-    model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: geminiPrompt }] }],
-      generationConfig: { temperature, maxOutputTokens },
-    })
+    model.generateContent(
+      {
+        contents: [{ role: 'user', parts: [{ text: geminiPrompt }] }],
+        generationConfig: { temperature, maxOutputTokens },
+      },
+      genOpts
+    )
   );
   return (response.response.text() || '').trim();
 }

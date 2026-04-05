@@ -47,14 +47,21 @@ export async function getScannerSettings(): Promise<ScannerSettingsRow | null> {
   }
 }
 
-export async function setScannerActive(isActive: boolean): Promise<void> {
-  if (!usePostgres()) return;
+export async function setScannerActive(
+  isActive: boolean
+): Promise<{ ok: boolean; error?: string }> {
+  if (!usePostgres()) {
+    return { ok: false, error: 'Postgres not configured' };
+  }
   try {
     await sql`
       UPDATE system_settings SET scanner_is_active = ${isActive}, updated_at = NOW() WHERE id = ${ROW_ID}
     `;
+    return { ok: true };
   } catch (err) {
     console.error('setScannerActive failed:', err);
+    const message = err instanceof Error ? err.message : 'Failed to update scanner settings';
+    return { ok: false, error: message };
   }
 }
 

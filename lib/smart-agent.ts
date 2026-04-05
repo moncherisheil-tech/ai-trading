@@ -196,24 +196,30 @@ export async function generatePostMortem(
   const groqKey = getGroqApiKey();
   if (groqKey) {
     try {
+      const groqAc = new AbortController();
+      const groqTimer = setTimeout(() => groqAc.abort(), POST_MORTEM_LLM_TIMEOUT_MS);
       const groq = new Groq({ apiKey: groqKey });
-      const completion = await Promise.race([
-        groq.chat.completions.create({
-          model: GROQ_POST_MORTEM_MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).',
-            },
-            { role: 'user', content: prompt },
-          ],
-          temperature: pmTemp,
-          max_tokens: 1024,
-        }),
-        new Promise<never>((_, rej) =>
-          setTimeout(() => rej(new Error('Groq post-mortem timeout')), POST_MORTEM_LLM_TIMEOUT_MS)
-        )
-      ]);
+      let completion: Awaited<ReturnType<typeof groq.chat.completions.create>>;
+      try {
+        completion = await groq.chat.completions.create(
+          {
+            model: GROQ_POST_MORTEM_MODEL,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  'You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).',
+              },
+              { role: 'user', content: prompt },
+            ],
+            temperature: pmTemp,
+            max_tokens: 1024,
+          },
+          { signal: groqAc.signal }
+        );
+      } finally {
+        clearTimeout(groqTimer);
+      }
       const raw = completion.choices?.[0]?.message?.content?.trim() ?? '';
       if (raw) {
         const result = parseResponse(raw);
@@ -239,18 +245,29 @@ export async function generatePostMortem(
       },
       selectedGeminiModel.requestOptions
     );
-    const res = await Promise.race([
-      model.generateContent({
-        contents: [{
-          role: 'user',
-          parts: [{ text: `You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).\n\n${prompt}` }],
-        }],
-        generationConfig: { temperature: pmTemp, maxOutputTokens: 1024 },
-      }),
-      new Promise<never>((_, rej) =>
-        setTimeout(() => rej(new Error('Gemini post-mortem timeout')), POST_MORTEM_LLM_TIMEOUT_MS)
-      )
-    ]);
+    const gemAc = new AbortController();
+    const gemTimer = setTimeout(() => gemAc.abort(), POST_MORTEM_LLM_TIMEOUT_MS);
+    let res: Awaited<ReturnType<typeof model.generateContent>>;
+    try {
+      res = await model.generateContent(
+        {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `You output only valid JSON. No markdown, no code fences, no extra text. Keys: why_win_lose, insight, agent_verdict (all strings, Hebrew).\n\n${prompt}`,
+                },
+              ],
+            },
+          ],
+          generationConfig: { temperature: pmTemp, maxOutputTokens: 1024 },
+        },
+        { signal: gemAc.signal }
+      );
+    } finally {
+      clearTimeout(gemTimer);
+    }
     const raw = res.response.text()?.trim() ?? '';
     if (raw) {
       const result = parseResponse(raw);

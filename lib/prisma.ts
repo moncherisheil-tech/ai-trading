@@ -123,7 +123,7 @@ export function getPrisma(): PrismaClient | null {
       // timeouts without digging through raw pg error objects.
       pool.on('error', (err) => {
         const category = classifyDbError(err);
-        const e = err as Record<string, unknown>;
+        const e = err as unknown as Record<string, unknown>;
         console.error(
           `[prisma:pool] idle-client error  category=${category}  code=${e['code'] ?? 'n/a'}  host=${dbHost}\n  ${err.message}`
         );
