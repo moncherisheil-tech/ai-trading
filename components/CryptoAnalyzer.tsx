@@ -34,6 +34,7 @@ import {
 } from '@/app/actions';
 import type { PredictionRecord } from '@/lib/db';
 import { useLocale } from '@/hooks/use-locale';
+import { useLiveDepth } from '@/hooks/use-live-depth';
 import { useSimulation, INITIAL_WALLET_USD } from '@/context/SimulationContext';
 import { useToast } from '@/context/ToastContext';
 import { toSymbol } from '@/lib/symbols';
@@ -64,6 +65,10 @@ export default function CryptoAnalyzer() {
   } = useSimulation();
 
   const symbol = useMemo(() => `${selectedSymbol}USDT`, [selectedSymbol]);
+
+  // HFT L2 depth feed — only active for BTCUSDT / ETHUSDT
+  const hftSymbol = symbol === 'BTCUSDT' || symbol === 'ETHUSDT' ? symbol : null;
+  const { depth: liveDepth, connected: depthConnected } = useLiveDepth(hftSymbol);
 
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -634,6 +639,102 @@ export default function CryptoAnalyzer() {
             )}
           </button>
         </div>
+
+        {/* Live L2 Order Book — HFT Engine feed (BTCUSDT / ETHUSDT only) */}
+        {hftSymbol && (
+          <div className="ui-panel-dense ui-card frosted-obsidian rounded-2xl bg-gradient-to-b from-[#050d1a] to-[#030810] border-violet-500/20 shadow-[0_0_24px_rgba(139,92,246,0.07)] backdrop-blur-[60px]">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="p-1.5 bg-violet-500/15 border border-violet-400/30 rounded-lg text-violet-400 shrink-0">
+                  <Activity className="w-4 h-4" />
+                </div>
+                <h2 className="text-sm font-bold text-violet-100">Live L2 Depth</h2>
+                <span className="text-[10px] font-medium text-zinc-500 bg-zinc-800/60 border border-zinc-700/40 rounded px-1.5 py-0.5 dir-ltr" dir="ltr">
+                  {hftSymbol}
+                </span>
+              </div>
+              {/* Connection indicator */}
+              <span className="flex items-center gap-1.5" title={depthConnected ? 'HFT Feed — Live' : 'Connecting…'}>
+                {depthConnected ? (
+                  <>
+                    <span className="relative flex h-2 w-2">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-violet-400 opacity-60" />
+                      <span className="relative inline-flex h-2 w-2 rounded-full bg-violet-500" />
+                    </span>
+                    <span className="text-[10px] text-violet-400 font-medium">HFT</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="h-2 w-2 rounded-full bg-zinc-600" />
+                    <span className="text-[10px] text-zinc-600 font-medium">—</span>
+                  </>
+                )}
+              </span>
+            </div>
+
+            {liveDepth ? (
+              <div className="grid grid-cols-2 gap-2" dir="ltr">
+                {/* Bids */}
+                <div>
+                  <p className="text-[10px] font-semibold text-emerald-400 uppercase tracking-widest mb-1.5">Bids</p>
+                  <ul className="space-y-1">
+                    {liveDepth.bids.slice(0, 3).map((lvl, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between items-center px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 transition-colors duration-300"
+                      >
+                        <span className="text-xs font-bold text-emerald-400 tabular-nums live-data-number">
+                          {lvl.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 tabular-nums live-data-number">
+                          {lvl.qty.toFixed(4)}
+                        </span>
+                      </li>
+                    ))}
+                    {liveDepth.bids.length === 0 && (
+                      <li className="text-[10px] text-zinc-600 px-2">—</li>
+                    )}
+                  </ul>
+                </div>
+
+                {/* Asks */}
+                <div>
+                  <p className="text-[10px] font-semibold text-rose-400 uppercase tracking-widest mb-1.5">Asks</p>
+                  <ul className="space-y-1">
+                    {liveDepth.asks.slice(0, 3).map((lvl, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between items-center px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 transition-colors duration-300"
+                      >
+                        <span className="text-xs font-bold text-rose-400 tabular-nums live-data-number">
+                          {lvl.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-[10px] text-rose-700 tabular-nums live-data-number">
+                          {lvl.qty.toFixed(4)}
+                        </span>
+                      </li>
+                    ))}
+                    {liveDepth.asks.length === 0 && (
+                      <li className="text-[10px] text-zinc-600 px-2">—</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 py-5 text-zinc-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-xs">ממתין לנתוני עומק…</span>
+              </div>
+            )}
+
+            {liveDepth && (
+              <p className="text-[10px] text-zinc-700 mt-2 text-right tabular-nums" suppressHydrationWarning>
+                {new Date(liveDepth.ts).toLocaleTimeString('he-IL')}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Output & History */}

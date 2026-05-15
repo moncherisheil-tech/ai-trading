@@ -81,7 +81,7 @@ export async function closeVirtualTradeBySymbol(symbol: string): Promise<{ succe
   if (!usePostgres()) return { success: false, error: 'DATABASE_URL required.' };
   const normalized = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`;
   const open = await listOpenVirtualTrades();
-  const trade = open.find((t) => t.symbol === normalized);
+  const trade = open.find((t) => t.symbol === normalized && t.status === 'open');
   if (!trade) return { success: false, error: 'אין פוזיציה פתוחה עבור סמל זה.' };
   const prices = await fetchBinanceTickerPrices([normalized], 10_000);
   const price = prices.get(normalized);
@@ -117,6 +117,7 @@ export async function closeAllOpenVirtualTradesAtMarket(): Promise<{
   let closed = 0;
   const errors: string[] = [];
   for (const trade of open) {
+    if (trade.status !== 'open') continue;
     const raw = prices.get(trade.symbol);
     if (raw == null || raw <= 0) {
       errors.push(`${trade.symbol}: no price`);
@@ -166,6 +167,8 @@ export async function checkAndCloseTrades(livePrices: Map<string, number>): Prom
   const slippageBps = APP_CONFIG.paperSlippageBps ?? 5;
   let closed = 0;
   for (const trade of openTrades) {
+    // Rows in pending_close are mid-exchange liquidation — TP/SL sim must not race TWAP.
+    if (trade.status !== 'open') continue;
     const price = livePrices.get(trade.symbol);
     if (price == null || price <= 0 || trade.entry_price <= 0) continue;
     const entry = toDecimal(trade.entry_price);

@@ -1,6 +1,13 @@
 import { getAppSettings } from '@/lib/db/app-settings';
 import { generateSafeId } from '@/lib/utils';
-import { listOpenVirtualTrades, listClosedVirtualTrades, closeVirtualTrade, type VirtualPortfolioRow } from '@/lib/db/virtual-portfolio';
+import {
+  listOpenVirtualTrades,
+  listClosedVirtualTrades,
+  closeVirtualTrade,
+  markVirtualTradePendingClose,
+  reopenVirtualTradeAfterFailedSell,
+  type VirtualPortfolioRow,
+} from '@/lib/db/virtual-portfolio';
 import {
   insertVirtualTradeHistory,
   hasVirtualTradeExecutionEvent,
@@ -365,7 +372,10 @@ export async function executeAutonomousConsensusSignal(
     }
 
     const openTrades = await listOpenVirtualTrades();
-    const openForSymbol = openTrades.find((t) => t.symbol === symbol);
+    /** Blocks overlapping BUY while a row is open or mid-TWAP liquidation (pending_close). */
+    const blockingPositionForSymbol = openTrades.find((t) => t.symbol === symbol);
+    /** SELL only attaches to a fully open row — never a pending_close TWAP in flight. */
+    const sellableOpenForSymbol = openTrades.find((t) => t.symbol === symbol && t.status === 'open');
 
     if (signal === 'BUY') {
       const depthPrefetch = fetchBinanceOrderBookDepth(symbol, 50, 10_000);
@@ -416,7 +426,7 @@ export async function executeAutonomousConsensusSignal(
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
       }
 
-      if (openForSymbol) {
+      if (blockingPositionForSymbol) {
         const reason = 'Open position already exists for symbol.';
         const ins = await insertVirtualTradeHistory({
           eventId,
@@ -432,8 +442,8 @@ export async function executeAutonomousConsensusSignal(
           overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
           expertBreakdownJson,
           executionPrice: livePrice,
-          amountUsd: openForSymbol.amount_usd,
-          virtualTradeId: openForSymbol.id,
+          amountUsd: blockingPositionForSymbol.amount_usd,
+          virtualTradeId: blockingPositionForSymbol.id,
         });
         if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason };
@@ -700,7 +710,7 @@ export async function executeAutonomousConsensusSignal(
       };
     }
 
-    if (!openForSymbol) {
+    if (!sellableOpenForSymbol) {
       const reason = 'No open position found for SELL signal.';
       const ins = await insertVirtualTradeHistory({
         eventId,
@@ -732,44 +742,52 @@ export async function executeAutonomousConsensusSignal(
     });
     const stealth = new StealthExecutionEngine(broker);
     const exitDepth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
-    const exitVwap = estimateVwapFromDepth(exitDepth, livePrice ?? openForSymbol.entry_price);
+    const exitVwap = estimateVwapFromDepth(exitDepth, livePrice ?? sellableOpenForSymbol.entry_price);
     const slipSell = estimateSellSlippageFraction(
       exitDepth,
-      openForSymbol.amount_usd,
-      livePrice ?? openForSymbol.entry_price
+      sellableOpenForSymbol.amount_usd,
+      livePrice ?? sellableOpenForSymbol.entry_price
     );
     const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
-    const totalAssetAmount = roundAmount(openForSymbol.amount_usd / Math.max(openForSymbol.entry_price, 0.00000001), 8);
+    const totalAssetAmount = roundAmount(sellableOpenForSymbol.amount_usd / Math.max(sellableOpenForSymbol.entry_price, 0.00000001), 8);
     const twapIdemSell = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
 
-    // ── PHASE 2 ACID FIX: Pre-exchange DB lock ─────────────────────────────
-    // Mark position as PENDING_CLOSE *before* submitting to the exchange.
-    // If the process crashes after executeTWAP() but before closeVirtualTrade(),
-    // the DB row will have status='pending_close'. On restart, the idempotency
-    // check catches the eventId and the reconciliation job can detect the
-    // orphaned state via: SELECT * FROM virtual_portfolio WHERE status='pending_close'.
-    // Without this, the system sees an OPEN position and re-sends a SELL order
-    // for assets already liquidated on the exchange — a catastrophic double-sell.
+    // ── PHASE 2 ACID: Pre-exchange DB lock ───────────────────────────────────
+    // Mark pending_close *before* TWAP so we never report the row as fully closed
+    // until the exchange leg completes; finalize with closeVirtualTrade() below.
+    // Crash mid-flight leaves pending_close for reconciliation (no bogus closed PnL).
     // ──────────────────────────────────────────────────────────────────────────
-    try {
-      await closeVirtualTrade(openForSymbol.id, livePrice ?? openForSymbol.entry_price, 'pending_close' as 'manual');
-    } catch (preCloseErr) {
-      console.error('[ExecutionEngine] ACID pre-close lock failed — aborting SELL to prevent orphan:', preCloseErr);
-      throw preCloseErr;
+    const locked = await markVirtualTradePendingClose(sellableOpenForSymbol.id);
+    if (!locked) {
+      const err = new Error('ACID pre-close lock failed — aborting SELL.');
+      console.error('[ExecutionEngine]', err.message);
+      throw err;
     }
 
-    const twapResult = await stealth.executeTWAP(
-      symbol,
-      mapSignalToBrokerSide(signal),
-      totalAssetAmount,
-      twapSellSched.durationMinutes,
-      twapSellSched.chunks,
-      { idempotencyKeyPrefix: `${twapIdemSell}-sell` }
-    );
+    let twapResult;
+    try {
+      twapResult = await stealth.executeTWAP(
+        symbol,
+        mapSignalToBrokerSide(signal),
+        totalAssetAmount,
+        twapSellSched.durationMinutes,
+        twapSellSched.chunks,
+        { idempotencyKeyPrefix: `${twapIdemSell}-sell` }
+      );
+    } catch (twapErr) {
+      const reopened = await reopenVirtualTradeAfterFailedSell(sellableOpenForSymbol.id);
+      if (!reopened) {
+        console.error(
+          '[ExecutionEngine] TWAP sell failed and pending_close→open rollback failed for trade id=',
+          sellableOpenForSymbol.id
+        );
+      }
+      throw twapErr;
+    }
     const exitPrice = applySlippage(livePrice, 'sell', 5);
     // Finalize close with actual exit price (overwrites the pre-close lock price)
-    const closeResult = await closeVirtualTrade(openForSymbol.id, exitPrice, 'manual');
-    const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(openForSymbol.id);
+    const closeResult = await closeVirtualTrade(sellableOpenForSymbol.id, exitPrice, 'manual');
+    const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(sellableOpenForSymbol.id);
     const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
     const executionLabel = broker.isSimulated ? 'Simulated TWAP SELL executed.' : 'TWAP SELL executed via exchange.';
     const exitVwapDriftPct = ((exitPrice - exitVwap) / Math.max(exitVwap, 0.00000001)) * 100;
@@ -787,9 +805,9 @@ export async function executeAutonomousConsensusSignal(
       overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
       expertBreakdownJson: originalExpertBreakdownJson,
       executionPrice: exitPrice,
-      amountUsd: openForSymbol.amount_usd,
+      amountUsd: sellableOpenForSymbol.amount_usd,
       pnlNetUsd: closeResult?.pnlNetUsd ?? null,
-      virtualTradeId: openForSymbol.id,
+      virtualTradeId: sellableOpenForSymbol.id,
     });
     if (!insSell.inserted) {
       console.warn('[ExecutionEngine] SELL TWAP completed but history row already exists for eventId=', eventId);
@@ -812,7 +830,7 @@ export async function executeAutonomousConsensusSignal(
       executed: true,
       status: 'executed',
       reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}.`,
-      virtualTradeId: openForSymbol.id,
+      virtualTradeId: sellableOpenForSymbol.id,
     };
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Execution engine failure.';

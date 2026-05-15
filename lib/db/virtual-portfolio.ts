@@ -8,7 +8,7 @@ import { APP_CONFIG } from '@/lib/config';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import type { ScalpRiskTier } from '@/lib/trading/scalp-tiers';
 
-export type VirtualTradeStatus = 'open' | 'closed';
+export type VirtualTradeStatus = 'open' | 'pending_close' | 'closed';
 export type CloseReason = 'take_profit' | 'stop_loss' | 'liquidation' | 'manual';
 export type VirtualTradeSource = 'manual' | 'agent';
 
@@ -87,6 +87,41 @@ export async function insertVirtualTrade(row: InsertVirtualTradeInput): Promise<
   }
 }
 
+/**
+ * Marks an open row as pending_close before submitting a live/paper TWAP sell.
+ * Finalize with {@link closeVirtualTrade} after the exchange leg succeeds.
+ */
+export async function markVirtualTradePendingClose(id: number): Promise<boolean> {
+  if (!usePostgres()) return false;
+  try {
+    const { rows } = await sql`
+      UPDATE virtual_portfolio SET status = 'pending_close'
+      WHERE id = ${id} AND status = 'open'
+      RETURNING id
+    `;
+    return (rows?.length ?? 0) > 0;
+  } catch (err) {
+    console.error('markVirtualTradePendingClose failed:', err);
+    return false;
+  }
+}
+
+/** After a failed sell attempt, restore pending_close → open so exposure / TP-SL sim stay consistent. */
+export async function reopenVirtualTradeAfterFailedSell(id: number): Promise<boolean> {
+  if (!usePostgres()) return false;
+  try {
+    const { rows } = await sql`
+      UPDATE virtual_portfolio SET status = 'open'
+      WHERE id = ${id} AND status = 'pending_close'
+      RETURNING id
+    `;
+    return (rows?.length ?? 0) > 0;
+  } catch (err) {
+    console.error('reopenVirtualTradeAfterFailedSell failed:', err);
+    return false;
+  }
+}
+
 export async function closeVirtualTrade(
   id: number,
   exitPrice: number,
@@ -97,7 +132,7 @@ export async function closeVirtualTrade(
   try {
     const { rows } = await sql`
       SELECT entry_price, amount_usd, COALESCE(entry_fee_usd, 0) as entry_fee_usd
-      FROM virtual_portfolio WHERE id = ${id} AND status = 'open'
+      FROM virtual_portfolio WHERE id = ${id} AND status IN ('open', 'pending_close')
     `;
     const row = rows?.[0] as { entry_price: number; amount_usd: number; entry_fee_usd: number } | undefined;
     if (!row) return null;
@@ -138,7 +173,7 @@ export async function listOpenVirtualTrades(): Promise<VirtualPortfolioRow[]> {
     const { rows } = await sql`
       SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
       COALESCE(exec_state::text, '{}') as exec_state_json
-      FROM virtual_portfolio WHERE status = 'open' ORDER BY entry_date DESC
+      FROM virtual_portfolio WHERE status IN ('open', 'pending_close') ORDER BY entry_date DESC
     `;
     return (rows || []).map(mapRow) as VirtualPortfolioRow[];
   } catch (err) {
