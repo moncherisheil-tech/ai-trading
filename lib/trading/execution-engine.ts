@@ -3,9 +3,10 @@ import { generateSafeId } from '@/lib/utils';
 import {
   listOpenVirtualTrades,
   listClosedVirtualTrades,
+  insertVirtualTrade,
+  getBlockingVirtualTradeForSymbolForUpdate,
   closeVirtualTrade,
   markVirtualTradePendingClose,
-  reopenVirtualTradeAfterFailedSell,
   type VirtualPortfolioRow,
 } from '@/lib/db/virtual-portfolio';
 import {
@@ -17,9 +18,10 @@ import {
   type ExecutionMode,
   type ExecutionSignalSide,
 } from '@/lib/db/virtual-trades-history';
+import { withSqlTransaction, acquireTransactionAdvisoryLock } from '@/lib/db/sql';
 import { fetchBinanceTickerPrices, fetchBinanceMarkPrices, fetchBinanceOrderBookDepth } from '@/lib/api-utils';
 import { applySlippage, round2, toDecimal } from '@/lib/decimal';
-import { openVirtualTrade, getVirtualPortfolioSummary } from '@/lib/simulation-service';
+import { getVirtualPortfolioSummary } from '@/lib/simulation-service';
 import {
   MAX_OPEN_POSITIONS,
   assertOpenPositionsLimit,
@@ -39,7 +41,7 @@ import {
   createBrokerAdapter,
   type BrokerOrderSide,
 } from '@/lib/trading/broker-adapter';
-import { StealthExecutionEngine } from '@/lib/trading/stealth-execution';
+import { StealthExecutionEngine, TwapExecutionError } from '@/lib/trading/stealth-execution';
 import { ReinforcementEngine, fetchCurrentNeuroPlasticity } from '@/lib/trading/reinforcement-learning';
 import { dispatchCriticalAlert, type AlertSeverity } from '@/lib/ops/alert-dispatcher';
 import { insertTradeExecution, markTradeExecutionFailed, type TradeExecutionRow } from '@/lib/db/execution-learning';
@@ -372,10 +374,6 @@ export async function executeAutonomousConsensusSignal(
     }
 
     const openTrades = await listOpenVirtualTrades();
-    /** Blocks overlapping BUY while a row is open or mid-TWAP liquidation (pending_close). */
-    const blockingPositionForSymbol = openTrades.find((t) => t.symbol === symbol);
-    /** SELL only attaches to a fully open row — never a pending_close TWAP in flight. */
-    const sellableOpenForSymbol = openTrades.find((t) => t.symbol === symbol && t.status === 'open');
 
     if (signal === 'BUY') {
       const depthPrefetch = fetchBinanceOrderBookDepth(symbol, 50, 10_000);
@@ -424,29 +422,6 @@ export async function executeAutonomousConsensusSignal(
         if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
         await dispatchTradeBlockedAlert(symbol, reason);
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
-      }
-
-      if (blockingPositionForSymbol) {
-        const reason = 'Open position already exists for symbol.';
-        const ins = await insertVirtualTradeHistory({
-          eventId,
-          predictionId: input.predictionId,
-          symbol,
-          signalSide: signal,
-          confidence: input.finalConfidence,
-          mode: effectiveMode,
-          executed: false,
-          executionStatus: 'skipped',
-          reason,
-          overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
-          overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-          expertBreakdownJson,
-          executionPrice: livePrice,
-          amountUsd: blockingPositionForSymbol.amount_usd,
-          virtualTradeId: blockingPositionForSymbol.id,
-        });
-        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
-        return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason };
       }
 
       const summary = await getVirtualPortfolioSummary();
@@ -527,11 +502,6 @@ export async function executeAutonomousConsensusSignal(
         return { eventId, mode: effectiveMode, signal, executed: false, status: 'blocked', reason };
       }
 
-      const pipelineClaimed = await tryClaimExecutionPipeline(eventId);
-      if (!pipelineClaimed) {
-        return duplicateExecutionSkip(eventId, effectiveMode, signal);
-      }
-
       const entryPrice = applySlippage(livePrice, 'buy', 5);
       const scalpTier = inferScalpTierFromVolatility(marketVolatility);
       const scalpPlan = buildScalpExecutionPlan(symbol, scalpTier, input.finalConfidence);
@@ -608,48 +578,6 @@ export async function executeAutonomousConsensusSignal(
           : null,
       });
 
-      /** Persist tactical state in JSONB `exec_state` so trailing-stop / sim logic keeps Kelly + tier after restart. */
-      const opened = await openVirtualTrade({
-        symbol,
-        entry_price: entryPrice,
-        amount_usd: amountUsd,
-        target_profit_pct: targetProfitPct,
-        stop_loss_pct: stopLossPct,
-        source: 'agent',
-        exec_state: {
-          peakUnrealizedPct: 0,
-          effectiveStopLossPct: stopLossPct,
-          kellyFraction: kelly.kellyFraction,
-          scalpTier: scalpPlan.tier,
-        },
-      });
-      if (!opened.success) {
-        const reason = opened.error || 'Failed to open virtual trade.';
-        const ins = await insertVirtualTradeHistory({
-          eventId,
-          predictionId: input.predictionId,
-          symbol,
-          signalSide: signal,
-          confidence: input.finalConfidence,
-          mode: effectiveMode,
-          executed: false,
-          executionStatus: 'failed',
-          reason,
-          overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
-          overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-          expertBreakdownJson,
-          executionPrice: entryPrice,
-          amountUsd,
-        });
-        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
-        await dispatchCriticalAlert(
-          'Execution Engine — Virtual Trade Open Failed',
-          `${symbol}: ${reason}`,
-          'CRITICAL'
-        );
-        return { eventId, mode: effectiveMode, signal, executed: false, status: 'failed', reason };
-      }
-
       const broker = createExecutionBrokerAdapter(effectiveMode, {
         allowSimulationFallback: effectiveMode !== 'LIVE',
         testnet: process.env.EXCHANGE_TESTNET === 'true',
@@ -658,82 +586,155 @@ export async function executeAutonomousConsensusSignal(
       const priceForSize = livePrice ?? entryPrice;
       const totalAssetAmount = roundAmount(amountUsd / Math.max(priceForSize, 0.00000001), 8);
       const twapIdem = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
-      const twapResult = await stealth.executeTWAP(
-        symbol,
-        mapSignalToBrokerSide(signal),
-        totalAssetAmount,
-        twapSched.durationMinutes,
-        twapSched.chunks,
-        { idempotencyKeyPrefix: `${twapIdem}-buy` }
-      );
       const executionLabel = broker.isSimulated ? 'Simulated TWAP BUY executed.' : 'TWAP BUY executed via exchange.';
+      const txResult = await withSqlTransaction(async (_client, txSql) => {
+        // Ensuring strict fail-closed claim: if insert fails, this flow never executes orders.
+        const pipelineClaimed = await tryClaimExecutionPipeline(eventId, txSql);
+        if (!pipelineClaimed) {
+          return duplicateExecutionSkip(eventId, effectiveMode, signal);
+        }
 
-      const insExec = await insertVirtualTradeHistory({
-        eventId,
-        predictionId: input.predictionId,
-        symbol,
-        signalSide: signal,
-        confidence: input.finalConfidence,
-        mode: effectiveMode,
-        executed: true,
-        executionStatus: 'executed',
-        reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
-          twapResult.intervalMs
-        )}. Priority=${priority}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, VWAP=${vwapPrice.toFixed(4)}, drift=${vwapDriftPct.toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
-          2
-        )}%, Kelly f=${kelly.kellyFraction.toFixed(4)}, volSizing=${sizing.riskFraction.toFixed(4)}.`,
-        overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
-        overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-        expertBreakdownJson: enrichedBreakdown,
-        executionPrice: entryPrice,
-        amountUsd,
-        virtualTradeId: opened.id,
+        // Deterministic symbol mutex across workers/processes for race-free BUY exposure gating.
+        await acquireTransactionAdvisoryLock(txSql, `execution:buy:${symbol}`);
+        const blockingPosition = await getBlockingVirtualTradeForSymbolForUpdate(symbol, txSql);
+        if (blockingPosition) {
+          const reason = 'Open position already exists for symbol.';
+          const ins = await insertVirtualTradeHistory({
+            eventId,
+            predictionId: input.predictionId,
+            symbol,
+            signalSide: signal,
+            confidence: input.finalConfidence,
+            mode: effectiveMode,
+            executed: false,
+            executionStatus: 'skipped',
+            reason,
+            overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+            overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+            expertBreakdownJson,
+            executionPrice: livePrice,
+            amountUsd: blockingPosition.amount_usd,
+            virtualTradeId: blockingPosition.id,
+          }, txSql);
+          if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
+          return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason } as AutonomousExecutionResult;
+        }
+
+        /** Persist tactical state in JSONB `exec_state` so trailing-stop / sim logic keeps Kelly + tier after restart. */
+        const openedId = await insertVirtualTrade({
+          symbol,
+          entry_price: entryPrice,
+          amount_usd: amountUsd,
+          target_profit_pct: targetProfitPct,
+          stop_loss_pct: stopLossPct,
+          source: 'agent',
+          exec_state: {
+            peakUnrealizedPct: 0,
+            effectiveStopLossPct: stopLossPct,
+            kellyFraction: kelly.kellyFraction,
+            scalpTier: scalpPlan.tier,
+          },
+        }, txSql);
+        if (!Number.isFinite(openedId) || openedId <= 0) {
+          throw new Error('Failed to open virtual trade within ACID transaction.');
+        }
+
+        // ACID boundary: execution + state transition + journal entry commit or rollback together.
+        try {
+          const txTwapResult = await stealth.executeTWAP(
+            symbol,
+            mapSignalToBrokerSide(signal),
+            totalAssetAmount,
+            twapSched.durationMinutes,
+            twapSched.chunks,
+            { idempotencyKeyPrefix: `${twapIdem}-buy`, eventId }
+          );
+
+          const insExec = await insertVirtualTradeHistory({
+            eventId,
+            predictionId: input.predictionId,
+            symbol,
+            signalSide: signal,
+            confidence: input.finalConfidence,
+            mode: effectiveMode,
+            executed: true,
+            executionStatus: 'executed',
+            reason: `${executionLabel} chunks=${txTwapResult.chunks}, intervalMs=${Math.round(
+              txTwapResult.intervalMs
+            )}. Priority=${priority}. Tier=${scalpPlan.tier}, estSlip=${(slipFrac * 100).toFixed(3)}%, VWAP=${vwapPrice.toFixed(4)}, drift=${vwapDriftPct.toFixed(3)}%, TWAP=${twapSched.durationMinutes}m/${twapSched.chunks}ch. Risk mode=${riskLevel}, TP=${targetProfitPct.toFixed(2)}%, SL=${stopLossPct.toFixed(
+              2
+            )}%, Kelly f=${kelly.kellyFraction.toFixed(4)}, volSizing=${sizing.riskFraction.toFixed(4)}.`,
+            overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+            overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+            expertBreakdownJson: enrichedBreakdown,
+            executionPrice: entryPrice,
+            amountUsd,
+            virtualTradeId: openedId,
+          }, txSql);
+          if (!insExec.inserted) {
+            console.warn('[ExecutionEngine] BUY TWAP completed but history row already exists for eventId=', eventId);
+          }
+          return {
+            eventId,
+            mode: effectiveMode,
+            signal,
+            executed: true,
+            status: 'executed',
+            reason: `${executionLabel} chunks=${txTwapResult.chunks}, intervalMs=${Math.round(
+              txTwapResult.intervalMs
+            )}. Priority=${priority}. Tier=${scalpPlan.tier}, Kelly+TWAP institutional path.`,
+            virtualTradeId: openedId,
+          } as AutonomousExecutionResult;
+        } catch (twapErr) {
+          if (twapErr instanceof TwapExecutionError && twapErr.partialResult.totalFilledConfirmed > 0) {
+            const fillRatio = Math.min(1, twapErr.partialResult.totalFilledConfirmed / Math.max(totalAssetAmount, 0.00000001));
+            const confirmedUsd = round2(amountUsd * fillRatio);
+            if (confirmedUsd > 0) {
+              // Partial BUY fill is persisted as open residual exposure instead of rolling back to zero state.
+              await txSql`UPDATE virtual_portfolio SET amount_usd = ${confirmedUsd} WHERE id = ${openedId}`;
+              const partialReason =
+                `BUY TWAP partial fill reconciled from broker/indexer. ` +
+                `confirmedBase=${twapErr.partialResult.totalFilledConfirmed.toFixed(8)}, requestedBase=${totalAssetAmount.toFixed(8)}, ` +
+                `confirmedUsd=${confirmedUsd.toFixed(2)}. Reconciliation=${twapErr.partialResult.reconciliation}.`;
+              await insertVirtualTradeHistory({
+                eventId,
+                predictionId: input.predictionId,
+                symbol,
+                signalSide: signal,
+                confidence: input.finalConfidence,
+                mode: effectiveMode,
+                executed: true,
+                executionStatus: 'failed',
+                reason: partialReason,
+                overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+                overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+                expertBreakdownJson: enrichedBreakdown,
+                executionPrice: entryPrice,
+                amountUsd: confirmedUsd,
+                virtualTradeId: openedId,
+              }, txSql);
+              return {
+                eventId,
+                mode: effectiveMode,
+                signal,
+                executed: true,
+                status: 'failed',
+                reason: partialReason,
+                virtualTradeId: openedId,
+              } as AutonomousExecutionResult;
+            }
+          }
+          throw twapErr;
+        }
       });
-      if (!insExec.inserted) {
-        console.warn('[ExecutionEngine] TWAP completed but history row already exists for eventId=', eventId);
+      if (txResult.executed && txResult.status === 'executed') {
+        await dispatchTwapSuccessAlert(
+          symbol,
+          signal,
+          txResult.reason
+        );
       }
-      await dispatchTwapSuccessAlert(
-        symbol,
-        signal,
-        `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}.`
-      );
-      return {
-        eventId,
-        mode: effectiveMode,
-        signal,
-        executed: true,
-        status: 'executed',
-        reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(
-          twapResult.intervalMs
-        )}. Priority=${priority}. Tier=${scalpPlan.tier}, Kelly+TWAP institutional path.`,
-        virtualTradeId: opened.id,
-      };
-    }
-
-    if (!sellableOpenForSymbol) {
-      const reason = 'No open position found for SELL signal.';
-      const ins = await insertVirtualTradeHistory({
-        eventId,
-        predictionId: input.predictionId,
-        symbol,
-        signalSide: signal,
-        confidence: input.finalConfidence,
-        mode: effectiveMode,
-        executed: false,
-        executionStatus: 'skipped',
-        reason,
-        overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
-        overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-        expertBreakdownJson,
-        executionPrice: livePrice,
-      });
-      if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
-      return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason };
-    }
-
-    const sellClaimed = await tryClaimExecutionPipeline(eventId);
-    if (!sellClaimed) {
-      return duplicateExecutionSkip(eventId, effectiveMode, signal);
+      return txResult;
     }
 
     const broker = createExecutionBrokerAdapter(effectiveMode, {
@@ -741,97 +742,199 @@ export async function executeAutonomousConsensusSignal(
       testnet: process.env.EXCHANGE_TESTNET === 'true',
     });
     const stealth = new StealthExecutionEngine(broker);
-    const exitDepth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
-    const exitVwap = estimateVwapFromDepth(exitDepth, livePrice ?? sellableOpenForSymbol.entry_price);
-    const slipSell = estimateSellSlippageFraction(
-      exitDepth,
-      sellableOpenForSymbol.amount_usd,
-      livePrice ?? sellableOpenForSymbol.entry_price
-    );
-    const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
-    const totalAssetAmount = roundAmount(sellableOpenForSymbol.amount_usd / Math.max(sellableOpenForSymbol.entry_price, 0.00000001), 8);
-    const twapIdemSell = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
-
-    // ── PHASE 2 ACID: Pre-exchange DB lock ───────────────────────────────────
-    // Mark pending_close *before* TWAP so we never report the row as fully closed
-    // until the exchange leg completes; finalize with closeVirtualTrade() below.
-    // Crash mid-flight leaves pending_close for reconciliation (no bogus closed PnL).
-    // ──────────────────────────────────────────────────────────────────────────
-    const locked = await markVirtualTradePendingClose(sellableOpenForSymbol.id);
-    if (!locked) {
-      const err = new Error('ACID pre-close lock failed — aborting SELL.');
-      console.error('[ExecutionEngine]', err.message);
-      throw err;
-    }
-
-    let twapResult;
-    try {
-      twapResult = await stealth.executeTWAP(
-        symbol,
-        mapSignalToBrokerSide(signal),
-        totalAssetAmount,
-        twapSellSched.durationMinutes,
-        twapSellSched.chunks,
-        { idempotencyKeyPrefix: `${twapIdemSell}-sell` }
-      );
-    } catch (twapErr) {
-      const reopened = await reopenVirtualTradeAfterFailedSell(sellableOpenForSymbol.id);
-      if (!reopened) {
-        console.error(
-          '[ExecutionEngine] TWAP sell failed and pending_close→open rollback failed for trade id=',
-          sellableOpenForSymbol.id
-        );
-      }
-      throw twapErr;
-    }
-    const exitPrice = applySlippage(livePrice, 'sell', 5);
-    // Finalize close with actual exit price (overwrites the pre-close lock price)
-    const closeResult = await closeVirtualTrade(sellableOpenForSymbol.id, exitPrice, 'manual');
-    const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(sellableOpenForSymbol.id);
-    const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
     const executionLabel = broker.isSimulated ? 'Simulated TWAP SELL executed.' : 'TWAP SELL executed via exchange.';
-    const exitVwapDriftPct = ((exitPrice - exitVwap) / Math.max(exitVwap, 0.00000001)) * 100;
-    const insSell = await insertVirtualTradeHistory({
-      eventId,
-      predictionId: input.predictionId,
-      symbol,
-      signalSide: signal,
-      confidence: input.finalConfidence,
-      mode: effectiveMode,
-      executed: true,
-      executionStatus: 'executed',
-      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}. Priority=${priority}. VWAP=${exitVwap.toFixed(4)}, drift=${exitVwapDriftPct.toFixed(3)}%.`,
-      overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
-      overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
-      expertBreakdownJson: originalExpertBreakdownJson,
-      executionPrice: exitPrice,
-      amountUsd: sellableOpenForSymbol.amount_usd,
-      pnlNetUsd: closeResult?.pnlNetUsd ?? null,
-      virtualTradeId: sellableOpenForSymbol.id,
-    });
-    if (!insSell.inserted) {
-      console.warn('[ExecutionEngine] SELL TWAP completed but history row already exists for eventId=', eventId);
-    }
-    await dispatchTwapSuccessAlert(
-      symbol,
-      signal,
-      `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}.`
-    );
-    void new ReinforcementEngine().evaluateRecentTrades().catch((err) => {
-      console.warn(
-        '[ReinforcementEngine] Failed to evaluate recent trades:',
-        err instanceof Error ? err.message : String(err)
+    const txSellResult = await withSqlTransaction(async (_client, txSql) => {
+      // Ensuring strict fail-closed claim for SELL path.
+      const sellClaimed = await tryClaimExecutionPipeline(eventId, txSql);
+      if (!sellClaimed) {
+        return duplicateExecutionSkip(eventId, effectiveMode, signal);
+      }
+
+      // Deterministic symbol mutex across workers/processes for close-path serialization.
+      await acquireTransactionAdvisoryLock(txSql, `execution:sell:${symbol}`);
+      const sellableOpenForSymbol = await getBlockingVirtualTradeForSymbolForUpdate(symbol, txSql);
+      if (!sellableOpenForSymbol || sellableOpenForSymbol.status !== 'open') {
+        const reason = 'No open position found for SELL signal.';
+        const ins = await insertVirtualTradeHistory({
+          eventId,
+          predictionId: input.predictionId,
+          symbol,
+          signalSide: signal,
+          confidence: input.finalConfidence,
+          mode: effectiveMode,
+          executed: false,
+          executionStatus: 'skipped',
+          reason,
+          overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+          overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+          expertBreakdownJson,
+          executionPrice: livePrice,
+        }, txSql);
+        if (!ins.inserted) return duplicateExecutionSkip(eventId, effectiveMode, signal);
+        return { eventId, mode: effectiveMode, signal, executed: false, status: 'skipped', reason } as AutonomousExecutionResult;
+      }
+
+      const exitDepth = await fetchBinanceOrderBookDepth(symbol, 50, 10_000);
+      const exitVwap = estimateVwapFromDepth(exitDepth, livePrice ?? sellableOpenForSymbol.entry_price);
+      const slipSell = estimateSellSlippageFraction(
+        exitDepth,
+        sellableOpenForSymbol.amount_usd,
+        livePrice ?? sellableOpenForSymbol.entry_price
       );
+      const twapSellSched = pickTwapSchedule(shouldUseStealthTwap(slipSell));
+      const totalAssetAmount = roundAmount(
+        sellableOpenForSymbol.amount_usd / Math.max(sellableOpenForSymbol.entry_price, 0.00000001),
+        8
+      );
+      const twapIdemSell = eventId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24) || 'twap';
+
+      const locked = await markVirtualTradePendingClose(sellableOpenForSymbol.id, txSql);
+      if (!locked) {
+        throw new Error('ACID pre-close lock failed — aborting SELL.');
+      }
+
+      try {
+        const twapResultSell = await stealth.executeTWAP(
+          symbol,
+          mapSignalToBrokerSide(signal),
+          totalAssetAmount,
+          twapSellSched.durationMinutes,
+          twapSellSched.chunks,
+          { idempotencyKeyPrefix: `${twapIdemSell}-sell`, eventId }
+        );
+
+        const exitPrice = applySlippage(livePrice, 'sell', 5);
+        const closeResult = await closeVirtualTrade(sellableOpenForSymbol.id, exitPrice, 'manual', txSql);
+        const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(sellableOpenForSymbol.id);
+        const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
+        const exitVwapDriftPct = ((exitPrice - exitVwap) / Math.max(exitVwap, 0.00000001)) * 100;
+        const insSell = await insertVirtualTradeHistory({
+          eventId,
+          predictionId: input.predictionId,
+          symbol,
+          signalSide: signal,
+          confidence: input.finalConfidence,
+          mode: effectiveMode,
+          executed: true,
+          executionStatus: 'executed',
+          reason: `${executionLabel} chunks=${twapResultSell.chunks}, intervalMs=${Math.round(twapResultSell.intervalMs)}. Priority=${priority}. VWAP=${exitVwap.toFixed(4)}, drift=${exitVwapDriftPct.toFixed(3)}%.`,
+          overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+          overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+          expertBreakdownJson: originalExpertBreakdownJson,
+          executionPrice: exitPrice,
+          amountUsd: sellableOpenForSymbol.amount_usd,
+          pnlNetUsd: closeResult?.pnlNetUsd ?? null,
+          virtualTradeId: sellableOpenForSymbol.id,
+        }, txSql);
+        if (!insSell.inserted) {
+          console.warn('[ExecutionEngine] SELL TWAP completed but history row already exists for eventId=', eventId);
+        }
+        return {
+          eventId,
+          mode: effectiveMode,
+          signal,
+          executed: true,
+          status: 'executed',
+          reason: `${executionLabel} chunks=${twapResultSell.chunks}, intervalMs=${Math.round(twapResultSell.intervalMs)}.`,
+          virtualTradeId: sellableOpenForSymbol.id,
+        } as AutonomousExecutionResult;
+      } catch (twapErr) {
+        if (twapErr instanceof TwapExecutionError && twapErr.partialResult.totalFilledConfirmed > 0) {
+          const soldRatio = Math.min(1, twapErr.partialResult.totalFilledConfirmed / Math.max(totalAssetAmount, 0.00000001));
+          const soldUsd = round2(sellableOpenForSymbol.amount_usd * soldRatio);
+          const remainingUsd = round2(Math.max(0, sellableOpenForSymbol.amount_usd - soldUsd));
+          const openingBuyEvent = await getLatestExecutedBuyForVirtualTrade(sellableOpenForSymbol.id);
+          const originalExpertBreakdownJson = openingBuyEvent?.expert_breakdown_json ?? expertBreakdownJson;
+
+          if (remainingUsd <= 0) {
+            const exitPrice = applySlippage(livePrice, 'sell', 5);
+            const closeResult = await closeVirtualTrade(sellableOpenForSymbol.id, exitPrice, 'manual', txSql);
+            const reconciledReason =
+              `SELL TWAP recovered from transport error but reconciliation confirms full fill. ` +
+              `confirmedBase=${twapErr.partialResult.totalFilledConfirmed.toFixed(8)}, requestedBase=${totalAssetAmount.toFixed(8)}.`;
+            await insertVirtualTradeHistory({
+              eventId,
+              predictionId: input.predictionId,
+              symbol,
+              signalSide: signal,
+              confidence: input.finalConfidence,
+              mode: effectiveMode,
+              executed: true,
+              executionStatus: 'executed',
+              reason: reconciledReason,
+              overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+              overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+              expertBreakdownJson: originalExpertBreakdownJson,
+              executionPrice: exitPrice,
+              amountUsd: sellableOpenForSymbol.amount_usd,
+              pnlNetUsd: closeResult?.pnlNetUsd ?? null,
+              virtualTradeId: sellableOpenForSymbol.id,
+            }, txSql);
+            return {
+              eventId,
+              mode: effectiveMode,
+              signal,
+              executed: true,
+              status: 'executed',
+              reason: reconciledReason,
+              virtualTradeId: sellableOpenForSymbol.id,
+            } as AutonomousExecutionResult;
+          }
+
+          // Never reopen to full "open" after partial SELL fill: preserve reduced residual and reconciliation state.
+          await txSql`
+            UPDATE virtual_portfolio
+            SET amount_usd = ${remainingUsd}, status = 'pending_close'
+            WHERE id = ${sellableOpenForSymbol.id}
+          `;
+          const partialSellReason =
+            `SELL TWAP partial fill reconciled from broker/indexer; trade moved to pending_close for deterministic follow-up. ` +
+            `confirmedBase=${twapErr.partialResult.totalFilledConfirmed.toFixed(8)}, requestedBase=${totalAssetAmount.toFixed(8)}, ` +
+            `soldUsd=${soldUsd.toFixed(2)}, remainingUsd=${remainingUsd.toFixed(2)}.`;
+          await insertVirtualTradeHistory({
+            eventId,
+            predictionId: input.predictionId,
+            symbol,
+            signalSide: signal,
+            confidence: input.finalConfidence,
+            mode: effectiveMode,
+            executed: true,
+            executionStatus: 'failed',
+            reason: partialSellReason,
+            overseerSummary: input.consensusReasoning?.overseerSummary ?? null,
+            overseerReasoningPath: input.consensusReasoning?.overseerReasoningPath ?? null,
+            expertBreakdownJson: originalExpertBreakdownJson,
+            executionPrice: livePrice,
+            amountUsd: soldUsd,
+            virtualTradeId: sellableOpenForSymbol.id,
+          }, txSql);
+          return {
+            eventId,
+            mode: effectiveMode,
+            signal,
+            executed: true,
+            status: 'failed',
+            reason: partialSellReason,
+            virtualTradeId: sellableOpenForSymbol.id,
+          } as AutonomousExecutionResult;
+        }
+        throw twapErr;
+      }
     });
-    return {
-      eventId,
-      mode: effectiveMode,
-      signal,
-      executed: true,
-      status: 'executed',
-      reason: `${executionLabel} chunks=${twapResult.chunks}, intervalMs=${Math.round(twapResult.intervalMs)}.`,
-      virtualTradeId: sellableOpenForSymbol.id,
-    };
+    if (txSellResult.executed && txSellResult.status === 'executed') {
+      await dispatchTwapSuccessAlert(
+        symbol,
+        signal,
+        txSellResult.reason
+      );
+      void new ReinforcementEngine().evaluateRecentTrades().catch((err) => {
+        console.warn(
+          '[ReinforcementEngine] Failed to evaluate recent trades:',
+          err instanceof Error ? err.message : String(err)
+        );
+      });
+    }
+    return txSellResult;
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'Execution engine failure.';
     const ins = await insertVirtualTradeHistory({

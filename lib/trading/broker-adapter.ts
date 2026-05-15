@@ -1,4 +1,5 @@
 import ccxt from 'ccxt';
+import { createHash } from 'crypto';
 import { stripEnvQuotes } from '@/lib/env';
 
 export type BrokerOrderSide = 'buy' | 'sell';
@@ -12,9 +13,26 @@ export interface BrokerOrderResult {
   info?: unknown;
 }
 
+export interface BrokerFillSnapshot {
+  symbol: string;
+  side: BrokerOrderSide;
+  clientOrderId: string;
+  requestedAmount: number;
+  filledAmount: number;
+  status: string;
+  source: 'simulated' | 'exchange' | 'exchange-cache';
+  orderId?: string;
+}
+
 export type CreateMarketOrderOptions = {
   /** Exchange-specific client order ID for idempotent retries. */
   clientOrderId?: string;
+  /** Stable event scope used to derive deterministic exchange client IDs. */
+  eventId?: string;
+  /** 1-based chunk index used for deterministic per-chunk exchange client IDs. */
+  chunkIndex?: number;
+  /** Force reduce-only behavior where supported by the exchange adapter. */
+  reduceOnly?: boolean;
   /**
    * Optional market price hint for DEX adapters that construct limit-IOC orders
    * to emulate market fills. When provided, worst-case price = hint ± 10%.
@@ -26,6 +44,12 @@ export interface IBrokerAdapter {
   readonly isSimulated: boolean;
   fetchTicker(symbol: string): Promise<unknown>;
   fetchBalance(): Promise<unknown>;
+  getFilledAmountByClientOrderId(
+    symbol: string,
+    side: BrokerOrderSide,
+    clientOrderId: string,
+    requestedAmount: number
+  ): Promise<BrokerFillSnapshot | null>;
   createMarketOrder(
     symbol: string,
     side: BrokerOrderSide,
@@ -65,10 +89,22 @@ function toSafePositive(value: number): number {
   return value;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+function toDeterministicDydxClientId(eventId: string, chunkIndex: number): number {
+  const seed = `${eventId}:${chunkIndex}`;
+  const digest = createHash('sha256').update(seed).digest();
+  const unsigned = digest.readUInt32BE(0);
+  return unsigned & 0x7fffffff;
+}
+
 // ── SimulatedExchangeAdapter ──────────────────────────────────────────────────
 
 export class SimulatedExchangeAdapter implements IBrokerAdapter {
   readonly isSimulated = true;
+  private readonly simulatedFills = new Map<string, BrokerFillSnapshot>();
 
   async fetchTicker(symbol: string): Promise<unknown> {
     return {
@@ -85,6 +121,28 @@ export class SimulatedExchangeAdapter implements IBrokerAdapter {
     };
   }
 
+  async getFilledAmountByClientOrderId(
+    symbol: string,
+    side: BrokerOrderSide,
+    clientOrderId: string,
+    requestedAmount: number
+  ): Promise<BrokerFillSnapshot | null> {
+    const key = clientOrderId.trim();
+    const existing = this.simulatedFills.get(key);
+    if (existing) return existing;
+    // Simulated mode is deterministic: assume immediate full fill.
+    return {
+      symbol: normalizeCcxtSymbol(symbol),
+      side,
+      clientOrderId: key,
+      requestedAmount: toSafePositive(requestedAmount),
+      filledAmount: toSafePositive(requestedAmount),
+      status: 'simulated_filled',
+      source: 'simulated',
+      orderId: key,
+    };
+  }
+
   async createMarketOrder(
     symbol: string,
     side: BrokerOrderSide,
@@ -94,6 +152,16 @@ export class SimulatedExchangeAdapter implements IBrokerAdapter {
     const normalizedSymbol = normalizeCcxtSymbol(symbol);
     const safeAmount = toSafePositive(amount);
     const id = options?.clientOrderId?.trim() || `awaiting-live-${Date.now()}`;
+    this.simulatedFills.set(id, {
+      symbol: normalizedSymbol,
+      side,
+      clientOrderId: id,
+      requestedAmount: safeAmount,
+      filledAmount: safeAmount,
+      status: 'simulated_filled',
+      source: 'simulated',
+      orderId: id,
+    });
     console.warn(`[BrokerAdapter] PAPER/simulated ${side.toUpperCase()} ${safeAmount} ${normalizedSymbol} (no exchange API).`);
     return {
       id,
@@ -115,6 +183,7 @@ export class SimulatedExchangeAdapter implements IBrokerAdapter {
 export class CcxtBrokerAdapter implements IBrokerAdapter {
   readonly isSimulated = false;
   private readonly exchange: InstanceType<typeof ccxt.binance>;
+  private readonly localFillCache = new Map<string, BrokerFillSnapshot>();
 
   constructor(params?: { exchangeId?: 'binance'; testnet?: boolean }) {
     const exchangeId = params?.exchangeId ?? 'binance';
@@ -159,6 +228,26 @@ export class CcxtBrokerAdapter implements IBrokerAdapter {
     return this.exchange.fetchBalance();
   }
 
+  async getFilledAmountByClientOrderId(
+    symbol: string,
+    side: BrokerOrderSide,
+    clientOrderId: string,
+    requestedAmount: number
+  ): Promise<BrokerFillSnapshot | null> {
+    const cached = this.localFillCache.get(clientOrderId);
+    if (cached) return cached;
+    return {
+      symbol: normalizeCcxtSymbol(symbol),
+      side,
+      clientOrderId,
+      requestedAmount: toSafePositive(requestedAmount),
+      filledAmount: 0,
+      status: 'unknown',
+      source: 'exchange-cache',
+      orderId: undefined,
+    };
+  }
+
   async createMarketOrder(
     symbol: string,
     side: BrokerOrderSide,
@@ -173,6 +262,19 @@ export class CcxtBrokerAdapter implements IBrokerAdapter {
         ? { newClientOrderId: clientOrderId.slice(0, 36) }
         : {};
     const order = await this.exchange.createOrder(normalizedSymbol, 'market', side, safeAmount, undefined, params);
+    const key = clientOrderId ?? String(order.id ?? '');
+    if (key) {
+      this.localFillCache.set(key, {
+        symbol: normalizedSymbol,
+        side,
+        clientOrderId: key,
+        requestedAmount: safeAmount,
+        filledAmount: safeAmount,
+        status: typeof order.status === 'string' ? order.status : 'submitted',
+        source: 'exchange-cache',
+        orderId: String(order.id ?? ''),
+      });
+    }
     return {
       id: String(order.id ?? `order-${Date.now()}`),
       symbol: normalizedSymbol,
@@ -205,6 +307,7 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private _wallet: any = null;
   private readonly testnet: boolean;
+  private readonly localFillCache = new Map<string, BrokerFillSnapshot>();
 
   constructor(params?: { testnet?: boolean }) {
     this.testnet = params?.testnet ?? (process.env.DYDX_NETWORK?.toLowerCase() === 'testnet');
@@ -279,6 +382,100 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
     }
   }
 
+  private async fetchDydxFillSnapshot(
+    dydxSymbol: string,
+    side: BrokerOrderSide,
+    clientOrderId: string,
+    requestedAmount: number,
+    clientId: number
+  ): Promise<BrokerFillSnapshot | null> {
+    const { wallet } = await this.lazyInit();
+    const address = String((wallet as { address?: string }).address ?? '').trim();
+    const endpoints: string[] = [];
+    if (address) {
+      endpoints.push(
+        `${this.indexerBaseUrl}/v4/orders?address=${encodeURIComponent(address)}&subaccountNumber=0&market=${encodeURIComponent(dydxSymbol)}&limit=100`
+      );
+    }
+    endpoints.push(
+      `${this.indexerBaseUrl}/v4/orders?market=${encodeURIComponent(dydxSymbol)}&limit=100`,
+      `${this.indexerBaseUrl}/v4/orders?clientId=${clientId}&market=${encodeURIComponent(dydxSymbol)}`
+    );
+
+    for (const url of endpoints) {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) continue;
+        const payload = await response.json() as unknown;
+        const maybeObject = payload as {
+          orders?: unknown[];
+          data?: { orders?: unknown[] };
+          result?: { orders?: unknown[] };
+        };
+        const orders = [
+          ...(Array.isArray(maybeObject.orders) ? maybeObject.orders : []),
+          ...(Array.isArray(maybeObject.data?.orders) ? maybeObject.data.orders : []),
+          ...(Array.isArray(maybeObject.result?.orders) ? maybeObject.result.orders : []),
+        ] as Array<Record<string, unknown>>;
+        const match = orders.find((row) => {
+          const rowClientId = String(row.clientId ?? row.client_id ?? '');
+          const rowMarket = String(row.market ?? row.ticker ?? '');
+          return rowClientId === String(clientId) && (!rowMarket || rowMarket === dydxSymbol);
+        });
+        if (!match) continue;
+        const filled = Number(
+          match.filledSize ?? match.totalFilled ?? match.sizeFilled ?? match.filledAmount ?? 0
+        );
+        return {
+          symbol: dydxSymbol,
+          side,
+          clientOrderId,
+          requestedAmount,
+          filledAmount: Number.isFinite(filled) && filled > 0 ? filled : 0,
+          status: String(match.status ?? match.state ?? 'submitted'),
+          source: 'exchange',
+          orderId: String(match.id ?? match.orderId ?? ''),
+        };
+      } catch {
+        // Keep trying alternate indexer endpoints.
+      }
+    }
+    return null;
+  }
+
+  async getFilledAmountByClientOrderId(
+    symbol: string,
+    side: BrokerOrderSide,
+    clientOrderId: string,
+    requestedAmount: number
+  ): Promise<BrokerFillSnapshot | null> {
+    const safeRequested = toSafePositive(requestedAmount);
+    const cached = this.localFillCache.get(clientOrderId);
+    const cachedClientId = Number((cached?.orderId ?? '').replace(/^dydx-client-/, ''));
+    const clientId =
+      Number.isFinite(cachedClientId) && cachedClientId > 0
+        ? cachedClientId
+        : toDeterministicDydxClientId(clientOrderId, 1);
+    const dydxSymbol = toDydxSymbol(symbol);
+
+    // Reconcile with retries to absorb indexer lag and avoid blind assumptions.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const snapshot = await this.fetchDydxFillSnapshot(
+        dydxSymbol,
+        side,
+        clientOrderId,
+        safeRequested,
+        clientId
+      );
+      if (snapshot) {
+        this.localFillCache.set(clientOrderId, snapshot);
+        return snapshot;
+      }
+      await sleep(200 * attempt);
+    }
+    return cached ?? null;
+  }
+
   async createMarketOrder(
     symbol: string,
     side: BrokerOrderSide,
@@ -326,9 +523,14 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
     const { SubaccountInfo, OrderType, OrderSide, OrderTimeInForce, OrderExecution } = dydx;
 
     const subaccount = new SubaccountInfo(wallet, 0);
-    // dYdX clientId: random uint31 (required; used for order dedup on chain)
-    const clientId = Math.floor(Math.random() * 2 ** 31);
+    const eventId = options?.eventId?.trim() || options?.clientOrderId?.trim() || `${Date.now()}`;
+    const chunkIndex = Number.isInteger(options?.chunkIndex) && (options?.chunkIndex ?? 0) > 0
+      ? Number(options?.chunkIndex)
+      : 1;
+    // Deterministic clientId from (eventId, chunkIndex) so retries are idempotent and audit-stable.
+    const clientId = toDeterministicDydxClientId(eventId, chunkIndex);
     const dydxSide = side === 'buy' ? OrderSide.BUY : OrderSide.SELL;
+    const reduceOnly = options?.reduceOnly ?? side === 'sell';
 
     // MARKET = limit-IOC under the hood on dYdX v4 CLOB
     const tx = await client.placeOrder(
@@ -343,7 +545,7 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
       0,                     // goodTilTimeInSeconds (irrelevant for IOC)
       OrderExecution.DEFAULT,
       false,                 // postOnly
-      false,                 // reduceOnly
+      reduceOnly,
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -351,9 +553,22 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
 
     console.info(
       `[DydxAdapter] ${side.toUpperCase()} ${safeAmount} ${dydxSymbol} ` +
-      `| worstPrice=${worstCasePrice.toFixed(4)} | clientId=${clientId} | txHash=${txHash} ` +
+      `| worstPrice=${worstCasePrice.toFixed(4)} | clientId=${clientId} | reduceOnly=${String(reduceOnly)} | txHash=${txHash} ` +
       `| network=${this.testnet ? 'testnet' : 'mainnet'}`
     );
+
+    if (options?.clientOrderId?.trim()) {
+      this.localFillCache.set(options.clientOrderId.trim(), {
+        symbol: dydxSymbol,
+        side,
+        clientOrderId: options.clientOrderId.trim(),
+        requestedAmount: safeAmount,
+        filledAmount: 0,
+        status: 'submitted',
+        source: 'exchange-cache',
+        orderId: `dydx-client-${clientId}`,
+      });
+    }
 
     return {
       id: String(txHash),
@@ -364,6 +579,7 @@ export class DydxBrokerAdapter implements IBrokerAdapter {
       info: {
         txHash,
         clientId,
+        reduceOnly,
         dydxSymbol,
         worstCasePrice,
         network: this.testnet ? 'testnet' : 'mainnet',

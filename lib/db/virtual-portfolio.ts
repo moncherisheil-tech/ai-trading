@@ -3,7 +3,7 @@
  * All PnL and percentage math uses Decimal.js to avoid floating-point errors.
  */
 
-import { sql } from '@/lib/db/sql';
+import { sql, type SqlExecutor } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 import { round2, toDecimal, D } from '@/lib/decimal';
 import type { ScalpRiskTier } from '@/lib/trading/scalp-tiers';
@@ -44,6 +44,10 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
+function getRunner(txSql?: SqlExecutor): SqlExecutor {
+  return txSql ?? sql;
+}
+
 export interface InsertVirtualTradeInput {
   symbol: string;
   entry_price: number;
@@ -54,8 +58,9 @@ export interface InsertVirtualTradeInput {
   exec_state?: AgentExecState | null;
 }
 
-export async function insertVirtualTrade(row: InsertVirtualTradeInput): Promise<number> {
+export async function insertVirtualTrade(row: InsertVirtualTradeInput, txSql?: SqlExecutor): Promise<number> {
   if (!usePostgres()) return 0;
+  const run = getRunner(txSql);
   try {
     const entryDate = new Date().toISOString();
     const targetPct = row.target_profit_pct ?? 2;
@@ -63,7 +68,7 @@ export async function insertVirtualTrade(row: InsertVirtualTradeInput): Promise<
     const src = row.source === 'agent' ? 'agent' : 'manual';
     const entryFeeUsd = toDecimal(row.amount_usd).times(D.entryFeeRate).toNumber();
     const execJson = JSON.stringify(row.exec_state && Object.keys(row.exec_state).length ? row.exec_state : {});
-    const { rows } = await sql`
+    const { rows } = await run`
       INSERT INTO virtual_portfolio (symbol, entry_price, amount_usd, entry_date, status, target_profit_pct, stop_loss_pct, source, entry_fee_usd, exec_state)
       VALUES (${row.symbol}, ${row.entry_price}, ${row.amount_usd}, ${entryDate}, 'open', ${targetPct}, ${stopPct}, ${src}, ${entryFeeUsd}, ${execJson}::jsonb)
       ON CONFLICT (id) DO UPDATE
@@ -91,10 +96,11 @@ export async function insertVirtualTrade(row: InsertVirtualTradeInput): Promise<
  * Marks an open row as pending_close before submitting a live/paper TWAP sell.
  * Finalize with {@link closeVirtualTrade} after the exchange leg succeeds.
  */
-export async function markVirtualTradePendingClose(id: number): Promise<boolean> {
+export async function markVirtualTradePendingClose(id: number, txSql?: SqlExecutor): Promise<boolean> {
   if (!usePostgres()) return false;
+  const run = getRunner(txSql);
   try {
-    const { rows } = await sql`
+    const { rows } = await run`
       UPDATE virtual_portfolio SET status = 'pending_close'
       WHERE id = ${id} AND status = 'open'
       RETURNING id
@@ -107,10 +113,11 @@ export async function markVirtualTradePendingClose(id: number): Promise<boolean>
 }
 
 /** After a failed sell attempt, restore pending_close → open so exposure / TP-SL sim stay consistent. */
-export async function reopenVirtualTradeAfterFailedSell(id: number): Promise<boolean> {
+export async function reopenVirtualTradeAfterFailedSell(id: number, txSql?: SqlExecutor): Promise<boolean> {
   if (!usePostgres()) return false;
+  const run = getRunner(txSql);
   try {
-    const { rows } = await sql`
+    const { rows } = await run`
       UPDATE virtual_portfolio SET status = 'open'
       WHERE id = ${id} AND status = 'pending_close'
       RETURNING id
@@ -125,12 +132,14 @@ export async function reopenVirtualTradeAfterFailedSell(id: number): Promise<boo
 export async function closeVirtualTrade(
   id: number,
   exitPrice: number,
-  closeReason: CloseReason = 'manual'
+  closeReason: CloseReason = 'manual',
+  txSql?: SqlExecutor
 ): Promise<{ pnlPct: number; pnlNetUsd: number } | null> {
   if (!usePostgres()) return null;
   if (!Number.isFinite(exitPrice) || exitPrice <= 0) return null;
+  const run = getRunner(txSql);
   try {
-    const { rows } = await sql`
+    const { rows } = await run`
       SELECT entry_price, amount_usd, COALESCE(entry_fee_usd, 0) as entry_fee_usd
       FROM virtual_portfolio WHERE id = ${id} AND status IN ('open', 'pending_close')
     `;
@@ -154,7 +163,7 @@ export async function closeVirtualTrade(
     const closedAt = new Date().toISOString();
     const reason = ['take_profit', 'stop_loss', 'liquidation', 'manual'].includes(closeReason) ? closeReason : 'manual';
     const entryFeeFinal = round2(entryFeeUsd);
-    await sql`
+    await run`
       UPDATE virtual_portfolio SET status = 'closed', closed_at = ${closedAt}, exit_price = ${exitPrice},
         pnl_pct = ${pnlPct}, close_reason = ${reason},
         entry_fee_usd = ${entryFeeFinal}, exit_fee_usd = ${round2(exitFeeUsd)}, pnl_net_usd = ${round2(pnlNetUsd)}
@@ -163,6 +172,33 @@ export async function closeVirtualTrade(
     return { pnlPct, pnlNetUsd: round2(pnlNetUsd) };
   } catch (err) {
     console.error('closeVirtualTrade failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Transaction-only selector that locks the matched row to serialize symbol-level decisions.
+ * This is used by execution flows that must avoid double-exposure under concurrent workers.
+ */
+export async function getBlockingVirtualTradeForSymbolForUpdate(
+  symbol: string,
+  txSql: SqlExecutor
+): Promise<VirtualPortfolioRow | null> {
+  if (!usePostgres()) return null;
+  try {
+    const { rows } = await txSql`
+      SELECT id, symbol, entry_price::float, amount_usd::float, entry_date, status, target_profit_pct::float, stop_loss_pct::float, closed_at::text, exit_price::float, pnl_pct::float, close_reason::text, COALESCE(source, 'manual') as source, entry_fee_usd::float, exit_fee_usd::float, pnl_net_usd::float,
+      COALESCE(exec_state::text, '{}') as exec_state_json
+      FROM virtual_portfolio
+      WHERE symbol = ${symbol} AND status IN ('open', 'pending_close')
+      ORDER BY entry_date DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const row = rows?.[0] as Record<string, unknown> | undefined;
+    return row ? mapRow(row) : null;
+  } catch (err) {
+    console.error('getBlockingVirtualTradeForSymbolForUpdate failed:', err);
     return null;
   }
 }

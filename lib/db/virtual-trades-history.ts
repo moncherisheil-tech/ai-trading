@@ -1,4 +1,4 @@
-import { sql } from '@/lib/db/sql';
+import { sql, type SqlExecutor } from '@/lib/db/sql';
 import { APP_CONFIG } from '@/lib/config';
 
 export type ExecutionMode = 'PAPER' | 'LIVE';
@@ -61,30 +61,37 @@ function usePostgres(): boolean {
   return Boolean(APP_CONFIG.postgresUrl?.trim());
 }
 
+function getRunner(txSql?: SqlExecutor): SqlExecutor {
+  return txSql ?? sql;
+}
+
 /**
  * Atomic claim before openVirtualTrade / TWAP so retries cannot double-open positions.
  * Stale claims older than 48h are purged so long-delayed replays can proceed.
  */
-export async function tryClaimExecutionPipeline(eventId: string): Promise<boolean> {
+export async function tryClaimExecutionPipeline(eventId: string, txSql?: SqlExecutor): Promise<boolean> {
   if (!usePostgres() || !eventId.trim()) return true;
+  const run = getRunner(txSql);
   try {
-    await sql`DELETE FROM execution_pipeline_claims WHERE created_at < NOW() - INTERVAL '48 hours'`;
-    const { rows } = await sql`
+    await run`DELETE FROM execution_pipeline_claims WHERE created_at < NOW() - INTERVAL '48 hours'`;
+    const { rows } = await run`
       INSERT INTO execution_pipeline_claims (event_id) VALUES (${eventId.trim()})
       ON CONFLICT (event_id) DO NOTHING
       RETURNING event_id
     `;
     return (rows?.length ?? 0) > 0;
   } catch (err) {
-    console.error('tryClaimExecutionPipeline failed:', err);
-    return true;
+    // Strict fail-closed: if claim persistence fails, execution must not continue.
+    console.error('tryClaimExecutionPipeline failed (fail-closed, returning false):', err);
+    return false;
   }
 }
 
-export async function hasVirtualTradeExecutionEvent(eventId: string): Promise<boolean> {
+export async function hasVirtualTradeExecutionEvent(eventId: string, txSql?: SqlExecutor): Promise<boolean> {
   if (!usePostgres() || !eventId) return false;
+  const run = getRunner(txSql);
   try {
-    const { rows } = await sql`
+    const { rows } = await run`
       SELECT id FROM virtual_trades_history WHERE event_id = ${eventId} LIMIT 1
     `;
     return (rows?.length ?? 0) > 0;
@@ -98,10 +105,14 @@ export type InsertVirtualTradeHistoryResult = { id: number; inserted: boolean };
 /**
  * Inserts one row per event_id. Retries with the same event_id do not overwrite (idempotent).
  */
-export async function insertVirtualTradeHistory(input: InsertVirtualTradeHistoryInput): Promise<InsertVirtualTradeHistoryResult> {
+export async function insertVirtualTradeHistory(
+  input: InsertVirtualTradeHistoryInput,
+  txSql?: SqlExecutor
+): Promise<InsertVirtualTradeHistoryResult> {
   if (!usePostgres()) return { id: 0, inserted: true };
+  const run = getRunner(txSql);
   try {
-    const { rows } = await sql`
+    const { rows } = await run`
       INSERT INTO virtual_trades_history (
         event_id, prediction_id, symbol, signal_side, confidence, mode, executed, execution_status, reason, overseer_summary, overseer_reasoning_path, expert_breakdown_json, execution_price, amount_usd, pnl_net_usd, virtual_trade_id
       )
@@ -128,7 +139,7 @@ export async function insertVirtualTradeHistory(input: InsertVirtualTradeHistory
     `;
     const id = (rows?.[0] as { id: number } | undefined)?.id;
     if (id != null) return { id: Number(id), inserted: true };
-    const { rows: existing } = await sql`
+    const { rows: existing } = await run`
       SELECT id FROM virtual_trades_history WHERE event_id = ${input.eventId} LIMIT 1
     `;
     const existingId = (existing?.[0] as { id: number } | undefined)?.id;

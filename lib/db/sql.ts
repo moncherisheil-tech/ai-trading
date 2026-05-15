@@ -115,34 +115,73 @@ export function queryRaw(text: string, params: unknown[] = []): Promise<QueryRes
   return getPool().query(text, params);
 }
 
-/**
- * Tagged-template query helper, API-compatible with the former `@vercel/postgres` `sql` export.
- * Values are passed as parameterized query arguments ($1, $2, …).
- */
-export function sql(
+export type SqlExecutor = (
   strings: TemplateStringsArray,
   ...values: unknown[]
-): Promise<QueryResult> {
-  ensureDatabaseAuthorizedForQuery();
+) => Promise<QueryResult>;
+
+function buildParameterizedQuery(
+  strings: TemplateStringsArray,
+  values: unknown[]
+): { text: string; params: unknown[] } {
   let text = strings[0] ?? '';
   const params: unknown[] = [];
   for (let i = 0; i < values.length; i++) {
     params.push(values[i]);
     text += `$${params.length}` + (strings[i + 1] ?? '');
   }
+  return { text, params };
+}
+
+/**
+ * Creates a tagged-template SQL executor bound to a specific transaction client.
+ * This allows shared query ergonomics while guaranteeing all statements execute
+ * on the same ACID transaction context.
+ */
+export function makeSqlExecutor(client: Pick<PoolClient, 'query'>): SqlExecutor {
+  return (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const { text, params } = buildParameterizedQuery(strings, values);
+    return client.query(text, params);
+  };
+}
+
+/**
+ * Tagged-template query helper, API-compatible with the former `@vercel/postgres` `sql` export.
+ * Values are passed as parameterized query arguments ($1, $2, …).
+ */
+export const sql: SqlExecutor = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+): Promise<QueryResult> => {
+  ensureDatabaseAuthorizedForQuery();
+  const { text, params } = buildParameterizedQuery(strings, values);
   return runCoreSchemaInitOnce().then(() => getPool().query(text, params));
+};
+
+/**
+ * Deterministic transaction-scoped advisory lock.
+ * Using `pg_advisory_xact_lock` ensures the lock is automatically released on COMMIT/ROLLBACK,
+ * which keeps failover behavior strict and prevents stale distributed mutex state.
+ */
+export async function acquireTransactionAdvisoryLock(txSql: SqlExecutor, lockKey: string): Promise<void> {
+  await txSql`
+    SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint)
+  `;
 }
 
 /**
  * ACID helper for multi-statement writes (e.g. portfolio + execution log). Single `sql` inserts are already atomic.
  */
-export async function withSqlTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function withSqlTransaction<T>(
+  fn: (client: PoolClient, txSql: SqlExecutor) => Promise<T>
+): Promise<T> {
   ensureDatabaseAuthorizedForQuery();
   await runCoreSchemaInitOnce();
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
-    const out = await fn(client);
+    const txSql = makeSqlExecutor(client);
+    const out = await fn(client, txSql);
     await client.query('COMMIT');
     return out;
   } catch (e) {
